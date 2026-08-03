@@ -19,8 +19,8 @@
 // -------------------------------------------------------------------------
 // 0) CONEXÃO COM O SUPABASE — troque pelas suas chaves (Project Settings > API)
 // -------------------------------------------------------------------------
-const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
-const SUPABASE_ANON_KEY = "SUA-CHAVE-ANON-AQUI";
+const SUPABASE_URL = "https://tawliuofpmfohylqdnix.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable__a5cJ6yFJIMgf505C4v7vQ_igDbuv5k";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 
