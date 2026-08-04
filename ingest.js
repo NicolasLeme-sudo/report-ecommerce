@@ -694,7 +694,8 @@ for (let r = 0; r < 8; r++) {
     const linha = linhas[i];
     if (!linha) continue;
 
-    const dataCell = linha[1]; // coluna B = Data
+    const dataCell = linha[1] !== null ? linha[1] : linha[0];
+    if (i < linhasDados + 3) console.log('DEBUG linha', i, '| dataCell:', dataCell, '| serial:', Number(dataCell)); // coluna B = Data
     if (dataCell == null || dataCell === '' || isNaN(Number(dataCell))) continue;
 
     // Seriais menores que 40000 ou maiores que 60000 são inválidos
