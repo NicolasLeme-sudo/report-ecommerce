@@ -152,6 +152,22 @@
     <div class="progress-box" id="progressAcronimos"></div>
   </div>
 
+  <!-- ============ FORECAST MENSAL ============ -->
+  <div class="card">
+    <h2>Atualizar Forecast Mensal</h2>
+    <div class="freq">Frequência: mensal</div>
+
+    <div class="file-row">
+      <div class="file-field">
+        <label>Acompanhamento_Faturamento_CD.xlsb</label>
+        <input type="file" id="fileForecast" accept=".xlsb,.xlsx">
+      </div>
+    </div>
+
+    <button class="btn" id="btnForecast">Atualizar Forecast Mensal</button>
+    <div class="progress-box" id="progressForecast"></div>
+  </div>
+
 </div>
 
 <!-- O MIOLO DA LÓGICA: precisa estar na mesma pasta que este HTML -->
@@ -239,6 +255,29 @@ document.getElementById("btnAcronimos").addEventListener("click", async () => {
   } catch (erro) {
     console.error(erro);
     mostrarProgresso("progressAcronimos", "✗ Erro ao atualizar: " + erro.message, "erro");
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- Botão: Forecast Mensal ----------
+document.getElementById("btnForecast").addEventListener("click", async () => {
+  const arquivo = document.getElementById("fileForecast").files[0];
+  if (!arquivo) {
+    mostrarProgresso("progressForecast", "Selecione o arquivo de forecast antes de atualizar.", "erro");
+    return;
+  }
+
+  const btn = document.getElementById("btnForecast");
+  btn.disabled = true;
+  try {
+    await processarForecastMensal(arquivo, {
+      onProgress: (msg) => mostrarProgresso("progressForecast", msg)
+    });
+    mostrarProgresso("progressForecast", "✓ Forecast mensal atualizado com sucesso.", "ok");
+  } catch (erro) {
+    console.error(erro);
+    mostrarProgresso("progressForecast", "✗ Erro ao atualizar: " + erro.message, "erro");
   } finally {
     btn.disabled = false;
   }
