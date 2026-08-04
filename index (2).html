@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="claro">
+<!--
+  Report E-commerce — Site Unificado
+  ===================================
+  ESTRUTURA DO ARQUIVO:
+    1. <head> — meta, CSS (variáveis de tema + layout geral + componentes)
+    2. <body> — sidebar + topbar + área de conteúdo
+    3. <script src="ingest.js"> — lógica de leitura/gravação de dados
+    4. <script> inline — navegação entre seções + renderização de cada seção
+  
+  COMO O TEMA FUNCIONA:
+    O atributo data-tema="escuro" no <html> ativa um bloco de variáveis CSS.
+    O botão de tema só altera esse atributo — todas as cores mudam automaticamente
+    porque estão todas referenciando var(--nome-da-cor), não valores fixos.
+  
+  COMO A NAVEGAÇÃO FUNCIONA:
+    Cada item do menu chama mostrarSecao('nome'). Isso esconde todas as seções
+    (.secao) e mostra só a selecionada (#secao-nome). Não há reload de página.
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report E-commerce</title>
+
+<!-- Supabase: cliente de banco de dados -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- XLSX: leitura de arquivos Excel/TSV no navegador -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+/* ============================================================
+   1) VARIÁVEIS DE TEMA
+   Cada tema define o mesmo conjunto de variáveis com valores
+   diferentes. Todo o CSS abaixo usa var(--nome), então trocar
+   o tema é só trocar esses valores — nenhum outro CSS precisa mudar.
+   ============================================================ */
+
+/* TEMA ESCURO (padrão) */
+[data-tema="escuro"] {
+  --bg:          #0F1623;
+  --bg-card:     #192032;
+  --bg-sidebar:  #111827;
+  --bg-input:    #1E2A3D;
+  --border:      #253048;
+  --text:        #E8EBF2;
+  --text-muted:  #7C8BA8;
+  --text-label:  #9BAAC4;
+  --navy-deep:   #0F1623;
+  --navy-mid:    #1E2A3D;
+  --olive:       #6B7F3A;
+  --olive-soft:  #2A3320;
+  --amber:       #C98F1D;
+  --amber-soft:  #332510;
+  --red:         #B23A2E;
+  --red-soft:    #331510;
+  --accent:      #3B82F6;
+  --accent-soft: #1a3a6b;
+  --shadow:      0 2px 12px rgba(0,0,0,.4);
+}
+
+/* TEMA CLARO */
+[data-tema="claro"] {
+  --bg:          #F3F4F7;
+  --bg-card:     #FFFFFF;
+  --bg-sidebar:  #132043;
+  --bg-input:    #F8F9FB;
+  --border:      #E1E4EA;
+  --text:        #1C2333;
+  --text-muted:  #6B7280;
+  --text-label:  #4B5563;
+  --navy-deep:   #132043;
+  --navy-mid:    #1F3363;
+  --olive:       #6B7F3A;
+  --olive-soft:  #E4E9D6;
+  --amber:       #C98F1D;
+  --amber-soft:  #F7ECD4;
+  --red:         #B23A2E;
+  --red-soft:    #F5DEDA;
+  --accent:      #3B82F6;
+  --accent-soft: #EFF6FF;
+  --shadow:      0 2px 8px rgba(0,0,0,.08);
+}
+
+/* ============================================================
+   2) RESET E BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  transition: background .2s, color .2s;
+}
+
+/* ============================================================
+   3) LAYOUT PRINCIPAL: sidebar + conteúdo
+   Usamos CSS Grid com duas colunas fixas: a sidebar tem 220px
+   de largura fixa; o restante da tela é para o conteúdo.
+   ============================================================ */
+.layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+/* ============================================================
+   4) SIDEBAR (menu lateral)
+   ============================================================ */
+.sidebar {
+  background: var(--bg-sidebar);
+  grid-row: 1 / 3; /* ocupa as duas linhas (topbar + conteúdo) */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-right: 1px solid rgba(255,255,255,.06);
+}
+.sidebar-brand {
+  padding: 20px 18px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.sidebar-brand .mark {
+  width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+  background: linear-gradient(135deg, #6B7F3A, #8FA355);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; color: #132043;
+}
+.sidebar-brand .nome { font-size: 13px; font-weight: 700; color: #fff; line-height: 1.3; }
+.sidebar-brand .sub  { font-size: 10.5px; color: #7C9AB8; margin-top: 2px; }
+
+.sidebar-section-label {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .8px;
+  text-transform: uppercase; color: #4A6080;
+  padding: 16px 18px 6px;
+}
+
+.menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 18px; cursor: pointer;
+  font-size: 13px; font-weight: 500; color: #9BAAC4;
+  border-left: 3px solid transparent;
+  transition: background .15s, color .15s;
+  text-decoration: none;
+}
+.menu-item:hover { background: rgba(255,255,255,.05); color: #fff; }
+.menu-item.ativo {
+  background: rgba(59,130,246,.12);
+  color: #fff;
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+.menu-item .icone { font-size: 15px; flex-shrink: 0; opacity: .8; }
+.menu-item .badge-em-construcao {
+  margin-left: auto; font-size: 9px; font-weight: 700;
+  background: rgba(201,143,29,.2); color: var(--amber);
+  padding: 2px 6px; border-radius: 10px; letter-spacing: .3px;
+}
+.menu-item .badge-admin {
+  margin-left: auto; font-size: 9px; font-weight: 700;
+  background: rgba(178,58,46,.2); color: var(--red);
+  padding: 2px 6px; border-radius: 10px;
+}
+
+.sidebar-historico {
+  padding: 10px 18px 14px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  margin-top: auto;
+}
+.sidebar-historico .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #4A6080; font-weight: 700; margin-bottom: 6px; }
+
+/* Dropdown custom — substitui o <select> nativo que usa cores do sistema */
+.hist-dropdown { position: relative; width: 100%; }
+.hist-trigger {
+  width: 100%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  color: #fff; border-radius: 7px; padding: 7px 30px 7px 10px; font-size: 11.5px;
+  cursor: pointer; text-align: left; font-family: inherit;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
+}
+.hist-trigger::after {
+  content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: #7C9AB8; font-size: 11px;
+}
+.hist-trigger:hover { background: rgba(255,255,255,.12); }
+.hist-list {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0;
+  background: #1E2A3D; border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px; max-height: 220px; overflow-y: auto;
+  z-index: 999; display: none; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.hist-list.aberto { display: block; }
+.hist-opt {
+  padding: 8px 12px; font-size: 11.5px; color: #C8D4E8; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.hist-opt:last-child { border-bottom: none; }
+.hist-opt:hover { background: rgba(59,130,246,.2); color: #fff; }
+.hist-opt.selecionado { background: rgba(59,130,246,.25); color: #fff; font-weight: 600; }
+.hist-opt.atual { color: var(--accent); font-weight: 700; }
+
+/* ============================================================
+   5) TOPBAR (barra superior — fica à direita da sidebar)
+   ============================================================ */
+.topbar {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; box-shadow: var(--shadow);
+}
+.topbar-titulo { font-size: 16px; font-weight: 700; color: var(--text); }
+.topbar-sub    { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.topbar-right  { display: flex; align-items: center; gap: 12px; }
+.topbar-data   { font-size: 11.5px; color: var(--text-muted); }
+
+/* Botão de tema — ícone simples que troca entre ☀ e ☾ */
+.btn-tema {
+  padding: 6px 12px; border-radius: 20px; cursor: pointer;
+  background: var(--bg-input); border: 1px solid var(--border);
+  color: var(--text); font-size: 12px; font-weight: 600;
+  transition: background .15s;
+}
+.btn-tema:hover { background: var(--border); }
+
+/* ============================================================
+   6) ÁREA DE CONTEÚDO
+   ============================================================ */
+.conteudo {
+  padding: 22px 24px 48px;
+  overflow-y: auto;
+}
+
+/* Cada seção é um div com class="secao" + id="secao-nome".
+   Todas ficam ocultas (display:none) exceto a ativa. */
+.secao { display: none; }
+.secao.ativa { display: block; }
+
+/* ============================================================
+   7) COMPONENTES GENÉRICOS (usados em várias seções)
+   ============================================================ */
+.section-title {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .6px;
+  text-transform: uppercase; color: var(--accent);
+  margin: 0 0 12px 2px;
+}
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+.grid2  { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.grid3  { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 16px; }
+.stack  { display: flex; flex-direction: column; gap: 16px; }
+
+/* KPI cards */
+.kpi-row { display: grid; grid-template-columns: repeat(3,1fr) 2.1fr; gap: 14px; margin-bottom: 16px; }
+.kpi-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 15px 12px;
+  position: relative; overflow: hidden; box-shadow: var(--shadow);
+}
+.kpi-card .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
+.bar-ok   { background: var(--olive); }
+.bar-warn { background: var(--amber); }
+.bar-bad  { background: var(--red); }
+.bar-flat { background: var(--border); }
+.kpi-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
+.kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
+.kpi-card .delta { font-size: 11.5px; margin-top: 5px; font-weight: 600; }
+.delta-up   { color: var(--olive); }
+.delta-down { color: var(--red); }
+.delta-flat { color: var(--text-muted); }
+.kpi-card.spark { display: flex; flex-direction: column; justify-content: space-between; }
+
+/* Leadtime cards */
+.leadtime-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 16px; }
+.leadtime-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px 13px;
+  position: relative; overflow: hidden; box-shadow: var(--shadow);
+}
+.leadtime-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
+.leadtime-card .media { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
+.minmax-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.minmax-item .lab { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); font-weight: 700; }
+.minmax-item .val { font-size: 14px; font-weight: 700; margin-top: 2px; }
+.minmax-item.max .val { color: var(--red); }
+.minmax-item.min .val { color: var(--olive); }
+.minmax-item .pedido  { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+
+/* Tabela matriz */
+table.matrix { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+table.matrix th, table.matrix td { padding: 8px 10px; text-align: center; }
+table.matrix thead th {
+  background: var(--navy-deep); color: #fff;
+  font-size: 11px; text-transform: uppercase; letter-spacing: .3px;
+}
+table.matrix thead th:first-child { text-align: left; border-radius: 6px 0 0 0; }
+table.matrix thead th:last-child  { border-radius: 0 6px 0 0; }
+table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent); background: var(--bg-input); }
+table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
+table.matrix tbody tr:last-child td,
+table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); background: var(--bg-input); font-weight: 700; }
+.cell-0  { color: var(--text-muted) !important; }
+.cell-hi { color: var(--red) !important; }
+
+/* Barras horizontais (marketplace, segmento) */
+.bar-list { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; }
+.bar-row  { display: grid; grid-template-columns: 130px 1fr 60px; align-items: center; gap: 10px; font-size: 12.5px; color: var(--text); }
+.bar-row.seg { grid-template-columns: 110px 1fr 46px; }
+.bar-track { background: var(--bg-input); border-radius: 5px; height: 11px; overflow: hidden; }
+.bar-fill  { height: 100%; border-radius: 5px; background: var(--accent); }
+
+/* Donut */
+.donut-wrap { display: flex; align-items: center; gap: 20px; margin-top: 8px; }
+.donut-legend { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text); }
+.donut-legend .row { display: flex; align-items: center; gap: 8px; }
+.donut-legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.donut-legend b { margin-left: auto; }
+
+/* Gráfico de linha */
+.week-head  { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
+.week-totais { display: flex; gap: 22px; }
+.week-totais .item .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); }
+.week-totais .item .val { font-size: 16px; font-weight: 700; color: var(--text); }
+.legend-line { display: flex; gap: 16px; font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+.legend-line span { display: flex; align-items: center; gap: 6px; }
+.legend-line i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.spark-label { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.spark-date  { font-size: 9.5px; }
+.line-label  { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* Placeholder (seções em construção) */
+.placeholder {
+  background: var(--bg-card); border: 1px dashed var(--border);
+  border-radius: 12px; padding: 60px 40px;
+  text-align: center; color: var(--text-muted);
+}
+.placeholder .icone-grande { font-size: 48px; margin-bottom: 16px; display: block; }
+.placeholder h3 { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+.placeholder p  { font-size: 13.5px; line-height: 1.6; max-width: 360px; margin: 0 auto; }
+
+/* Abastecimento */
+.upload-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 20px 22px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.upload-card h2   { font-size: 14.5px; margin: 0 0 4px; color: var(--text); }
+.upload-card .freq { font-size: 11.5px; color: var(--text-muted); margin-bottom: 14px; }
+.file-row   { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.file-field label { font-size: 11.5px; font-weight: 600; color: var(--text-muted); display: block; margin-bottom: 4px; }
+.file-field input[type=file] {
+  width: 100%; font-size: 12.5px; border: 1px solid var(--border);
+  border-radius: 7px; padding: 7px; background: var(--bg-input); color: var(--text);
+}
+.btn-upload {
+  padding: 9px 18px; border-radius: 7px; border: 1px solid var(--accent);
+  background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit; transition: opacity .15s;
+}
+.btn-upload:hover    { opacity: .85; }
+.btn-upload:disabled { opacity: .4; cursor: not-allowed; }
+.progress-box {
+  margin-top: 12px; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 7px; padding: 10px 12px; font-size: 12px; color: var(--text-muted);
+  min-height: 20px; display: none;
+}
+.progress-box.show { display: block; }
+.progress-box.ok   { border-color: var(--olive); color: var(--olive); background: var(--olive-soft); }
+.progress-box.erro { border-color: var(--red);   color: var(--red);   background: var(--red-soft);  }
+
+/* Loading / erro geral */
+.loading-msg { padding: 60px; text-align: center; color: var(--text-muted); font-size: 14px; }
+.erro-msg    { padding: 40px; text-align: center; color: var(--red); font-size: 14px; }
+
+/* Filtros */
+.filterbar {
+  display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 12px 18px; margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+.filter-group { display: flex; flex-direction: column; gap: 5px; }
+.filter-group label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--text-muted); font-weight: 700; }
+.filter-group select {
+  border: 1px solid var(--border); background: var(--bg-input); border-radius: 7px;
+  padding: 7px 10px; font-size: 13px; color: var(--text); min-width: 140px; font-family: inherit;
+}
+.filter-chips { display: flex; gap: 8px; }
+.chip {
+  padding: 6px 13px; border-radius: 20px; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text-muted); cursor: pointer;
+}
+.chip.ativo { background: var(--accent); border-color: var(--accent); color: #fff; }
+</style>
+</head>
+
+<body>
+<div class="layout">
+
+  <!-- ===== SIDEBAR ===== -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="mark">CD</div>
+      <div>
+        <div class="nome">Report E-commerce</div>
+        <div class="sub">Vulcabras · Extrema</div>
+      </div>
+    </div>
+
+    <div class="sidebar-section-label">Operação</div>
+    <div class="menu-item" onclick="mostrarSecao('outbound')">
+      <span class="icone">📦</span> Outbound
+    </div>
+    <div class="menu-item" onclick="mostrarSecao('inbound')">
+      <span class="icone">📥</span> Inbound
+      <span class="badge-em-construcao">Em breve</span>
+    </div>
+    <div class="menu-item" onclick="mostrarSecao('estoque')">
+      <span class="icone">🏪</span> Estoque
+      <span class="badge-em-construcao">Em breve</span>
+    </div>
+    <div class="menu-item" onclick="mostrarSecao('reversa')">
+      <span class="icone">↩️</span> Reversa
+      <span class="badge-em-construcao">Em breve</span>
+    </div>
+
+    <div class="sidebar-section-label">Gestão</div>
+    <div class="menu-item" onclick="mostrarSecao('balanco')">
+      <span class="icone">⚖️</span> Balanço de Estoque
+      <span class="badge-em-construcao">Em breve</span>
+    </div>
+
+    <div class="sidebar-section-label">Admin</div>
+    <div class="menu-item" onclick="mostrarSecao('abastecimento')">
+      <span class="icone">⚙️</span> Abastecimento
+      <span class="badge-admin">Admin</span>
+    </div>
+
+    <!-- Seletor de histórico: data é carregada dinamicamente -->
+    <div class="sidebar-historico">
+      <div class="lbl">🕑 Histórico de versões</div>
+      <div class="hist-dropdown" id="histDropdown">
+        <button class="hist-trigger" id="histTrigger" onclick="toggleHistDropdown()">Versão atual</button>
+        <div class="hist-list" id="histList"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== TOPBAR ===== -->
+  <header class="topbar">
+    <div>
+      <div class="topbar-titulo" id="topbarTitulo">Outbound</div>
+      <div class="topbar-sub" id="topbarSub">Carregando dados...</div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-data" id="topbarData"></div>
+      <button class="btn-tema" onclick="alternarTema()" id="btnTema">🌙 Escuro</button>
+    </div>
+  </header>
+
+  <!-- ===== CONTEÚDO PRINCIPAL ===== -->
+  <main class="conteudo">
+
+    <!-- OUTBOUND -->
+    <div class="secao ativa" id="secao-outbound">
+      <div id="outbound-conteudo">
+        <div class="loading-msg">Carregando dados do Outbound...</div>
+      </div>
+    </div>
+
+    <!-- INBOUND (em construção) -->
+    <div class="secao" id="secao-inbound">
+      <div class="placeholder">
+        <span class="icone-grande">📥</span>
+        <h3>Inbound — Em construção</h3>
+        <p>Esta seção vai exibir NFs a receber, itens a armazenar, lead time de recebimento e produtividade de armazenagem.</p>
+      </div>
+    </div>
+
+    <!-- ESTOQUE (em construção) -->
+    <div class="secao" id="secao-estoque">
+      <div class="placeholder">
+        <span class="icone-grande">🏪</span>
+        <h3>Gestão de Estoque — Em construção</h3>
+        <p>Esta seção vai exibir o estoque atual por piso/bloco, capacidade e % de ocupação por segmento.</p>
+      </div>
+    </div>
+
+    <!-- REVERSA (em construção) -->
+    <div class="secao" id="secao-reversa">
+      <div class="placeholder">
+        <span class="icone-grande">↩️</span>
+        <h3>Reversa — Em construção</h3>
+        <p>Esta seção vai exibir pendências de logística reversa por motivo (Troca fácil, Vinculação, Análise de qualidade).</p>
+      </div>
+    </div>
+
+    <!-- BALANÇO (em construção) -->
+    <div class="secao" id="secao-balanco">
+      <div class="placeholder">
+        <span class="icone-grande">⚖️</span>
+        <h3>Balanço de Estoque — Gestão</h3>
+        <p>Esta seção vai exibir o balanço WMS × SAP, com divergências e valor de estoque. Acesso restrito à Gestão.</p>
+      </div>
+    </div>
+
+    <!-- ABASTECIMENTO -->
+    <div class="secao" id="secao-abastecimento">
+      <div class="upload-card">
+        <h2>Atualizar Relatórios da Operação</h2>
+        <div class="freq">Frequência: diária</div>
+        <div class="file-row">
+          <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
+          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
+          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
+        </div>
+        <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
+        <div class="progress-box" id="progressOperacao"></div>
+      </div>
+
+      <div class="upload-card">
+        <h2>Atualizar Base de Embalagem</h2>
+        <div class="freq">Frequência: toda terça-feira</div>
+        <div class="file-row">
+          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
+        </div>
+        <button class="btn-upload" id="btnEmbalagem">Atualizar Base de Embalagem</button>
+        <div class="progress-box" id="progressEmbalagem"></div>
+      </div>
+
+      <div class="upload-card">
+        <h2>Atualizar Base de Acrônimos</h2>
+        <div class="freq">Frequência: só quando entra um novo parceiro</div>
+        <div class="file-row">
+          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
+        </div>
+        <button class="btn-upload" id="btnAcronimos">Atualizar Base de Acrônimos</button>
+        <div class="progress-box" id="progressAcronimos"></div>
+      </div>
+
+      <div class="upload-card">
+        <h2>Atualizar Forecast Mensal</h2>
+        <div class="freq">Frequência: mensal</div>
+        <div class="file-row">
+          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
+        </div>
+        <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
+        <div class="progress-box" id="progressForecast"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Lógica de ingestão de dados (cálculos, Supabase) -->
+<script src="ingest.js"></script>
+
+<script>
+/* ============================================================
+   NAVEGAÇÃO ENTRE SEÇÕES
+   mostrarSecao() esconde todas as .secao e mostra só a pedida.
+   Também atualiza o título da topbar e o item ativo no menu.
+   ============================================================ */
+const titulos = {
+  outbound:      { nome: 'Outbound',            sub: 'Separação · Faturamento · Expedição' },
+  inbound:       { nome: 'Inbound',             sub: 'Recebimento · Armazenagem' },
+  estoque:       { nome: 'Gestão de Estoque',   sub: 'Capacidade · Ocupação' },
+  reversa:       { nome: 'Reversa',             sub: 'Logística Reversa' },
+  balanco:       { nome: 'Balanço de Estoque',  sub: 'WMS × SAP — Acesso Gestão' },
+  abastecimento: { nome: 'Abastecimento',        sub: 'Atualização de bases — Acesso Admin' },
+};
+
+function mostrarSecao(secao) {
+  document.querySelectorAll('.secao').forEach(el => el.classList.remove('ativa'));
+  document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('ativo'));
+
+  const el = document.getElementById('secao-' + secao);
+  if (el) el.classList.add('ativa');
+
+  const item = document.querySelector(`.menu-item[onclick="mostrarSecao('${secao}')"]`);
+  if (item) item.classList.add('ativo');
+
+  const t = titulos[secao] || { nome: secao, sub: '' };
+  document.getElementById('topbarTitulo').textContent = t.nome;
+  document.getElementById('topbarSub').textContent    = t.sub;
+
+  // Carrega os dados da seção se necessário
+  if (secao === 'outbound') carregarOutbound();
+}
+
+/* ============================================================
+   TEMA CLARO / ESCURO
+   Só troca o atributo data-tema no <html>. O CSS cuida do resto.
+   O estado fica no localStorage — lembrado entre visitas.
+   ============================================================ */
+function alternarTema() {
+  const html = document.documentElement;
+  const atual = html.getAttribute('data-tema');
+  const novo  = atual === 'escuro' ? 'claro' : 'escuro';
+  html.setAttribute('data-tema', novo);
+  document.getElementById('btnTema').textContent = novo === 'escuro' ? '☀ Claro' : '🌙 Escuro';
+  localStorage.setItem('tema', novo);
+}
+
+// Aplica o tema salvo (se houver) ao carregar a página
+(function() {
+  const salvo = localStorage.getItem('tema');
+  if (salvo) {
+    document.documentElement.setAttribute('data-tema', salvo);
+    document.getElementById('btnTema').textContent = salvo === 'escuro' ? '☀ Claro' : '🌙 Escuro';
+  }
+})();
+
+/* ============================================================
+   HISTÓRICO — preenche o seletor com as datas disponíveis
+   no Supabase e recarrega os dados quando a data muda.
+   ============================================================ */
+/* ============================================================
+   HISTÓRICO — dropdown custom com versão numerada
+   Formato: "Versão 01 - 04/08 15h18"
+   O número sobe conforme o snapshot é mais recente.
+   A lista vem do Supabase ordenada do mais novo pro mais velho,
+   então invertemos para numerar do mais antigo (01) para o mais novo.
+   ============================================================ */
+// Formata timestamp do Supabase (UTC) para horário de Brasília (UTC-3)
+function formatarDataBR(isoStr) {
+  const utc = new Date(isoStr).getTime();
+  const dBR = new Date(utc - 3 * 60 * 60 * 1000);
+  const dia  = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0') + '/' + dBR.getUTCFullYear();
+  const hora = String(dBR.getUTCHours()).padStart(2,'0') + ':' + String(dBR.getUTCMinutes()).padStart(2,'0');
+  return dia + ' ' + hora;
+}
+  async function carregarDatasHistorico() {
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('id, data_snapshot, tipo_snapshot, gerado_em')
+    .eq('pagina', 'outbound')
+    .order('gerado_em', { ascending: true }) // crescente para numerar do 01 em diante
+    .limit(90);
+
+  if (error || !data || data.length === 0) return;
+
+  const list = document.getElementById('histList');
+  list.innerHTML = '';
+
+  // Opção "Versão atual" sempre no topo
+  const optAtual = document.createElement('div');
+  optAtual.className = 'hist-opt atual selecionado';
+  optAtual.dataset.id = '';
+  optAtual.textContent = '▶ Versão atual';
+  optAtual.onclick = function() { selecionarHistorico('', '▶ Versão atual'); };
+  list.appendChild(optAtual);
+
+  // Numera do 01 (mais antigo) ao N (mais recente)
+  // Exibe do mais recente pro mais antigo na lista (invertemos o array)
+  const totalVersoes = data.length;
+  const dataInvertida = data.slice().reverse(); // mais recente primeiro
+
+  dataInvertida.forEach(function(row, i) {
+    const numero = totalVersoes - i; // mais recente = número maior
+    const numStr = String(numero).padStart(2, '0');
+    const dBR = new Date(row.gerado_em.replace(' ', 'T'));
+    const dia = String(dBR.getDate()).padStart(2,'0') + '/' + String(dBR.getMonth()+1).padStart(2,'0');
+    const hora = String(dBR.getHours()).padStart(2,'0') + 'h' + String(dBR.getMinutes()).padStart(2,'0');
+    const estrela = row.tipo_snapshot === 'manual' ? ' ★' : '';
+    const label = `Versão ${numStr} — ${dia} ${hora}${estrela}`;
+
+    const opt = document.createElement('div');
+    opt.className = 'hist-opt';
+    opt.dataset.id = row.id;
+    opt.textContent = label;
+    opt.onclick = function() { selecionarHistorico(row.id, label); };
+    list.appendChild(opt);
+  });
+
+  // Atualiza o botão trigger com a versão mais recente como texto padrão
+const maisRecente = dataInvertida[0];
+  if (maisRecente) {
+    const numero = totalVersoes;
+    const numStr = String(numero).padStart(2, '0');
+    document.getElementById('histTrigger').textContent = `Versão atual (${numStr} versões)`;
+  }
+}
+
+function toggleHistDropdown() {
+  const list = document.getElementById('histList');
+  list.classList.toggle('aberto');
+}
+
+// Fecha o dropdown se clicar fora dele
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('histDropdown');
+  if (dd && !dd.contains(e.target)) {
+    document.getElementById('histList').classList.remove('aberto');
+  }
+});
+
+function selecionarHistorico(id, label) {
+  // Marca a opção selecionada
+  document.querySelectorAll('.hist-opt').forEach(function(o) { o.classList.remove('selecionado'); });
+  const opts = document.querySelectorAll('.hist-opt');
+  opts.forEach(function(o) { if (o.dataset.id === String(id)) o.classList.add('selecionado'); });
+
+  // Atualiza o texto do botão
+  document.getElementById('histTrigger').textContent = label;
+
+  // Fecha o dropdown
+  document.getElementById('histList').classList.remove('aberto');
+
+  // Carrega o snapshot
+  if (!id) { carregarOutbound(); }
+  else { carregarSnapshot(id); }
+}
+
+async function carregarSnapshot(id) {
+  if (!id) { carregarOutbound(); return; }
+  document.getElementById('outbound-conteudo').innerHTML = '<div class="loading-msg">Carregando histórico...</div>';
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) {
+    document.getElementById('outbound-conteudo').innerHTML = '<div class="erro-msg">Erro ao carregar histórico.</div>';
+    return;
+  }
+  renderizarOutbound(data.payload, null);
+  document.getElementById('topbarSub').textContent =
+    'Histórico: ' + formatarDataBR(data.gerado_em);
+}
+
+/* ============================================================
+   OUTBOUND — carrega e renderiza
+   ============================================================ */
+async function carregarOutbound() {
+  document.getElementById('outbound-conteudo').innerHTML =
+    '<div class="loading-msg">Carregando dados do Outbound...</div>';
+
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('*')
+    .eq('pagina', 'outbound')
+    .order('gerado_em', { ascending: false })
+    .limit(2);
+
+  if (error) {
+    document.getElementById('outbound-conteudo').innerHTML =
+      `<div class="erro-msg">Erro ao carregar: ${error.message}</div>`;
+    return;
+  }
+  if (!data || data.length === 0) {
+    document.getElementById('outbound-conteudo').innerHTML =
+      `<div class="erro-msg">Nenhum dado encontrado. Use Abastecimento para atualizar.</div>`;
+    return;
+  }
+
+  const atual    = data[0].payload;
+  const anterior = data[1] ? data[1].payload : null;
+
+  const d = new Date(data[0].gerado_em);
+  document.getElementById('topbarSub').textContent =
+    'Última atualização: ' + formatarDataBR(data[0].gerado_em);
+  document.getElementById('topbarData').textContent = '';
+
+  renderizarOutbound(atual, anterior);
+}
+
+function renderizarOutbound(atual, anterior) {
+  const html = `
+    <div class="filterbar">
+      <div class="filter-group">
+        <label>Marca</label>
+        <div class="filter-chips">
+          <span class="chip ativo">Todas</span>
+          <span class="chip">MIZ</span><span class="chip">OLK</span>
+          <span class="chip">UA</span><span class="chip">Opanka</span>
+        </div>
+      </div>
+      <div class="filter-group">
+        <label>Marketplace</label>
+        <select id="fMarketplace"><option>Todos</option></select>
+      </div>
+      <div class="filter-group">
+        <label>Backlog FIFO</label>
+        <div class="filter-chips" id="fFifoChips">
+          <span class="chip ativo" data-fifo="Todos">Todos</span>
+          <span class="chip" data-fifo="01">01</span>
+          <span class="chip" data-fifo="02">02</span>
+          <span class="chip" data-fifo="03">03</span>
+          <span class="chip" data-fifo="04+">04+</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-title">Indicadores do dia</div>
+    <div class="kpi-row" id="kpiRow"></div>
+    <div class="leadtime-row" id="leadtimeRow"></div>
+
+    <div class="grid2">
+      <div class="stack">
+        <div class="card"><div class="section-title">Status por etapa (Itens)</div><table class="matrix" id="matrixItens"></table></div>
+        <div class="card"><div class="section-title">Status por etapa (Pedidos)</div><table class="matrix" id="matrixPedidos"></table></div>
+      </div>
+      <div class="stack">
+        <div class="card"><div class="section-title">Itens por Marketplace — Top 5</div><div class="bar-list" id="mktBars"></div></div>
+        <div class="card">
+          <div class="section-title">Backlog FIFO em itens</div>
+          <div class="donut-wrap">
+            <svg class="donut" width="200" height="200" viewBox="0 0 220 220" id="donutSvg"></svg>
+            <div class="donut-legend" id="donutLegend"></div>
+          </div>
+        </div>
+        <div class="card"><div class="section-title">Itens por Segmento</div><div class="bar-list" id="segBars"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="week-head">
+        <div class="section-title" style="margin-bottom:0">Expedição × Forecast — últimos 7 dias</div>
+        <div class="week-totais">
+          <div class="item"><div class="lab">Expedido</div><div class="val" id="totalExpedido"></div></div>
+          <div class="item"><div class="lab">Forecast</div><div class="val" id="totalForecast"></div></div>
+        </div>
+      </div>
+      <svg id="weekSvg" width="100%" height="190" viewBox="0 0 1100 190" preserveAspectRatio="none"></svg>
+      <div class="legend-line">
+        <span><i style="background:var(--olive)"></i>Expedido</span>
+        <span><i style="background:var(--accent)"></i>Forecast</span>
+      </div>
+    </div>`;
+
+  document.getElementById('outbound-conteudo').innerHTML = html;
+
+  // chips de filtro FIFO
+  document.querySelectorAll('#fFifoChips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('#fFifoChips .chip').forEach(x => x.classList.remove('ativo'));
+      c.classList.add('ativo');
+    });
+  });
+
+  renderKpis(atual, anterior);
+  renderSparkline(atual.integracao_7dias);
+  renderLeadtimes(atual);
+  renderMatriz(atual.status_por_etapa_itens, 'matrixItens');
+  renderMatriz(atual.status_por_etapa_pedidos, 'matrixPedidos');
+  renderBarras(atual.marketplaces, 'mktBars', 5);
+  renderBacklog(atual.backlog_fifo);
+  renderBarrasSeg(atual.segmentos, 'segBars');
+  renderExpedicao(atual.expedicao_semana);
+}
+
+/* ---------- KPIs ---------- */
+function renderKpis(atual, anterior) {
+  const otifA = atual.kpis.otif_pct;
+  const otifB = anterior ? anterior.kpis.otif_pct : null;
+  let dTxt = '—', dCls = 'delta-flat';
+  if (otifA !== null && otifB !== null) {
+    const d = otifA - otifB;
+    dTxt = (d >= 0 ? '+' : '') + d.toFixed(1).replace('.', ',') + ' p.p.';
+    dCls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-flat';
+  }
+  const kpis = [
+    { tag: 'Pedidos em fluxo', val: (atual.kpis.pedidos_em_fluxo||0).toLocaleString('pt-BR'), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
+    { tag: 'Itens em fluxo',   val: (atual.kpis.itens_em_fluxo||0).toLocaleString('pt-BR'),   delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
+    { tag: 'OTIF',             val: otifA !== null ? otifA.toFixed(1).replace('.', ',') + '%' : '—', delta: dTxt, bar: 'bar-ok', dc: dCls },
+  ];
+  const row = document.getElementById('kpiRow');
+  kpis.forEach(k => {
+    const d = document.createElement('div');
+    d.className = 'kpi-card';
+    d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>`;
+    row.appendChild(d);
+  });
+}
+
+/* ---------- Sparkline Integração ---------- */
+function renderSparkline(dados) {
+  const row = document.getElementById('kpiRow');
+  const card = document.createElement('div');
+  card.className = 'kpi-card spark';
+  if (!dados || !dados.itens_integrados || dados.itens_integrados.every(v => v === 0)) {
+    card.innerHTML = `<div class="tag">Integração de Itens no WMS</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
+    row.appendChild(card);
+    return;
+  }
+  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="86" viewBox="0 0 380 86" id="sparkSvg"></svg>`;
+  row.appendChild(card);
+
+  const svg = card.querySelector('#sparkSvg');
+  const w=380,h=86,pL=8,pR=8,pT=18,pB=16;
+  const vals = dados.itens_integrados;
+  const dias = dados.dias;
+  const mx=Math.max(...vals,1), mn=Math.min(...vals), rng=(mx-mn)||1;
+  const pts = vals.map((v,i) => [pL+i*((w-pL-pR)/(vals.length-1)), (h-pB)-((v-mn)/rng)*(h-pT-pB)]);
+  const d = document.createElementNS('http://www.w3.org/2000/svg','path');
+  d.setAttribute('d', pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '));
+  d.setAttribute('fill','none'); d.setAttribute('stroke','var(--accent)'); d.setAttribute('stroke-width','2.5');
+  d.setAttribute('stroke-linecap','round'); d.setAttribute('stroke-linejoin','round');
+  svg.appendChild(d);
+  pts.forEach((p,i) => {
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
+    c.setAttribute('fill',i===pts.length-1?'var(--text)':'var(--accent)'); svg.appendChild(c);
+    const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
+    lb.setAttribute('x',p[0]); lb.setAttribute('y',p[1]-7); lb.setAttribute('text-anchor','middle');
+    lb.setAttribute('class','spark-label'); lb.setAttribute('fill','var(--text)');
+    lb.textContent=vals[i].toLocaleString('pt-BR'); svg.appendChild(lb);
+    const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-3); dt.setAttribute('text-anchor','middle');
+    dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
+    dt.textContent=dias[i]; svg.appendChild(dt);
+  });
+}
+
+/* ---------- Leadtimes ---------- */
+function fmtH(h) { return (h||0).toFixed(1).replace('.', ',') + 'h'; }
+function fmtDH(h) { const d=(h/24).toFixed(1).replace('.',','); return `${d}d <small style="font-size:12px;color:var(--text-muted)">(${fmtH(h)})</small>`; }
+
+function mkLeadCard(tag, lt, formatFn) {
+  if (!lt) return `<div class="leadtime-card"><div class="tag">${tag}</div><div class="media">Sem dados</div></div>`;
+  return `<div class="leadtime-card">
+    <div class="bar bar-ok" style="position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--olive)"></div>
+    <div class="tag">${tag}</div>
+    <div class="media">${formatFn(lt.media)}</div>
+    <div class="minmax-row">
+      <div class="minmax-item max"><div class="lab">Máx.</div><div class="val">${formatFn(lt.max.valor)}</div><div class="pedido">Ped. ${lt.max.pedido}</div></div>
+      <div class="minmax-item min"><div class="lab">Mín.</div><div class="val">${formatFn(lt.min.valor)}</div><div class="pedido">Ped. ${lt.min.pedido}</div></div>
+    </div></div>`;
+}
+
+function renderLeadtimes(atual) {
+  document.getElementById('leadtimeRow').innerHTML =
+    mkLeadCard('Leadtime SAP → WMS', atual.leadtimes.sap_wms, fmtH) +
+    mkLeadCard('Leadtime NF (integração)', atual.leadtimes.nf, fmtH) +
+    mkLeadCard('Leadtime CD', atual.leadtimes.cd, fmtDH);
+}
+
+/* ---------- Matriz ---------- */
+function renderMatriz(tabela, elId) {
+  const el = document.getElementById(elId);
+  if (!tabela || !tabela.length) { el.innerHTML='<tr><td>Sem dados</td></tr>'; return; }
+  const marcas = tabela[0].marcas;
+  let h = '<thead><tr><th>Status</th>';
+  marcas.forEach(m => h += `<th>${m}</th>`);
+  h += '<th>Total</th></tr></thead><tbody>';
+  const totMarca = marcas.map((_,i) => tabela.reduce((a,e) => a+e.valores[i], 0));
+  const totGeral = tabela.reduce((a,e) => a+e.total, 0);
+  tabela.forEach(e => {
+    h += `<tr><th>${e.status}</th>`;
+    e.valores.forEach(v => {
+      const cls = v===0 ? 'cell-0' : v>3000 ? 'cell-hi' : '';
+      h += `<td class="${cls}">${v.toLocaleString('pt-BR')}</td>`;
+    });
+    h += `<td style="font-weight:700">${e.total.toLocaleString('pt-BR')}</td></tr>`;
+  });
+  h += `<tr><th>Total</th>`;
+  totMarca.forEach(t => h += `<td>${t.toLocaleString('pt-BR')}</td>`);
+  h += `<td>${totGeral.toLocaleString('pt-BR')}</td></tr></tbody>`;
+  el.innerHTML = h;
+}
+
+/* ---------- Barras Marketplace ---------- */
+function renderBarras(lista, elId, limite) {
+  const el = document.getElementById(elId);
+  if (!lista || !lista.length) { el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Sem dados</div>'; return; }
+  const top = lista.slice(0, limite||lista.length);
+  const mx = Math.max(...top.map(m => m.valor), 1);
+  el.innerHTML = '';
+  top.forEach(m => {
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = `<div>${m.nome}</div><div class="bar-track"><div class="bar-fill" style="width:${(m.valor/mx)*100}%"></div></div><div style="text-align:right;font-weight:700">${m.valor.toLocaleString('pt-BR')}</div>`;
+    el.appendChild(row);
+  });
+}
+
+/* ---------- Barras Segmento ---------- */
+function renderBarrasSeg(lista, elId) {
+  const el = document.getElementById(elId);
+  if (!lista || !lista.length) { el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Sem dados</div>'; return; }
+  el.innerHTML = '';
+  lista.slice().sort((a,b)=>b.pct-a.pct).forEach(s => {
+    const row = document.createElement('div');
+    row.className = 'bar-row seg';
+    row.innerHTML = `<div>${s.nome}</div><div class="bar-track"><div class="bar-fill" style="width:${s.pct}%"></div></div><div style="text-align:right;font-weight:700">${s.pct.toFixed(1).replace('.',',')}%</div>`;
+    el.appendChild(row);
+  });
+}
+
+/* ---------- Donut Backlog ---------- */
+function renderBacklog(backlog) {
+  const svg = document.getElementById('donutSvg');
+  const leg = document.getElementById('donutLegend');
+  const cores = { '01':'var(--olive)', '02':'var(--amber)', '03':'var(--text-muted)', '04+':'var(--red)' };
+  const total = (backlog||[]).reduce((a,b)=>a+b.valor,0) || 1;
+  let ang = -90;
+  const cx=110,cy=110,r=78,sw=28;
+  (backlog||[]).forEach(seg => {
+    const a=(seg.valor/total)*360, lg=a>180?1:0;
+    const x1=cx+r*Math.cos(ang*Math.PI/180), y1=cy+r*Math.sin(ang*Math.PI/180);
+    const ae=ang+a, x2=cx+r*Math.cos(ae*Math.PI/180), y2=cy+r*Math.sin(ae*Math.PI/180);
+    if (seg.valor>0) {
+      const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+      p.setAttribute('d',`M ${x1} ${y1} A ${r} ${r} 0 ${lg} 1 ${x2} ${y2}`);
+      p.setAttribute('fill','none'); p.setAttribute('stroke',cores[seg.label]||'#999'); p.setAttribute('stroke-width',sw);
+      svg.appendChild(p);
+    }
+    ang=ae;
+    const row=document.createElement('div'); row.className='row';
+    row.innerHTML=`<span class="dot" style="background:${cores[seg.label]||'#999'}"></span>Dia ${seg.label}<b style="margin-left:auto">${seg.valor}</b>`;
+    leg.appendChild(row);
+  });
+  const cv=document.createElementNS('http://www.w3.org/2000/svg','text');
+  cv.setAttribute('x',cx); cv.setAttribute('y',cy-2); cv.setAttribute('text-anchor','middle');
+  cv.setAttribute('font-size','22'); cv.setAttribute('font-weight','700'); cv.setAttribute('fill','var(--text)');
+  cv.textContent=total; svg.appendChild(cv);
+  const cl=document.createElementNS('http://www.w3.org/2000/svg','text');
+  cl.setAttribute('x',cx); cl.setAttribute('y',cy+16); cl.setAttribute('text-anchor','middle');
+  cl.setAttribute('font-size','11'); cl.setAttribute('fill','var(--text-muted)');
+  cl.textContent='itens em backlog'; svg.appendChild(cl);
+}
+
+/* ---------- Expedição × Forecast ---------- */
+function renderExpedicao(dados) {
+  if (!dados) return;
+  const tE=dados.expedido.reduce((a,b)=>a+b,0), tF=dados.forecast.reduce((a,b)=>a+b,0);
+  document.getElementById('totalExpedido').textContent=tE.toLocaleString('pt-BR');
+  document.getElementById('totalForecast').textContent=tF.toLocaleString('pt-BR');
+  const svg=document.getElementById('weekSvg');
+  const w=1100,h=190,pL=40,pR=20,pT=34,pB=34;
+  const mx=Math.max(...dados.expedido,...dados.forecast,1)*1.15;
+  const n=dados.dias.length;
+  const xF=i=>pL+i*((w-pL-pR)/(n-1)), yF=v=>(h-pB)-(v/mx)*(h-pT-pB);
+  const ax=document.createElementNS('http://www.w3.org/2000/svg','line');
+  ax.setAttribute('x1',pL); ax.setAttribute('x2',w-pR); ax.setAttribute('y1',h-pB); ax.setAttribute('y2',h-pB);
+  ax.setAttribute('stroke','var(--border)'); ax.setAttribute('stroke-width','1'); svg.appendChild(ax);
+  function drawL(vals,col,acima) {
+    const pts=vals.map((v,i)=>[xF(i),yF(v)]);
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',pts.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' '));
+    p.setAttribute('fill','none'); p.setAttribute('stroke',col); p.setAttribute('stroke-width','2.5');
+    p.setAttribute('stroke-linecap','round'); p.setAttribute('stroke-linejoin','round'); svg.appendChild(p);
+    pts.forEach((pt,i)=>{
+      const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','3'); c.setAttribute('fill',col); svg.appendChild(c);
+      const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
+      lb.setAttribute('x',pt[0]); lb.setAttribute('y',acima?pt[1]-10:pt[1]+18);
+      lb.setAttribute('text-anchor','middle'); lb.setAttribute('class','line-label'); lb.setAttribute('fill',col);
+      lb.textContent=vals[i].toLocaleString('pt-BR'); svg.appendChild(lb);
+    });
+  }
+  drawL(dados.forecast,'var(--accent)',true);
+  drawL(dados.expedido,'var(--olive)',false);
+  dados.dias.forEach((lab,i)=>{
+    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x',xF(i)); t.setAttribute('y',h-10); t.setAttribute('text-anchor','middle');
+    t.setAttribute('font-size','10'); t.setAttribute('fill','var(--text-muted)'); t.textContent=lab; svg.appendChild(t);
+  });
+}
+
+/* ============================================================
+   ABASTECIMENTO — botões de atualização
+   ============================================================ */
+function mostrar(id, msg, tipo) {
+  const el=document.getElementById(id);
+  el.classList.add('show'); el.classList.remove('ok','erro');
+  if(tipo) el.classList.add(tipo);
+  el.textContent=msg;
+}
+
+function ligarBotao(btnId, progressId, fn, getFiles) {
+  document.getElementById(btnId).addEventListener('click', async () => {
+    const files = getFiles();
+    if (!files) { mostrar(progressId, 'Selecione o arquivo antes de atualizar.', 'erro'); return; }
+    document.getElementById(btnId).disabled = true;
+    try {
+      await fn(files, { onProgress: msg => mostrar(progressId, msg) });
+      mostrar(progressId, '✓ Atualizado com sucesso.', 'ok');
+      carregarDatasHistorico(); // atualiza o seletor após nova gravação
+    } catch(e) {
+      console.error(e);
+      mostrar(progressId, '✗ Erro: ' + e.message, 'erro');
+    } finally {
+      document.getElementById(btnId).disabled = false;
+    }
+  });
+}
+
+ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () => {
+  const o=document.getElementById('fileOp').files[0];
+  const e=document.getElementById('fileExp').files[0];
+  const i=document.getElementById('fileItensNF').files[0];
+  const p=document.getElementById('filePedidosEcomm').files[0];
+  return (o&&e&&i&&p) ? {arquivoOp:o,arquivoExp:e,arquivoItensNF:i,arquivoPedidosEcomm:p} : null;
+});
+ligarBotao('btnEmbalagem',  'progressEmbalagem',  processarBaseEmbalagem,  () => document.getElementById('fileEmbalas').files[0]   || null);
+ligarBotao('btnAcronimos',  'progressAcronimos',  processarBaseAcronimos,  () => document.getElementById('fileAcronimos').files[0]  || null);
+ligarBotao('btnForecast',   'progressForecast',   processarForecastMensal, () => document.getElementById('fileForecast').files[0]  || null);
+
+/* ============================================================
+   INICIALIZAÇÃO — ao abrir a página:
+   1. Aplica o menu item correto como ativo
+   2. Carrega os dados do Outbound
+   3. Popula o seletor de histórico
+   ============================================================ */
+mostrarSecao('outbound');
+carregarDatasHistorico();
+</script>
+</body>
+</html>
