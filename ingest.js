@@ -80,9 +80,22 @@ function diferencaDiasUteis(dataInicial, dataFinal) {
 // (ex: qua 23:59), me avisa que ajusto essa função.
 
 
-// -------------------------------------------------------------------------
-// 2) PARSERS DE ARQUIVO
-// -------------------------------------------------------------------------
+// Converte um número serial de data do Excel (ex: 46235) em Date
+function excelSerialParaData(serial) {
+  const epoch = new Date(Date.UTC(1899, 11, 30));
+  return new Date(epoch.getTime() + serial * 86400000);
+}
+
+// Formata uma Date como "yyyy-mm-dd" usando o horário LOCAL (evita bug de
+// fuso horário que o toISOString() causaria, já que ele converte pra UTC)
+function paraDataISOLocal(date) {
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+
 
 // Converte "dd/mm/yyyy HH:mm:ss" (ou só "dd/mm/yyyy") em Date. Retorna null se vazio.
 function parseDataBR(str) {
@@ -308,7 +321,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   await upsertPedidoItens(itensPorPedido);
 
   onProgress("Gerando payload do dashboard...");
-  const payload = gerarPayloadOutbound(pedidosProcessados, itensPorPedido);
+  const payload = await gerarPayloadOutbound(pedidosProcessados, itensPorPedido);
   await salvarSnapshot("outbound", "auto", payload);
 
   await registrarLog("operacao", "Acompanhamento_Op/Exp + Itens NF + Pedidos E-comm", pedidosProcessados.length);
@@ -427,8 +440,149 @@ async function processarBaseAcronimos(file, options) {
 
 
 // -------------------------------------------------------------------------
-// 12) MONTAGEM DO PAYLOAD DO DASHBOARD (mesmo formato do outbound.json)
+// 12) FORECAST MENSAL (botão próprio — atualiza mensalmente)
+//     Layout do arquivo: aba do mês (sempre a 1ª aba), linha de dados a
+//     partir da linha 4 (índice 3). Colunas fixas (0-indexado):
+//       1  = Data (serial Excel ou Date)
+//       2,3,4   = Mizuno: Itens, Pedidos, Faturamento
+//       6,7,8   = Olympikus: Itens, Pedidos, Faturamento
+//       10,11,12 = Under Armour: Itens, Pedidos, Faturamento
+//       14,15,16 = TOTAL ECOM: Itens, Pedidos, Faturamento
 // -------------------------------------------------------------------------
+const COL_FORECAST_DATA = 1;
+const MARCAS_FORECAST = [
+  { nome: "Mizuno", colItens: 2 },
+  { nome: "Olympikus", colItens: 6 },
+  { nome: "Under Armour", colItens: 10 },
+];
+const COL_FORECAST_TOTAL_ITENS = 14;
+const COL_FORECAST_TOTAL_PEDIDOS = 15;
+const COL_FORECAST_TOTAL_FATURAMENTO = 16;
+
+async function processarForecastMensal(file, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo arquivo de forecast...");
+
+  const buffer = await file.arrayBuffer();
+  // NOTA: a aba usada é sempre a PRIMEIRA do arquivo, não pelo nome —
+  // porque o nome muda todo mês (ex: "Agosto-26", "Setembro-26"...)
+  const wb = XLSX.read(buffer, { type: "array", cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+
+  const registros = [];
+  for (let i = 3; i < linhas.length; i++) {
+    const linha = linhas[i];
+    if (!linha || linha[COL_FORECAST_DATA] == null) continue;
+
+    const dataCell = linha[COL_FORECAST_DATA];
+    const data = dataCell instanceof Date ? dataCell : excelSerialParaData(Number(dataCell));
+    const dataISO = paraDataISOLocal(data);
+
+    registros.push({
+      data: dataISO,
+      marca: "TOTAL",
+      itens_forecast: Number(linha[COL_FORECAST_TOTAL_ITENS]) || 0,
+      pedidos_forecast: Number(linha[COL_FORECAST_TOTAL_PEDIDOS]) || 0,
+      faturamento_forecast: Number(linha[COL_FORECAST_TOTAL_FATURAMENTO]) || 0,
+    });
+
+    MARCAS_FORECAST.forEach(function(m) {
+      registros.push({
+        data: dataISO,
+        marca: m.nome,
+        itens_forecast: Number(linha[m.colItens]) || 0,
+        pedidos_forecast: Number(linha[m.colItens + 1]) || 0,
+        faturamento_forecast: Number(linha[m.colItens + 2]) || 0,
+      });
+    });
+  }
+
+  onProgress("Enviando " + registros.length + " registros de forecast...");
+  const TAMANHO_LOTE = 500;
+  for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
+    const lote = registros.slice(i, i + TAMANHO_LOTE);
+    const resultado = await supabaseClient.from("forecast_diario").upsert(lote, { onConflict: "data,marca" });
+    if (resultado.error) console.error("Erro ao gravar forecast_diario:", resultado.error);
+  }
+
+  await registrarLog("forecast", file.name, registros.length);
+  onProgress("Concluído.");
+}
+
+
+// -------------------------------------------------------------------------
+// 13) BUSCAR FORECAST + MARKETPLACE + SEGMENTO (views já prontas no Supabase)
+// -------------------------------------------------------------------------
+async function buscarForecastUltimos7Dias() {
+  const hoje = new Date();
+  const seteDiasAtras = new Date(hoje);
+  seteDiasAtras.setDate(hoje.getDate() - 6);
+
+  const resultado = await supabaseClient
+    .from("forecast_diario")
+    .select("*")
+    .eq("marca", "TOTAL")
+    .gte("data", paraDataISOLocal(seteDiasAtras))
+    .lte("data", paraDataISOLocal(hoje));
+
+  if (resultado.error) {
+    console.error("Erro ao buscar forecast:", resultado.error);
+    return [];
+  }
+  return resultado.data;
+}
+
+async function buscarMarketplaces() {
+  const resultado = await supabaseClient.from("vw_marketplace_resumo").select("*");
+  if (resultado.error) {
+    console.error("Erro ao buscar marketplaces:", resultado.error);
+    return [];
+  }
+  return resultado.data;
+}
+
+async function buscarSegmentos() {
+  const resultado = await supabaseClient.from("vw_segmento_resumo").select("*");
+  if (resultado.error) {
+    console.error("Erro ao buscar segmentos:", resultado.error);
+    return [];
+  }
+  return resultado.data;
+}
+
+function computarExpedicaoSemana(pedidos, forecastRows) {
+  const hoje = new Date();
+  const dias = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(hoje);
+    d.setDate(hoje.getDate() - i);
+    dias.push(paraDataISOLocal(d));
+  }
+
+  const expedidoPorDia = {};
+  dias.forEach(function(d){ expedidoPorDia[d] = 0; });
+  pedidos.forEach(function(p){
+    if (p.processado_em) {
+      const diaISO = paraDataISOLocal(p.processado_em);
+      if (expedidoPorDia[diaISO] !== undefined) {
+        expedidoPorDia[diaISO] += p.qtd_total_produto;
+      }
+    }
+  });
+
+  const forecastPorDia = {};
+  forecastRows.forEach(function(r){ forecastPorDia[r.data] = r.itens_forecast; });
+
+  return {
+    dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
+    expedido: dias.map(function(d){ return expedidoPorDia[d]; }),
+    forecast: dias.map(function(d){ return forecastPorDia[d] || 0; }),
+  };
+}
+
+
+
 function mediaMaxMin(valores, pedidos) {
   const validos = [];
   for (let i = 0; i < valores.length; i++) {
@@ -449,7 +603,7 @@ function mediaMaxMin(valores, pedidos) {
   };
 }
 
-function gerarPayloadOutbound(pedidos) {
+async function gerarPayloadOutbound(pedidos) {
   const abertos = pedidos.filter(function(p){ return p.situacao === "ABERTO"; });
 
   // KPIs simples
@@ -502,6 +656,21 @@ function gerarPayloadOutbound(pedidos) {
   // NOTA: "Expedição x Forecast" precisa de uma fonte de dados de meta/forecast
   // que ainda não temos — esse bloco fica pendente até definirmos a origem.
 
+  // Forecast, Marketplace e Segmento — vêm de fontes/views separadas do Supabase
+  const forecastRows = await buscarForecastUltimos7Dias();
+  const expedicao_semana = computarExpedicaoSemana(pedidos, forecastRows);
+
+  const marketplacesRaw = await buscarMarketplaces();
+  const marketplaces = marketplacesRaw.map(function(m){
+    return { nome: m.marketplace_nome, valor: m.itens };
+  });
+
+  const segmentosRaw = await buscarSegmentos();
+  const totalItensSegmento = segmentosRaw.reduce(function(s, r){ return s + r.itens; }, 0) || 1;
+  const segmentos = segmentosRaw.map(function(s){
+    return { nome: s.segmento, pct: (s.itens / totalItensSegmento) * 100 };
+  });
+
   return {
     gerado_em: new Date().toISOString(),
     kpis: kpis,
@@ -509,7 +678,8 @@ function gerarPayloadOutbound(pedidos) {
     status_por_etapa_itens: status_por_etapa_itens,
     status_por_etapa_pedidos: status_por_etapa_pedidos,
     backlog_fifo: backlog_fifo,
-    // marketplaces e segmentos exigem o cruzamento com dim_acronimos/dim_embalas,
-    // que roda como uma consulta separada no Supabase (view) — ver próximo passo
+    expedicao_semana: expedicao_semana,
+    marketplaces: marketplaces,
+    segmentos: segmentos,
   };
 }
