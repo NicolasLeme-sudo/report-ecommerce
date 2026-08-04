@@ -629,9 +629,10 @@ function alternarTema() {
    ============================================================ */
 // Formata timestamp do Supabase (UTC) para horário de Brasília (UTC-3)
 function formatarDataBR(isoStr) {
-  const d = new Date(isoStr.replace(' ', 'T'));
-  const dia  = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
-  const hora = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const utc = new Date(isoStr).getTime();
+  const dBR = new Date(utc - 3 * 60 * 60 * 1000);
+  const dia  = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0') + '/' + dBR.getUTCFullYear();
+  const hora = String(dBR.getUTCHours()).padStart(2,'0') + ':' + String(dBR.getUTCMinutes()).padStart(2,'0');
   return dia + ' ' + hora;
 }
   async function carregarDatasHistorico() {
