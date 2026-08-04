@@ -668,7 +668,14 @@ async function processarForecastMensal(file, options) {
 
   // Validação: linha 4 (índice 3) deve ter "MZ" na posição 2 e "TOTAL ECOM" na posição 14
   // (Estrutura: linha 1=vazia, linha 2=info extra, linha 3=vazia, linha 4=marcas, linha 5=cabeçalhos, linha 6+=dados)
-  const linhasMarcas = linhas[3] || [];
+  // Procura a linha que contém 'MZ' nas primeiras 8 linhas (estrutura pode variar entre meses)
+let linhasMarcas = [];
+let linhasDados = 6; // padrão
+for (let r = 0; r < 8; r++) {
+  const l = linhas[r] || [];
+  const temMZ = l.some(function(v){ return String(v||'').toUpperCase().includes('MZ'); });
+  if (temMZ) { linhasMarcas = l; linhasDados = r + 2; break; }
+}
   const temMZ    = String(linhasMarcas[2]||'').toUpperCase().includes('MZ');
   const temTotal = String(linhasMarcas[14]||'').toUpperCase().includes('TOTAL');
   if (!temMZ && !temTotal) {
