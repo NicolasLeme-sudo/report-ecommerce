@@ -657,10 +657,10 @@ async function carregarDatasHistorico() {
     const numero = totalVersoes - i; // mais recente = número maior
     const numStr = String(numero).padStart(2, '0');
     // Supabase retorna UTC — converte explicitamente para UTC-3 (Brasília)
-const d = new Date(row.gerado_em);
-const dBR = new Date(d.getTime() - (3 * 60 * 60 * 1000));
-const dia = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0');
-const hora = String(dBR.getUTCHours()).padStart(2,'0') + 'h' + String(dBR.getUTCMinutes()).padStart(2,'0');
+    const d = new Date(row.gerado_em);
+    const dBR = new Date(d.getTime() - (3 * 60 * 60 * 1000));
+    const dia = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0');
+    const hora = String(dBR.getUTCHours()).padStart(2,'0') + 'h' + String(dBR.getUTCMinutes()).padStart(2,'0');
     const estrela = row.tipo_snapshot === 'manual' ? ' ★' : '';
     const label = `Versão ${numStr} — ${dia} ${hora}${estrela}`;
 
