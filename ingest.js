@@ -862,7 +862,9 @@ function mediaMaxMin(valores, pedidos) {
 }
 
 async function gerarPayloadOutbound(pedidos, itensPorPedido) {
-  const abertos = pedidos.filter(function(p){ return p.situacao === "ABERTO"; });
+  const abertos = pedidos.filter(function(p){
+    return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
+  });
 
   // KPIs simples
   const comOtifDefinido = pedidos.filter(function(p){ return p.status_calculado === "06 - Despachado"; });
