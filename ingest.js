@@ -305,7 +305,7 @@ async function processarRelatoriosDaOperacao(files, options) {
 
     p.on_time = calcularOnTime(p);
     p.in_full = calcularInFull(itensPorPedido.get(String(pedidoVenda)));
-    p.otif = (p.on_time === true && p.in_full === true);
+    p.otif = p.on_time === null ? null : (p.on_time === true && p.in_full === true);
 
     if (p.situacao === "ABERTO" && p.importado_em) {
       p.backlog_fifo_bucket = calcularBucketFifo(p.importado_em, hoje);
@@ -346,13 +346,28 @@ async function upsertPedidos(pedidos) {
 
 async function upsertPedidoItens(itensPorPedido) {
   const registros = [];
+  const pedidosAfetados = [];
   for (const par of itensPorPedido) {
     const pedidoVenda = par[0];
     const itens = par[1];
+    pedidosAfetados.push(Number(pedidoVenda));
     for (const it of itens) {
       registros.push(Object.assign({ pedido_venda: Number(pedidoVenda) }, it));
     }
   }
+
+  // CORREÇÃO ANTI-DUPLICAÇÃO: antes de inserir, apaga os itens já
+  // gravados desses mesmos pedidos. Sem isso, cada clique em "Atualizar"
+  // acumulava uma cópia nova de cada item (insert puro não substitui).
+  // O delete é feito em lotes porque a URL da API tem limite de tamanho
+  // e não comporta uma lista de milhares de pedidos de uma vez.
+  const LOTE_DELETE = 200;
+  for (let i = 0; i < pedidosAfetados.length; i += LOTE_DELETE) {
+    const lote = pedidosAfetados.slice(i, i + LOTE_DELETE);
+    const resultado = await supabaseClient.from("pedido_itens").delete().in("pedido_venda", lote);
+    if (resultado.error) console.error("Erro ao limpar pedido_itens:", resultado.error);
+  }
+
   const TAMANHO_LOTE = 500;
   for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
     const lote = registros.slice(i, i + TAMANHO_LOTE);
@@ -551,8 +566,33 @@ async function buscarSegmentos() {
   return resultado.data;
 }
 
-function computarExpedicaoSemana(pedidos, forecastRows) {
+function computarIntegracao7Dias(pedidos) {
   const hoje = new Date();
+  const dias = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(hoje);
+    d.setDate(hoje.getDate() - i);
+    dias.push(paraDataISOLocal(d));
+  }
+
+  const pedidosPorDia = {};
+  dias.forEach(function(d){ pedidosPorDia[d] = 0; });
+  pedidos.forEach(function(p){
+    if (p.importado_em) {
+      const diaISO = paraDataISOLocal(p.importado_em);
+      if (pedidosPorDia[diaISO] !== undefined) {
+        pedidosPorDia[diaISO] += 1;
+      }
+    }
+  });
+
+  return {
+    dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
+    pedidos_integrados: dias.map(function(d){ return pedidosPorDia[d]; }),
+  };
+}
+
+function computarExpedicaoSemana(pedidos, forecastRows) {  const hoje = new Date();
   const dias = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(hoje);
@@ -607,7 +647,7 @@ async function gerarPayloadOutbound(pedidos) {
   const abertos = pedidos.filter(function(p){ return p.situacao === "ABERTO"; });
 
   // KPIs simples
-  const comOtifDefinido = pedidos.filter(function(p){ return p.otif !== null; });
+  const comOtifDefinido = pedidos.filter(function(p){ return p.status_calculado === "06 - Despachado"; });
   const kpis = {
     pedidos_em_fluxo: abertos.length,
     itens_em_fluxo: abertos.reduce(function(s, p){ return s + p.qtd_total_produto; }, 0),
@@ -623,21 +663,24 @@ async function gerarPayloadOutbound(pedidos) {
   };
 
   // Status por etapa x Marca (itens e pedidos)
+  // OBS: "06 - Despachado" fica de fora dessas tabelas — só entra no
+  // gráfico de Expedição x Forecast, aqui é só o que está em fluxo.
   const marcasSet = {};
   pedidos.forEach(function(p){ if (p.marca) marcasSet[p.marca] = true; });
   const marcas = Object.keys(marcasSet);
 
-  const etapas = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
-                  "04 - Separado - Conferir", "05 - Conferido - Despachar", "06 - Despachado"];
+  const etapasOperacionais = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
+                  "04 - Separado - Conferir", "05 - Conferido - Despachar"];
 
   function tabelaStatusPorMarca(unidade) {
-    return etapas.map(function(etapa){
+    return etapasOperacionais.map(function(etapa){
       const valores = marcas.map(function(marca){
         return pedidos
           .filter(function(p){ return p.status_calculado === etapa && p.marca === marca; })
           .reduce(function(s, p){ return s + (unidade === "itens" ? p.qtd_total_produto : 1); }, 0);
       });
-      return { status: etapa, marcas: marcas, valores: valores };
+      const totalEtapa = valores.reduce(function(a, b){ return a + b; }, 0);
+      return { status: etapa, marcas: marcas, valores: valores, total: totalEtapa };
     });
   }
 
@@ -659,6 +702,7 @@ async function gerarPayloadOutbound(pedidos) {
   // Forecast, Marketplace e Segmento — vêm de fontes/views separadas do Supabase
   const forecastRows = await buscarForecastUltimos7Dias();
   const expedicao_semana = computarExpedicaoSemana(pedidos, forecastRows);
+  const integracao_7dias = computarIntegracao7Dias(pedidos);
 
   const marketplacesRaw = await buscarMarketplaces();
   const marketplaces = marketplacesRaw.map(function(m){
@@ -679,6 +723,7 @@ async function gerarPayloadOutbound(pedidos) {
     status_por_etapa_pedidos: status_por_etapa_pedidos,
     backlog_fifo: backlog_fifo,
     expedicao_semana: expedicao_semana,
+    integracao_7dias: integracao_7dias,
     marketplaces: marketplaces,
     segmentos: segmentos,
   };
