@@ -627,7 +627,15 @@ function alternarTema() {
    A lista vem do Supabase ordenada do mais novo pro mais velho,
    então invertemos para numerar do mais antigo (01) para o mais novo.
    ============================================================ */
-async function carregarDatasHistorico() {
+// Formata timestamp do Supabase (UTC) para horário de Brasília (UTC-3)
+function formatarDataBR(isoStr) {
+  const utc = new Date(isoStr).getTime();
+  const dBR = new Date(utc - 3 * 60 * 60 * 1000);
+  const dia  = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0') + '/' + dBR.getUTCFullYear();
+  const hora = String(dBR.getUTCHours()).padStart(2,'0') + ':' + String(dBR.getUTCMinutes()).padStart(2,'0');
+  return dia + ' ' + hora;
+}
+  async function carregarDatasHistorico() {
   const { data, error } = await supabaseClient
     .from('dashboard_snapshots')
     .select('id, data_snapshot, tipo_snapshot, gerado_em')
@@ -725,7 +733,7 @@ async function carregarSnapshot(id) {
   }
   renderizarOutbound(data.payload, null);
   document.getElementById('topbarSub').textContent =
-    'Histórico: ' + new Date(data.gerado_em).toLocaleString('pt-BR');
+    'Histórico: ' + formatarDataBR(data.gerado_em);
 }
 
 /* ============================================================
@@ -758,7 +766,7 @@ async function carregarOutbound() {
 
   const d = new Date(data[0].gerado_em);
   document.getElementById('topbarSub').textContent =
-    'Última atualização: ' + d.toLocaleString('pt-BR');
+    'Última atualização: ' + formatarDataBR(data[0].gerado_em);
   document.getElementById('topbarData').textContent = '';
 
   renderizarOutbound(atual, anterior);
