@@ -690,7 +690,7 @@ for (let r = 0; r < 8; r++) {
   let linhasLidas = 0;
 
   // Dados começam na linha 6 (índice 5) — pula cabeçalhos e linhas de marcas
-  for (let i = 5; i < linhas.length; i++) {
+  for (let i = linhasDados; i < linhas.length; i++) {
     const linha = linhas[i];
     if (!linha) continue;
 
