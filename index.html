@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-tema="escuro">
+<html lang="pt-BR" data-tema="claro">
 <!--
   Report E-commerce — Site Unificado
   ===================================
@@ -173,10 +173,36 @@ body {
   margin-top: auto;
 }
 .sidebar-historico .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #4A6080; font-weight: 700; margin-bottom: 6px; }
-.sidebar-historico select {
-  width: 100%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1);
-  color: #fff; border-radius: 7px; padding: 7px 10px; font-size: 12px; cursor: pointer;
+
+/* Dropdown custom — substitui o <select> nativo que usa cores do sistema */
+.hist-dropdown { position: relative; width: 100%; }
+.hist-trigger {
+  width: 100%; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12);
+  color: #fff; border-radius: 7px; padding: 7px 30px 7px 10px; font-size: 11.5px;
+  cursor: pointer; text-align: left; font-family: inherit;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  position: relative;
 }
+.hist-trigger::after {
+  content: "▾"; position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: #7C9AB8; font-size: 11px;
+}
+.hist-trigger:hover { background: rgba(255,255,255,.12); }
+.hist-list {
+  position: absolute; bottom: calc(100% + 6px); left: 0; right: 0;
+  background: #1E2A3D; border: 1px solid rgba(255,255,255,.15);
+  border-radius: 8px; max-height: 220px; overflow-y: auto;
+  z-index: 999; display: none; box-shadow: 0 4px 20px rgba(0,0,0,.5);
+}
+.hist-list.aberto { display: block; }
+.hist-opt {
+  padding: 8px 12px; font-size: 11.5px; color: #C8D4E8; cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.hist-opt:last-child { border-bottom: none; }
+.hist-opt:hover { background: rgba(59,130,246,.2); color: #fff; }
+.hist-opt.selecionado { background: rgba(59,130,246,.25); color: #fff; font-weight: 600; }
+.hist-opt.atual { color: var(--accent); font-weight: 700; }
 
 /* ============================================================
    5) TOPBAR (barra superior — fica à direita da sidebar)
@@ -416,10 +442,11 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 
     <!-- Seletor de histórico: data é carregada dinamicamente -->
     <div class="sidebar-historico">
-      <div class="lbl">🕑 Histórico</div>
-      <select id="seletorHistorico" onchange="carregarSnapshot(this.value)">
-        <option value="">Hoje (atual)</option>
-      </select>
+      <div class="lbl">🕑 Histórico de versões</div>
+      <div class="hist-dropdown" id="histDropdown">
+        <button class="hist-trigger" id="histTrigger" onclick="toggleHistDropdown()">Versão atual</button>
+        <div class="hist-list" id="histList"></div>
+      </div>
     </div>
   </aside>
 
@@ -431,7 +458,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
     </div>
     <div class="topbar-right">
       <div class="topbar-data" id="topbarData"></div>
-      <button class="btn-tema" onclick="alternarTema()" id="btnTema">☀ Claro</button>
+      <button class="btn-tema" onclick="alternarTema()" id="btnTema">🌙 Escuro</button>
     </div>
   </header>
 
@@ -487,10 +514,10 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios da Operação</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp" accept=".tsv,.txt"></div>
-          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp" accept=".tsv,.txt"></div>
-          <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF" accept=".tsv,.txt"></div>
-          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm" accept=".xlsx"></div>
+          <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
+          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
+          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
         </div>
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
@@ -500,7 +527,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Base de Embalagem</h2>
         <div class="freq">Frequência: toda terça-feira</div>
         <div class="file-row">
-          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas" accept=".xlsx"></div>
+          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
         </div>
         <button class="btn-upload" id="btnEmbalagem">Atualizar Base de Embalagem</button>
         <div class="progress-box" id="progressEmbalagem"></div>
@@ -510,7 +537,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Base de Acrônimos</h2>
         <div class="freq">Frequência: só quando entra um novo parceiro</div>
         <div class="file-row">
-          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos" accept=".xlsx"></div>
+          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
         </div>
         <button class="btn-upload" id="btnAcronimos">Atualizar Base de Acrônimos</button>
         <div class="progress-box" id="progressAcronimos"></div>
@@ -520,7 +547,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Forecast Mensal</h2>
         <div class="freq">Frequência: mensal</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast" accept=".xlsb,.xlsx"></div>
+          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
         </div>
         <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
         <div class="progress-box" id="progressForecast"></div>
@@ -593,26 +620,96 @@ function alternarTema() {
    HISTÓRICO — preenche o seletor com as datas disponíveis
    no Supabase e recarrega os dados quando a data muda.
    ============================================================ */
+/* ============================================================
+   HISTÓRICO — dropdown custom com versão numerada
+   Formato: "Versão 01 - 04/08 15h18"
+   O número sobe conforme o snapshot é mais recente.
+   A lista vem do Supabase ordenada do mais novo pro mais velho,
+   então invertemos para numerar do mais antigo (01) para o mais novo.
+   ============================================================ */
 async function carregarDatasHistorico() {
   const { data, error } = await supabaseClient
     .from('dashboard_snapshots')
     .select('id, data_snapshot, tipo_snapshot, gerado_em')
     .eq('pagina', 'outbound')
-    .order('gerado_em', { ascending: false })
+    .order('gerado_em', { ascending: true }) // crescente para numerar do 01 em diante
     .limit(90);
 
-  if (error || !data) return;
+  if (error || !data || data.length === 0) return;
 
-  const sel = document.getElementById('seletorHistorico');
-  sel.innerHTML = '<option value="">Hoje (atual)</option>';
-  data.forEach(row => {
-    const opt = document.createElement('option');
-    opt.value = row.id;
+  const list = document.getElementById('histList');
+  list.innerHTML = '';
+
+  // Opção "Versão atual" sempre no topo
+  const optAtual = document.createElement('div');
+  optAtual.className = 'hist-opt atual selecionado';
+  optAtual.dataset.id = '';
+  optAtual.textContent = '▶ Versão atual';
+  optAtual.onclick = function() { selecionarHistorico('', '▶ Versão atual'); };
+  list.appendChild(optAtual);
+
+  // Numera do 01 (mais antigo) ao N (mais recente)
+  // Exibe do mais recente pro mais antigo na lista (invertemos o array)
+  const totalVersoes = data.length;
+  const dataInvertida = data.slice().reverse(); // mais recente primeiro
+
+  dataInvertida.forEach(function(row, i) {
+    const numero = totalVersoes - i; // mais recente = número maior
+    const numStr = String(numero).padStart(2, '0');
     const d = new Date(row.gerado_em);
-    opt.textContent = d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})
-      + (row.tipo_snapshot === 'manual' ? ' ★' : '');
-    sel.appendChild(opt);
+    const dia = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+    const hora = String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
+    const estrela = row.tipo_snapshot === 'manual' ? ' ★' : '';
+    const label = `Versão ${numStr} — ${dia} ${hora}${estrela}`;
+
+    const opt = document.createElement('div');
+    opt.className = 'hist-opt';
+    opt.dataset.id = row.id;
+    opt.textContent = label;
+    opt.onclick = function() { selecionarHistorico(row.id, label); };
+    list.appendChild(opt);
   });
+
+  // Atualiza o botão trigger com a versão mais recente como texto padrão
+  const maisRecente = dataInvertida[0];
+  if (maisRecente) {
+    const numero = totalVersoes;
+    const numStr = String(numero).padStart(2, '0');
+    const d = new Date(maisRecente.gerado_em);
+    const dia = String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+    const hora = String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
+    document.getElementById('histTrigger').textContent = `Versão atual (${numStr} versões)`;
+  }
+}
+
+function toggleHistDropdown() {
+  const list = document.getElementById('histList');
+  list.classList.toggle('aberto');
+}
+
+// Fecha o dropdown se clicar fora dele
+document.addEventListener('click', function(e) {
+  const dd = document.getElementById('histDropdown');
+  if (dd && !dd.contains(e.target)) {
+    document.getElementById('histList').classList.remove('aberto');
+  }
+});
+
+function selecionarHistorico(id, label) {
+  // Marca a opção selecionada
+  document.querySelectorAll('.hist-opt').forEach(function(o) { o.classList.remove('selecionado'); });
+  const opts = document.querySelectorAll('.hist-opt');
+  opts.forEach(function(o) { if (o.dataset.id === String(id)) o.classList.add('selecionado'); });
+
+  // Atualiza o texto do botão
+  document.getElementById('histTrigger').textContent = label;
+
+  // Fecha o dropdown
+  document.getElementById('histList').classList.remove('aberto');
+
+  // Carrega o snapshot
+  if (!id) { carregarOutbound(); }
+  else { carregarSnapshot(id); }
 }
 
 async function carregarSnapshot(id) {
@@ -783,17 +880,17 @@ function renderSparkline(dados) {
   const row = document.getElementById('kpiRow');
   const card = document.createElement('div');
   card.className = 'kpi-card spark';
-  if (!dados || !dados.pedidos_integrados || dados.pedidos_integrados.every(v => v === 0)) {
-    card.innerHTML = `<div class="tag">Integração de Pedidos no WMS</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
+  if (!dados || !dados.itens_integrados || dados.itens_integrados.every(v => v === 0)) {
+    card.innerHTML = `<div class="tag">Integração de Itens no WMS</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
     row.appendChild(card);
     return;
   }
-  card.innerHTML = `<div class="tag">Integração de Pedidos no WMS (últimos 7 dias)</div><svg width="100%" height="86" viewBox="0 0 380 86" id="sparkSvg"></svg>`;
+  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="86" viewBox="0 0 380 86" id="sparkSvg"></svg>`;
   row.appendChild(card);
 
   const svg = card.querySelector('#sparkSvg');
   const w=380,h=86,pL=8,pR=8,pT=18,pB=16;
-  const vals = dados.pedidos_integrados;
+  const vals = dados.itens_integrados;
   const dias = dados.dias;
   const mx=Math.max(...vals,1), mn=Math.min(...vals), rng=(mx-mn)||1;
   const pts = vals.map((v,i) => [pL+i*((w-pL-pR)/(vals.length-1)), (h-pB)-((v-mn)/rng)*(h-pT-pB)]);
