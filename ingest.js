@@ -886,7 +886,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // OBS: "06 - Despachado" fica de fora dessas tabelas — só entra no
   // gráfico de Expedição x Forecast, aqui é só o que está em fluxo.
   const marcasSet = {};
-  pedidos.forEach(function(p){ if (p.marca) marcasSet[p.marca] = true; });
+  pedidosOp.forEach(function(p){ marcasSet[p.marca || "Sem Marca"] = true; });
   const marcas = Object.keys(marcasSet);
 
   const etapasOperacionais = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
