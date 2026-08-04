@@ -694,14 +694,13 @@ for (let r = 0; r < 8; r++) {
     const linha = linhas[i];
     if (!linha) continue;
 
-    const dataCell = linha[1] !== null ? linha[1] : linha[0];
-    if (i < linhasDados + 3) console.log('DEBUG linha', i, '| dataCell:', dataCell, '| serial:', Number(dataCell)); // coluna B = Data
-    if (dataCell == null || dataCell === '' || isNaN(Number(dataCell))) continue;
-
-    // Seriais menores que 40000 ou maiores que 60000 são inválidos
-    // (seria fora do range de datas razoáveis: ~2009 a ~2064)
-    const serial = Number(dataCell);
-    if (serial < 40000 || serial > 60000) continue;
+    // Procura o serial de data em qualquer posição da linha (SheetJS pode deslocar colunas)
+    let serial = null;
+    for (let c = 0; c < 5; c++) {
+      const v = Number(linha[c]);
+      if (!isNaN(v) && v >= 40000 && v <= 60000) { serial = v; break; }
+    }
+    if (!serial) continue;
 
     const data = excelSerialParaData(serial);
     const dataISO = paraDataISOLocal(data);
