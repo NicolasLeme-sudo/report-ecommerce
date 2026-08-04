@@ -88,6 +88,21 @@
     padding:24px 20px;text-align:center;color:var(--text-muted);font-size:12.5px;
   }
 
+  .mkt-bars, .seg-bars{display:flex;flex-direction:column;gap:9px;margin-top:10px;}
+  .mkt-row{display:grid;grid-template-columns:130px 1fr 60px;align-items:center;gap:10px;font-size:12.5px;}
+  .seg-row{display:grid;grid-template-columns:110px 1fr 46px;align-items:center;gap:10px;font-size:12.5px;}
+  .mkt-track, .seg-track{background:#EEF0F4;border-radius:5px;height:11px;overflow:hidden;}
+  .mkt-fill, .seg-fill{height:100%;border-radius:5px;background:var(--navy-soft);}
+
+  .week-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;}
+  .week-totais{display:flex;gap:16px;}
+  .week-totais .item{text-align:right;}
+  .week-totais .item .lab{font-size:10px;text-transform:uppercase;letter-spacing:.3px;color:var(--text-muted);}
+  .week-totais .item .val{font-size:15px;font-weight:700;color:var(--navy-deep);}
+  .legend-line{display:flex;gap:16px;font-size:11.5px;color:var(--text-muted);margin-top:6px;}
+  .legend-line span{display:flex;align-items:center;gap:6px;}
+  .legend-line i{width:14px;height:3px;border-radius:2px;display:inline-block;}
+
   .loading, .erro-carregamento{padding:40px;text-align:center;color:var(--text-muted);font-size:14px;}
   .erro-carregamento{color:var(--red);}
 </style>
@@ -173,14 +188,31 @@ function renderizar(atual, anterior) {
           <div class="legend-aging" id="donutLegend"></div>
         </div>
       </div>
-      <div class="placeholder-card">
-        Itens por Marketplace / Segmento — em construção<br>
-        (aguardando view de cruzamento com dim_acronimos / dim_embalas)
+      <div class="card">
+        <div class="section-title">Itens por Marketplace</div>
+        <div class="mkt-bars" id="mktBars"></div>
       </div>
     </div>
 
-    <div class="placeholder-card">
-      Expedição × Forecast — em construção (sem fonte de dados de meta/forecast ainda)
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Itens por Segmento</div>
+        <div class="seg-bars" id="segBars"></div>
+      </div>
+      <div class="card">
+        <div class="week-head">
+          <div class="section-title" style="margin-bottom:0;">Expedição × Forecast — últimos 7 dias</div>
+          <div class="week-totais">
+            <div class="item"><div class="lab">Expedido</div><div class="val" id="totalExpedido"></div></div>
+            <div class="item"><div class="lab">Forecast</div><div class="val" id="totalForecast"></div></div>
+          </div>
+        </div>
+        <svg id="weekSvg" width="100%" height="150" viewBox="0 0 560 150" preserveAspectRatio="none"></svg>
+        <div class="legend-line">
+          <span><i style="background:var(--olive)"></i>Expedido</span>
+          <span><i style="background:var(--navy-soft)"></i>Forecast</span>
+        </div>
+      </div>
     </div>
   `;
   document.getElementById("conteudo").innerHTML = html;
@@ -190,6 +222,9 @@ function renderizar(atual, anterior) {
   renderMatriz(atual.status_por_etapa_itens, "matrixItens");
   renderMatriz(atual.status_por_etapa_pedidos, "matrixPedidos");
   renderBacklog(atual.backlog_fifo);
+  renderMarketplaces(atual.marketplaces);
+  renderSegmentos(atual.segmentos);
+  renderExpedicaoSemana(atual.expedicao_semana);
 }
 
 function renderKpis(atual, anterior) {
@@ -325,6 +360,97 @@ function renderBacklog(backlog) {
     row.className = "row";
     row.innerHTML = `<span class="dot" style="background:${cores[seg.label] || '#999'}"></span>Dia ${seg.label}<b>${seg.valor}</b>`;
     donutLegend.appendChild(row);
+  });
+}
+
+function renderMarketplaces(marketplaces) {
+  const el = document.getElementById("mktBars");
+  if (!marketplaces || marketplaces.length === 0) {
+    el.innerHTML = "<div class='placeholder-card'>Sem dados de marketplace ainda</div>";
+    return;
+  }
+  const max = Math.max(...marketplaces.map(m => m.valor)) || 1;
+  el.innerHTML = "";
+  marketplaces
+    .slice().sort((a, b) => b.valor - a.valor)
+    .forEach(m => {
+      const pct = (m.valor / max) * 100;
+      const row = document.createElement("div");
+      row.className = "mkt-row";
+      row.innerHTML = `
+        <div>${m.nome}</div>
+        <div class="mkt-track"><div class="mkt-fill" style="width:${pct}%"></div></div>
+        <div style="text-align:right;font-weight:700;">${m.valor.toLocaleString('pt-BR')}</div>`;
+      el.appendChild(row);
+    });
+}
+
+function renderSegmentos(segmentos) {
+  const el = document.getElementById("segBars");
+  if (!segmentos || segmentos.length === 0) {
+    el.innerHTML = "<div class='placeholder-card'>Sem dados de segmento ainda</div>";
+    return;
+  }
+  el.innerHTML = "";
+  segmentos
+    .slice().sort((a, b) => b.pct - a.pct)
+    .forEach(s => {
+      const row = document.createElement("div");
+      row.className = "seg-row";
+      row.innerHTML = `
+        <div>${s.nome}</div>
+        <div class="seg-track"><div class="seg-fill" style="width:${s.pct}%"></div></div>
+        <div style="text-align:right;font-weight:700;">${s.pct.toFixed(1).replace('.', ',')}%</div>`;
+      el.appendChild(row);
+    });
+}
+
+function renderExpedicaoSemana(dados) {
+  if (!dados) return;
+  const totalExp = dados.expedido.reduce((a, b) => a + b, 0);
+  const totalFc = dados.forecast.reduce((a, b) => a + b, 0);
+  document.getElementById("totalExpedido").textContent = totalExp.toLocaleString('pt-BR');
+  document.getElementById("totalForecast").textContent = totalFc.toLocaleString('pt-BR');
+
+  const svg = document.getElementById("weekSvg");
+  const w = 560, h = 150, padL = 34, padR = 12, padT = 16, padB = 24;
+  const allVals = [...dados.expedido, ...dados.forecast];
+  const max = Math.max(...allVals, 1) * 1.15;
+  const n = dados.dias.length;
+  const xFor = i => padL + i * ((w - padL - padR) / (n - 1));
+  const yFor = v => (h - padB) - (v / max) * (h - padT - padB);
+
+  const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  axis.setAttribute("x1", padL); axis.setAttribute("x2", w - padR);
+  axis.setAttribute("y1", h - padB); axis.setAttribute("y2", h - padB);
+  axis.setAttribute("stroke", "#E1E4EA"); axis.setAttribute("stroke-width", "1");
+  svg.appendChild(axis);
+
+  function drawLine(vals, color) {
+    const pts = vals.map((v, i) => [xFor(i), yFor(v)]);
+    const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+    const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    el.setAttribute("d", path); el.setAttribute("fill", "none");
+    el.setAttribute("stroke", color); el.setAttribute("stroke-width", "2.5");
+    el.setAttribute("stroke-linecap", "round"); el.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(el);
+    pts.forEach(p => {
+      const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", 3);
+      c.setAttribute("fill", color);
+      svg.appendChild(c);
+    });
+  }
+  drawLine(dados.forecast, "#3A4F82");
+  drawLine(dados.expedido, "#6B7F3A");
+
+  dados.dias.forEach((lab, i) => {
+    const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    t.setAttribute("x", xFor(i)); t.setAttribute("y", h - 6);
+    t.setAttribute("text-anchor", "middle"); t.setAttribute("font-size", "10");
+    t.setAttribute("fill", "#6B7280");
+    t.textContent = lab;
+    svg.appendChild(t);
   });
 }
 
