@@ -666,23 +666,24 @@ async function processarForecastMensal(file, options) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-  // Validação básica: linha 2 (índice 1) deve ter "MZ" na posição 2
-  // e "TOTAL ECOM" na posição 14 — se não tiver, arquivo errado
-  const linhasMarcas = linhas[1] || [];
+  // Validação: linha 4 (índice 3) deve ter "MZ" na posição 2 e "TOTAL ECOM" na posição 14
+  // (Estrutura: linha 1=vazia, linha 2=info extra, linha 3=vazia, linha 4=marcas, linha 5=cabeçalhos, linha 6+=dados)
+  const linhasMarcas = linhas[3] || [];
   const temMZ    = String(linhasMarcas[2]||'').toUpperCase().includes('MZ');
   const temTotal = String(linhasMarcas[14]||'').toUpperCase().includes('TOTAL');
   if (!temMZ && !temTotal) {
     throw new Error(
-      'Arquivo inválido para Forecast. Esperado: "MZ" na coluna C e "TOTAL ECOM" na coluna O da linha 2. ' +
-      'Verifique se selecionou o arquivo correto (Acompanhamento_Faturamento_CD).'
+      'Arquivo inválido para Forecast. Esperado: "MZ" na coluna C e "TOTAL ECOM" na coluna O da linha 4. ' +
+      'Verifique se selecionou o arquivo correto (Acompanhamento_Faturamento_CD).' +
+      '\nEncontrado na linha 4: ' + JSON.stringify(linhasMarcas.slice(0,16))
     );
   }
 
   const registros = [];
   let linhasLidas = 0;
 
-  // Dados começam na linha 4 (índice 3) — pula cabeçalhos
-  for (let i = 3; i < linhas.length; i++) {
+  // Dados começam na linha 6 (índice 5) — pula cabeçalhos e linhas de marcas
+  for (let i = 5; i < linhas.length; i++) {
     const linha = linhas[i];
     if (!linha) continue;
 
