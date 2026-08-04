@@ -676,8 +676,8 @@ for (let r = 0; r < 8; r++) {
   const temMZ = l.some(function(v){ return String(v||'').toUpperCase().includes('MZ'); });
   if (temMZ) { linhasMarcas = l; linhasDados = r + 2; break; }
 }
-  const temMZ    = String(linhasMarcas[2]||'').toUpperCase().includes('MZ');
-  const temTotal = String(linhasMarcas[14]||'').toUpperCase().includes('TOTAL');
+  const temMZ    = linhasMarcas.some(function(v){ return String(v||'').toUpperCase() === 'MZ'; });
+  const temTotal = linhasMarcas.some(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
   if (!temMZ && !temTotal) {
     throw new Error(
       'Arquivo inválido para Forecast. Esperado: "MZ" na coluna C e "TOTAL ECOM" na coluna O da linha 4. ' +
