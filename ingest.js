@@ -890,12 +890,17 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   const etapasOperacionais = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
                   "04 - Separado - Conferir", "05 - Conferido - Despachar"];
 
+// Só pedidos em operação real: ABERTO e não cancelado
+  const pedidosOp = pedidos.filter(function(p){
+    return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
+  });
+
   function tabelaStatusPorMarca(unidade) {
     return etapasOperacionais.map(function(etapa){
       const valores = marcas.map(function(marca){
-        return pedidos
+        return pedidosOp
           .filter(function(p){ return p.status_calculado === etapa && p.marca === marca; })
-          .reduce(function(s, p){ return s + (unidade === "itens" ? p.qtd_total_produto : 1); }, 0);
+          .reduce(function(s, p){ return s + (unidade === "itens" ? (p.qtd_total_produto || 0) : 1); }, 0);
       });
       const totalEtapa = valores.reduce(function(a, b){ return a + b; }, 0);
       return { status: etapa, marcas: marcas, valores: valores, total: totalEtapa };
