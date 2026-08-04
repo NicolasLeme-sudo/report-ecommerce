@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report E-commerce — Outbound</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+  :root{
+    --navy-deep:#132043; --navy-mid:#1F3363; --navy-soft:#3A4F82;
+    --olive:#6B7F3A; --olive-soft:#E4E9D6;
+    --amber:#C98F1D; --amber-soft:#F7ECD4;
+    --red:#B23A2E; --red-soft:#F5DEDA;
+    --bg:#F3F4F7; --card:#FFFFFF; --border:#E1E4EA;
+    --text:#1C2333; --text-muted:#6B7280;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    font-variant-numeric:tabular-nums;
+  }
+  .wrap{max-width:1440px;margin:0 auto;padding:20px 24px 48px;}
+
+  header.topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    background:var(--navy-deep);color:#fff;padding:16px 24px;border-radius:10px;margin-bottom:18px;
+  }
+  .brand{display:flex;align-items:center;gap:14px;}
+  .brand .mark{
+    width:38px;height:38px;border-radius:8px;
+    background:linear-gradient(135deg,var(--olive),#8FA355);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:var(--navy-deep);
+  }
+  .brand h1{font-size:19px;margin:0;font-weight:600;letter-spacing:.2px;}
+  .brand .sub{font-size:11.5px;color:#B9C2DA;letter-spacing:.4px;text-transform:uppercase;margin-top:2px;}
+  .topmeta{font-size:12px;color:#B9C2DA;text-align:right;}
+
+  .section-title{
+    font-size:12.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+    color:var(--navy-mid);margin:0 0 12px 2px;
+  }
+
+  .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;}
+  .kpi-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 15px 12px;position:relative;overflow:hidden;}
+  .kpi-card .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;color:var(--text-muted);font-weight:600;}
+  .kpi-card .value{font-size:23px;font-weight:700;margin-top:6px;color:var(--navy-deep);}
+  .kpi-card .delta{font-size:11.5px;margin-top:5px;font-weight:600;}
+  .delta.up{color:var(--olive);} .delta.down{color:var(--red);} .delta.flat{color:var(--text-muted);}
+  .kpi-card .bar{position:absolute;left:0;top:0;bottom:0;width:4px;}
+  .bar.ok{background:var(--olive);} .bar.warn{background:var(--amber);} .bar.bad{background:var(--red);}
+
+  .leadtime-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;}
+  .leadtime-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px 13px;position:relative;overflow:hidden;}
+  .leadtime-card .bar{position:absolute;left:0;top:0;bottom:0;width:4px;}
+  .leadtime-card .tag{font-size:10.5px;text-transform:uppercase;letter-spacing:.3px;color:var(--text-muted);font-weight:600;}
+  .leadtime-card .media{font-size:23px;font-weight:700;margin-top:6px;color:var(--navy-deep);}
+  .minmax-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+  .minmax-item .lab{font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--text-muted);font-weight:700;}
+  .minmax-item .val{font-size:14px;font-weight:700;margin-top:2px;}
+  .minmax-item.max .val{color:var(--red);} .minmax-item.min .val{color:var(--olive);}
+  .minmax-item .pedido{font-size:10.5px;color:var(--text-muted);margin-top:1px;}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;}
+
+  table.matrix{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px;}
+  table.matrix th,table.matrix td{padding:8px 10px;text-align:center;}
+  table.matrix thead th{background:var(--navy-deep);color:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.3px;}
+  table.matrix thead th:first-child{text-align:left;border-radius:6px 0 0 0;}
+  table.matrix thead th:last-child{border-radius:0 6px 0 0;}
+  table.matrix tbody th{text-align:left;font-weight:600;color:var(--navy-mid);background:#F8F9FB;}
+  table.matrix tbody td{border-bottom:1px solid var(--border);font-weight:600;}
+  table.matrix tbody tr:last-child td, table.matrix tbody tr:last-child th{border-top:2px solid var(--navy-deep);background:#EEF1F8;font-weight:700;}
+  .cell-heat-0{color:#B6BBC6;} .cell-heat-lo{color:var(--text);} .cell-heat-hi{color:var(--red);}
+
+  .donut-wrap{display:flex;align-items:center;gap:20px;margin-top:8px;}
+  svg.donut{flex-shrink:0;}
+  .legend-aging{display:flex;flex-direction:column;gap:8px;font-size:13px;}
+  .legend-aging .row{display:flex;align-items:center;gap:8px;}
+  .dot{width:10px;height:10px;border-radius:50%;display:inline-block;}
+  .legend-aging b{margin-left:auto;font-variant-numeric:tabular-nums;}
+
+  .placeholder-card{
+    background:#F8F9FB;border:1px dashed var(--border);border-radius:10px;
+    padding:24px 20px;text-align:center;color:var(--text-muted);font-size:12.5px;
+  }
+
+  .loading, .erro-carregamento{padding:40px;text-align:center;color:var(--text-muted);font-size:14px;}
+  .erro-carregamento{color:var(--red);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="mark">CD</div>
+      <div>
+        <h1>Report E-commerce · Outbound</h1>
+        <div class="sub">Dados reais — Supabase</div>
+      </div>
+    </div>
+    <div class="topmeta" id="ultimaAtualizacao">Carregando...</div>
+  </header>
+
+  <div id="conteudo">
+    <div class="loading">Carregando dados do Supabase...</div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = "https://tawliuofpmfohylqdnix.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable__a5cJ6yFJIMgf505C4v7vQ_igDbuv5k";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function carregarRelatorio() {
+  const { data, error } = await supabaseClient
+    .from("dashboard_snapshots")
+    .select("*")
+    .eq("pagina", "outbound")
+    .order("gerado_em", { ascending: false })
+    .limit(2);
+
+  if (error) {
+    document.getElementById("conteudo").innerHTML =
+      `<div class="erro-carregamento">Erro ao carregar dados: ${error.message}</div>`;
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    document.getElementById("conteudo").innerHTML =
+      `<div class="erro-carregamento">Nenhum dado encontrado ainda. Rode a atualização em "Abastecimento de Dados" primeiro.</div>`;
+    return;
+  }
+
+  const atual = data[0].payload;
+  const anterior = data[1] ? data[1].payload : null;
+
+  const dataGerado = new Date(data[0].gerado_em);
+  document.getElementById("ultimaAtualizacao").textContent =
+    "Última atualização: " + dataGerado.toLocaleString('pt-BR');
+
+  renderizar(atual, anterior);
+}
+
+function renderizar(atual, anterior) {
+  const html = `
+    <div class="section-title">Indicadores do dia</div>
+    <div class="kpi-row" id="kpiRow"></div>
+
+    <div class="leadtime-row" id="leadtimeRow"></div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Status por etapa (Itens)</div>
+        <table class="matrix" id="matrixItens"></table>
+      </div>
+      <div class="card">
+        <div class="section-title">Status por etapa (Pedidos)</div>
+        <table class="matrix" id="matrixPedidos"></table>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Backlog FIFO em itens</div>
+        <div class="donut-wrap">
+          <svg class="donut" width="140" height="140" viewBox="0 0 220 220" id="donutSvg"></svg>
+          <div class="legend-aging" id="donutLegend"></div>
+        </div>
+      </div>
+      <div class="placeholder-card">
+        Itens por Marketplace / Segmento — em construção<br>
+        (aguardando view de cruzamento com dim_acronimos / dim_embalas)
+      </div>
+    </div>
+
+    <div class="placeholder-card">
+      Expedição × Forecast — em construção (sem fonte de dados de meta/forecast ainda)
+    </div>
+  `;
+  document.getElementById("conteudo").innerHTML = html;
+
+  renderKpis(atual, anterior);
+  renderLeadtimes(atual);
+  renderMatriz(atual.status_por_etapa_itens, "matrixItens");
+  renderMatriz(atual.status_por_etapa_pedidos, "matrixPedidos");
+  renderBacklog(atual.backlog_fifo);
+}
+
+function renderKpis(atual, anterior) {
+  const otifAtual = atual.kpis.otif_pct;
+  const otifAnterior = anterior ? anterior.kpis.otif_pct : null;
+  let deltaTexto = "—", deltaClasse = "flat";
+  if (otifAtual !== null && otifAnterior !== null) {
+    const delta = otifAtual - otifAnterior;
+    deltaTexto = (delta >= 0 ? "+" : "") + delta.toFixed(1).replace('.', ',') + " p.p.";
+    deltaClasse = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+  }
+
+  const kpis = [
+    { tag: "Pedidos em fluxo", valor: atual.kpis.pedidos_em_fluxo.toLocaleString('pt-BR'), delta: "—", status: "flat" },
+    { tag: "Itens em fluxo", valor: atual.kpis.itens_em_fluxo.toLocaleString('pt-BR'), delta: "—", status: "flat" },
+    { tag: "OTIF", valor: otifAtual !== null ? otifAtual.toFixed(1).replace('.', ',') + "%" : "—", delta: deltaTexto, status: deltaClasse === "up" ? "ok" : deltaClasse === "down" ? "bad" : "flat" },
+  ];
+
+  const kpiRow = document.getElementById("kpiRow");
+  kpis.forEach(k => {
+    const div = document.createElement("div");
+    div.className = "kpi-card";
+    div.innerHTML = `
+      <div class="bar ${k.status}"></div>
+      <div class="tag">${k.tag}</div>
+      <div class="value">${k.valor}</div>
+      <div class="delta ${k.status === 'ok' ? 'up' : k.status === 'bad' ? 'down' : 'flat'}">${k.delta}</div>`;
+    kpiRow.appendChild(div);
+  });
+}
+
+function cardLeadtime(tag, lt) {
+  if (!lt) {
+    return `<div class="leadtime-card"><div class="tag">${tag}</div><div class="media">Sem dados</div></div>`;
+  }
+  return `
+    <div class="leadtime-card">
+      <div class="bar ok"></div>
+      <div class="tag">${tag}</div>
+      <div class="media">${lt.media.toFixed(1).replace('.', ',')}h</div>
+      <div class="minmax-row">
+        <div class="minmax-item max">
+          <div class="lab">Máx.</div>
+          <div class="val">${lt.max.valor.toFixed(1).replace('.', ',')}h</div>
+          <div class="pedido">Ped. ${lt.max.pedido}</div>
+        </div>
+        <div class="minmax-item min">
+          <div class="lab">Mín.</div>
+          <div class="val">${lt.min.valor.toFixed(1).replace('.', ',')}h</div>
+          <div class="pedido">Ped. ${lt.min.pedido}</div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderLeadtimes(atual) {
+  const leadtimeRow = document.getElementById("leadtimeRow");
+  leadtimeRow.innerHTML =
+    cardLeadtime("Leadtime SAP → WMS", atual.leadtimes.sap_wms) +
+    cardLeadtime("Leadtime NF (integração)", atual.leadtimes.nf) +
+    cardLeadtime("Leadtime CD", atual.leadtimes.cd);
+}
+
+function renderMatriz(tabela, elId) {
+  const el = document.getElementById(elId);
+  if (!tabela || tabela.length === 0) {
+    el.innerHTML = "<tr><td>Sem dados</td></tr>";
+    return;
+  }
+  const marcas = tabela[0].marcas;
+  let html = "<thead><tr><th>Status</th>";
+  marcas.forEach(m => html += `<th>${m}</th>`);
+  html += "</tr></thead><tbody>";
+  const totalPorMarca = marcas.map((_, i) => tabela.reduce((acc, e) => acc + e.valores[i], 0));
+  tabela.forEach(e => {
+    html += `<tr><th>${e.status}</th>`;
+    e.valores.forEach(v => {
+      const cls = v === 0 ? "cell-heat-0" : (v > 3000 ? "cell-heat-hi" : "cell-heat-lo");
+      html += `<td class="${cls}">${v.toLocaleString('pt-BR')}</td>`;
+    });
+    html += "</tr>";
+  });
+  html += `<tr><th>Total</th>`;
+  totalPorMarca.forEach(t => html += `<td>${t.toLocaleString('pt-BR')}</td>`);
+  html += "</tr></tbody>";
+  el.innerHTML = html;
+}
+
+function renderBacklog(backlog) {
+  const donutSvg = document.getElementById("donutSvg");
+  const donutLegend = document.getElementById("donutLegend");
+  const cores = { "01": "var(--olive)", "02": "var(--amber)", "03": "#B6BBC6", "04+": "var(--red)" };
+  const total = backlog.reduce((a, b) => a + b.valor, 0) || 1;
+
+  let angleStart = -90;
+  const cx = 110, cy = 110, r = 78, sw = 28;
+  backlog.forEach(seg => {
+    const angle = (seg.valor / total) * 360;
+    const large = angle > 180 ? 1 : 0;
+    const x1 = cx + r * Math.cos(angleStart * Math.PI / 180);
+    const y1 = cy + r * Math.sin(angleStart * Math.PI / 180);
+    const angleEnd = angleStart + angle;
+    const x2 = cx + r * Math.cos(angleEnd * Math.PI / 180);
+    const y2 = cy + r * Math.sin(angleEnd * Math.PI / 180);
+    if (seg.valor > 0) {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke", cores[seg.label] || "#999");
+      path.setAttribute("stroke-width", sw);
+      donutSvg.appendChild(path);
+    }
+    angleStart = angleEnd;
+  });
+
+  const centerVal = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  centerVal.setAttribute("x", cx); centerVal.setAttribute("y", cy - 2);
+  centerVal.setAttribute("text-anchor", "middle");
+  centerVal.setAttribute("font-size", "22"); centerVal.setAttribute("font-weight", "700");
+  centerVal.setAttribute("fill", "#1C2333");
+  centerVal.textContent = total;
+  donutSvg.appendChild(centerVal);
+
+  const centerLab = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  centerLab.setAttribute("x", cx); centerLab.setAttribute("y", cy + 16);
+  centerLab.setAttribute("text-anchor", "middle");
+  centerLab.setAttribute("font-size", "11"); centerLab.setAttribute("fill", "#6B7280");
+  centerLab.textContent = "itens em backlog";
+  donutSvg.appendChild(centerLab);
+
+  backlog.forEach(seg => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<span class="dot" style="background:${cores[seg.label] || '#999'}"></span>Dia ${seg.label}<b>${seg.valor}</b>`;
+    donutLegend.appendChild(row);
+  });
+}
+
+carregarRelatorio();
+</script>
+</body>
+</html>
