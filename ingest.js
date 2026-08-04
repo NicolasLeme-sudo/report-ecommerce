@@ -271,12 +271,15 @@ function calcularStatus(p) {
     return "02 - Em Separação";
   }
 
-  // 03 - Aguardando NF: separado, enviado para faturamento, mas NF não emitida
+  // 03 - Aguardando NF: enviado para faturamento mas NF ainda não emitida
   if (wms === "ENVIADO PARA FATURAMENTO" && !p.faturado_em) {
     return "03 - Separado - Aguardando NF";
   }
 
-  // 04 - Conferir: NF emitida, aguardando conferência
+  // 04 - Conferir: NF emitida (faturado_em preenchido) mas conferência pendente
+  if (wms === "ENVIADO PARA FATURAMENTO" && p.faturado_em && !p.conferido_em) {
+    return "04 - Separado - Conferir";
+  }
   if (wms === "FATURADO" && !p.conferido_em) {
     return "04 - Separado - Conferir";
   }
