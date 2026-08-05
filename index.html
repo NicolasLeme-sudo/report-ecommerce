@@ -1132,10 +1132,12 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
 });
   ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
   const f = document.getElementById('fileEstoquePicking').files[0];
+ ligarBotao('btnEstoque', 'progressEstoque', async () => {
+  mostrar('progressEstoque', 'Funcionalidade em construção — em breve disponível.', 'erro');
+}, () => {
+  const f = document.getElementById('fileEstoquePicking').files[0];
   return f ? { arquivoEstoque: f } : null;
-});
-
-ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
+});ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
   const w = document.getElementById('fileWMS').files[0];
   const s = document.getElementById('fileSAP').files[0];
   return (w&&s) ? { arquivoWMS: w, arquivoSAP: s } : null;
