@@ -1138,10 +1138,12 @@ ligarBotao('btnEstoque', 'progressEstoque', async () => {
   return f ? { arquivoEstoque: f } : null;
 });
 
-ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
+ligarBotao('btnBalanco', 'progressBalanco', async () => {
+  mostrar('progressBalanco', 'Funcionalidade em construção — em breve disponível.', 'erro');
+}, () => {
   const w = document.getElementById('fileWMS').files[0];
   const s = document.getElementById('fileSAP').files[0];
-  return (w&&s) ? { arquivoWMS: w, arquivoSAP: s } : null;
+  return (w&&s) ? {arquivoWMS: w, arquivoSAP: s} : null;
 });
 
 ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) {
