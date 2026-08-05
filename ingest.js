@@ -970,6 +970,8 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     marketplaces: marketplaces,
     segmentos: segmentos,
   };
+}
+
 // =========================================================
 // INBOUND — funções de ingestão
 // Adicionar ao final do ingest.js (antes do fechamento, se houver)
