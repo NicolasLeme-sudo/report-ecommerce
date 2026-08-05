@@ -1187,18 +1187,23 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   const anoAtual = hoje.getFullYear();
 
   // KPIs de NFs
+  // Pendente de recebimento = IMPORTADA (não recebida) + EM CARGA/OR (recebida, aguardando armazenagem)
+  // O "pendente" no seu report representa tudo que ainda não foi PROCESSADA
   const nfsPendReceb = nfRegistros.filter(function(n){ return n.status === "IMPORTADA"; });
   const nfsPendArm   = nfRegistros.filter(function(n){ return n.status === "EM CARGA/OR"; });
   const nfIdsReceb   = new Set(nfsPendReceb.map(function(n){ return n.id_nota_fiscal; }));
+  // Armazenagem pendente vem do Stage (já definido), NFs EM CARGA/OR são subconjunto do pendente receb
   const nfIdsArm     = new Set(nfsPendArm.map(function(n){ return n.id_nota_fiscal; }));
 
   // KPIs de itens
   const itensPendReceb = itensRegistros
     .filter(function(i){ return nfIdsReceb.has(i.id_nota_fiscal); })
     .reduce(function(s, i){ return s + i.quantidade; }, 0);
-  const itensPendArm = stageRegistros
+  const itensPendArmNF = itensRegistros
+    .filter(function(i){ return nfIdsArm.has(i.id_nota_fiscal); })
+    .reduce(function(s, i){ return s + i.quantidade; }, 0);
+  const itensPendArm = itensPendArmNF + stageRegistros
     .reduce(function(s, i){ return s + i.estoque_un; }, 0);
-
   // Últimos 7 dias
   const dias7 = [];
   for (let i = 6; i >= 0; i--) {
