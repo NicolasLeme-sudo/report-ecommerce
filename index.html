@@ -417,7 +417,6 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
     </div>
     <div class="menu-item" onclick="mostrarSecao('inbound')">
       <span class="icone">📥</span> Inbound
-      <span class="badge-em-construcao">Em breve</span>
     </div>
     <div class="menu-item" onclick="mostrarSecao('estoque')">
       <span class="icone">🏪</span> Estoque
@@ -474,10 +473,8 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 
     <!-- INBOUND (em construção) -->
     <div class="secao" id="secao-inbound">
-      <div class="placeholder">
-        <span class="icone-grande">📥</span>
-        <h3>Inbound — Em construção</h3>
-        <p>Esta seção vai exibir NFs a receber, itens a armazenar, lead time de recebimento e produtividade de armazenagem.</p>
+      <div id="inbound-conteudo">
+        <div class="loading-msg">Clique em Inbound para carregar os dados.</div>
       </div>
     </div>
 
@@ -542,7 +539,19 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <button class="btn-upload" id="btnAcronimos">Atualizar Base de Acrônimos</button>
         <div class="progress-box" id="progressAcronimos"></div>
       </div>
-
+<div class="upload-card">
+        <h2>Atualizar Relatórios do Inbound</h2>
+        <div class="freq">Frequência: diária</div>
+        <div class="file-row">
+          <div class="file-field"><label>Controle_de_NF_Recebs.tsv</label><input type="file" id="fileRecebs"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensEntrada"></div>
+          <div class="file-field"><label>Gerenciador_de_OR.tsv</label><input type="file" id="fileOR"></div>
+          <div class="file-field"><label>Kardex_de_End.tsv</label><input type="file" id="fileKardex"></div>
+          <div class="file-field"><label>Recebimento_Stage.tsv</label><input type="file" id="fileStage"></div>
+        </div>
+        <button class="btn-upload" id="btnInbound">Atualizar Relatórios do Inbound</button>
+        <div class="progress-box" id="progressInbound"></div>
+      </div>
       <div class="upload-card">
         <h2>Atualizar Forecast Mensal</h2>
         <div class="freq">Frequência: mensal</div>
@@ -591,6 +600,7 @@ function mostrarSecao(secao) {
 
   // Carrega os dados da seção se necessário
   if (secao === 'outbound') carregarOutbound();
+  if (secao === 'inbound')  carregarInbound();
 }
 
 /* ============================================================
@@ -1102,6 +1112,14 @@ ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () 
 });
 ligarBotao('btnEmbalagem',  'progressEmbalagem',  processarBaseEmbalagem,  () => document.getElementById('fileEmbalas').files[0]   || null);
 ligarBotao('btnAcronimos',  'progressAcronimos',  processarBaseAcronimos,  () => document.getElementById('fileAcronimos').files[0]  || null);
+ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
+  const r = document.getElementById('fileRecebs').files[0];
+  const i = document.getElementById('fileItensEntrada').files[0];
+  const o = document.getElementById('fileOR').files[0];
+  const k = document.getElementById('fileKardex').files[0];
+  const s = document.getElementById('fileStage').files[0];
+  return (r&&i&&o&&k&&s) ? {arquivoRecebs:r, arquivoItens:i, arquivoOR:o, arquivoKardex:k, arquivoStage:s} : null;
+});
 ligarBotao('btnForecast',   'progressForecast',   processarForecastMensal, () => document.getElementById('fileForecast').files[0]  || null);
 
 /* ============================================================
@@ -1110,6 +1128,147 @@ ligarBotao('btnForecast',   'progressForecast',   processarForecastMensal, () =>
    2. Carrega os dados do Outbound
    3. Popula o seletor de histórico
    ============================================================ */
+async function carregarInbound() {
+  document.getElementById('inbound-conteudo').innerHTML =
+    '<div class="loading-msg">Carregando dados do Inbound...</div>';
+
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('*')
+    .eq('pagina', 'inbound')
+    .order('gerado_em', { ascending: false })
+    .limit(1);
+
+  if (error || !data || data.length === 0) {
+    document.getElementById('inbound-conteudo').innerHTML =
+      '<div class="erro-msg">Nenhum dado encontrado. Use Abastecimento → Atualizar Relatórios do Inbound.</div>';
+    return;
+  }
+
+  renderizarInbound(data[0].payload);
+}
+
+function renderizarInbound(p) {
+  const html = `
+    <div class="section-title">Indicadores do Inbound</div>
+    <div class="grid3" style="margin-bottom:14px;">
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Recebimento</div><div class="value">${(p.kpis.nfs_pend_recebimento||0).toLocaleString('pt-BR')}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento</div><div class="value">${(p.kpis.itens_pend_recebimento||0).toLocaleString('pt-BR')}</div></div>
+      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Recebimento Mensal</div><div class="value">${(p.kpis.acumulado_recebimento_mes||0).toLocaleString('pt-BR')}</div></div>
+    </div>
+    <div class="grid3" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Armazenagem</div><div class="value">${(p.kpis.nfs_pend_armazenagem||0).toLocaleString('pt-BR')}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Armazenagem</div><div class="value">${(p.kpis.itens_pend_armazenagem||0).toLocaleString('pt-BR')}</div></div>
+      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Armazenagem Mensal</div><div class="value">${(p.kpis.acumulado_armazenagem_mes||0).toLocaleString('pt-BR')}</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Recebimento — últimos 7 dias (itens)</div>
+        <svg id="svgReceb" width="100%" height="160" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="card">
+        <div class="section-title">Armazenagem — últimos 7 dias (itens)</div>
+        <svg id="svgArm" width="100%" height="160" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">Análise Automática — Start Operacional / Movimentação</div>
+      <div style="color:var(--text-muted);font-size:13px;padding:12px 0;">
+        Disponível após implementação do módulo de Estoque — será exibida a recomendação de andares para alocação da carga, cruzando ocupação atual com segmento e marca do material pendente.
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Top 10 NFs por FIFO</div>
+        <table class="matrix" id="tabelaFifo"></table>
+      </div>
+      <div class="card">
+        <div class="section-title">Pendente de Entrada — Marca × Segmento</div>
+        <table class="matrix" id="tabelaPendente"></table>
+      </div>
+    </div>`;
+
+  document.getElementById('inbound-conteudo').innerHTML = html;
+  renderGraficoLinhaInbound('svgReceb', p.recebimento_7dias);
+  renderGraficoLinhaInbound('svgArm',   p.armazenagem_7dias);
+  renderTabelaFifo(p.top10_nfs_fifo);
+  renderMatrizPendente(p.matriz_pendente);
+}
+
+function renderGraficoLinhaInbound(svgId, dados) {
+  if (!dados) return;
+  const svg = document.getElementById(svgId);
+  const w=560,h=160,pL=34,pR=12,pT=28,pB=24;
+  const vals = dados.itens;
+  const mx = Math.max(...vals, 1) * 1.15;
+  const n = dados.dias.length;
+  const xF = function(i){ return pL + i*((w-pL-pR)/(n-1)); };
+  const yF = function(v){ return (h-pB) - (v/mx)*(h-pT-pB); };
+  const pts = vals.map(function(v,i){ return [xF(i), yF(v)]; });
+  const path = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1); }).join(' ');
+  const line = document.createElementNS('http://www.w3.org/2000/svg','path');
+  line.setAttribute('d',path); line.setAttribute('fill','none');
+  line.setAttribute('stroke','var(--accent)'); line.setAttribute('stroke-width','2.5');
+  line.setAttribute('stroke-linecap','round'); line.setAttribute('stroke-linejoin','round');
+  svg.appendChild(line);
+  pts.forEach(function(p,i) {
+    const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r','3');
+    c.setAttribute('fill','var(--accent)'); svg.appendChild(c);
+    const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
+    lb.setAttribute('x',p[0]); lb.setAttribute('y',p[1]-8);
+    lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','10');
+    lb.setAttribute('fill','var(--text)');
+    lb.textContent=vals[i].toLocaleString('pt-BR'); svg.appendChild(lb);
+    const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
+    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-6);
+    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','10');
+    dt.setAttribute('fill','var(--text-muted)');
+    dt.textContent=dados.dias[i]; svg.appendChild(dt);
+  });
+}
+
+function renderTabelaFifo(nfs) {
+  const el = document.getElementById('tabelaFifo');
+  if (!nfs || !nfs.length) { el.innerHTML='<tr><td>Sem dados</td></tr>'; return; }
+  let h = '<thead><tr><th>NF</th><th>Status</th><th>Emissão</th><th>Itens</th><th>Marca</th><th>Segmento</th></tr></thead><tbody>';
+  nfs.forEach(function(n) {
+    const dt = n.data_emissao ? new Date(String(n.data_emissao).replace(' ','T')).toLocaleDateString('pt-BR') : '-';
+    h += `<tr>
+      <th>${n.nota_fiscal}</th>
+      <td>${n.status}</td>
+      <td>${dt}</td>
+      <td>${(n.total_itens||0).toLocaleString('pt-BR')}</td>
+      <td>${n.marcas||'-'}</td>
+      <td>${n.segmentos||'-'}</td>
+    </tr>`;
+  });
+  h += '</tbody>';
+  el.innerHTML = h;
+}
+
+function renderMatrizPendente(matriz) {
+  const el = document.getElementById('tabelaPendente');
+  if (!matriz || !matriz.length) { el.innerHTML='<tr><td>Sem dados</td></tr>'; return; }
+  const marcas = matriz[0].marcas;
+  let h = '<thead><tr><th>Segmento</th>';
+  marcas.forEach(function(m){ h += `<th>${m}</th>`; });
+  h += '<th>Total</th></tr></thead><tbody>';
+  const totMarca = marcas.map(function(_,i){ return matriz.reduce(function(a,r){ return a+r.valores[i]; },0); });
+  const totGeral = matriz.reduce(function(a,r){ return a+r.total; },0);
+  matriz.forEach(function(r) {
+    h += `<tr><th>${r.segmento}</th>`;
+    r.valores.forEach(function(v){ h += `<td>${v.toLocaleString('pt-BR')}</td>`; });
+    h += `<td style="font-weight:700">${r.total.toLocaleString('pt-BR')}</td></tr>`;
+  });
+  h += '<tr><th>Total</th>';
+  totMarca.forEach(function(t){ h += `<td>${t.toLocaleString('pt-BR')}</td>`; });
+  h += `<td>${totGeral.toLocaleString('pt-BR')}</td></tr></tbody>`;
+  el.innerHTML = h;
+}
 mostrarSecao('outbound');
 carregarDatasHistorico();
 </script>
