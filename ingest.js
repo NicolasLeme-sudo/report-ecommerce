@@ -970,4 +970,321 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     marketplaces: marketplaces,
     segmentos: segmentos,
   };
+// =========================================================
+// INBOUND — funções de ingestão
+// Adicionar ao final do ingest.js (antes do fechamento, se houver)
+// =========================================================
+
+// Colunas obrigatórias por arquivo do Inbound
+const COLUNAS_INBOUND = {
+  nf_recebs:    ["idNotaFiscal", "Nota Fiscal", "Status", "Data de Emissão"],
+  itens_entrada:["idNotaFiscal", "Código do Produto", "Barra", "Quantidade"],
+  gerenciador:  ["Nota Fiscal", "Data da Conferência", "Qtde. de Volumes"],
+  kardex:       ["Data", "Local", "Estoque Antes", "Estoque Após"],
+  stage:        ["Local", "Barra", "Produto", "Estoque (UN)"],
+};
+
+function validarColunasInbound(header, tipo) {
+  const obrigatorias = COLUNAS_INBOUND[tipo] || [];
+  const faltando = obrigatorias.filter(function(c){ return !header.includes(c); });
+  if (faltando.length > 0) {
+    throw new Error(
+      "Arquivo inválido para " + tipo + ".\n" +
+      "Colunas faltando: " + faltando.join(", ") + "\n" +
+      "Encontradas: " + header.slice(0,8).join(", ")
+    );
+  }
+}
+
+// Normaliza segmento para Calçados ou Vestuário (agrupamento do Inbound)
+// Calçados = Calçados + Chinelos
+// Vestuário = Vestuários + Meias + Acessórios
+function normalizarSegmentoInbound(segmento) {
+  const s = normalizarEncoding(segmento || "").toLowerCase();
+  if (s.includes("chin") || s.includes("cal")) return "Calçados";
+  return "Vestuário";
+}
+
+// -------------------------------------------------------------------------
+// PROCESSAMENTO DO INBOUND
+// -------------------------------------------------------------------------
+async function processarRelatoriosInbound(files, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+
+  onProgress("Lendo arquivos do Inbound...");
+  const textoRecebs  = await files.arquivoRecebs.text();
+  const textoItens   = await files.arquivoItens.text();
+  const textoOR      = await files.arquivoOR.text();
+  const textoKardex  = await files.arquivoKardex.text();
+  const textoStage   = await files.arquivoStage.text();
+
+  // Parsear cada arquivo
+  const linhasRecebs  = parseTSVSelecionado(textoRecebs,  ["idNotaFiscal","Nota Fiscal","Status","Data de Emissão","Data de Cadastro","Data de Processamento","Emitente","Ordem de Recebimento"]);
+  const linhasItens   = parseTSVSelecionado(textoItens,   ["idNotaFiscal","Código do Produto","Produto","Barra","Quantidade"]);
+  const linhasOR      = parseTSVSelecionado(textoOR,      ["Nota Fiscal","Data da Conferência","Qtde. de Volumes"]);
+  const linhasKardex  = parseTSVSelecionado(textoKardex,  ["Data","Local","Estoque Antes","Estoque Após"]);
+  const linhasStage   = parseTSVSelecionado(textoStage,   ["Local","Barra","Produto","Estoque (UN)"]);
+
+  // Validar colunas
+  const hRecebs  = Object.keys(linhasRecebs[0]  || {});
+  const hItens   = Object.keys(linhasItens[0]   || {});
+  const hOR      = Object.keys(linhasOR[0]      || {});
+  const hKardex  = Object.keys(linhasKardex[0]  || {});
+  const hStage   = Object.keys(linhasStage[0]   || {});
+  validarColunasInbound(hRecebs,  "nf_recebs");
+  validarColunasInbound(hItens,   "itens_entrada");
+  validarColunasInbound(hOR,      "gerenciador");
+  validarColunasInbound(hKardex,  "kardex");
+  validarColunasInbound(hStage,   "stage");
+
+  // Carregar embalas do Supabase para cruzamento
+  onProgress("Carregando base de embalagem...");
+  const embalasMap = new Map();
+  let offset = 0;
+  while (true) {
+    const { data: lote } = await supabaseClient.from("dim_embalas").select("codigo_barra,segmento,marca").range(offset, offset + 999);
+    if (!lote || lote.length === 0) break;
+    lote.forEach(function(e){ embalasMap.set(String(e.codigo_barra).trim(), e); });
+    if (lote.length < 1000) break;
+    offset += 1000;
+  }
+  onProgress(embalasMap.size + " SKUs carregados.");
+
+  // ---- 1) NFs de recebimento ----
+  const statusValidos = ["IMPORTADA", "EM CARGA/OR", "PROCESSADA"];
+  const nfRegistros = linhasRecebs
+    .filter(function(r){ return statusValidos.includes(r["Status"]); })
+    .map(function(r){
+      return {
+        id_nota_fiscal:     Number(r["idNotaFiscal"]),
+        nota_fiscal:        r["Nota Fiscal"],
+        status:             r["Status"],
+        data_emissao:       parseDataBR(r["Data de Emissão"]),
+        data_cadastro:      parseDataBR(r["Data de Cadastro"]),
+        data_processamento: parseDataBR(r["Data de Processamento"]),
+        emitente:           r["Emitente"],
+        ordem_recebimento:  r["Ordem de Recebimento"],
+      };
+    });
+
+  onProgress("Gravando " + nfRegistros.length + " NFs...");
+  // Limpa e reinsere (base mensal — sempre substitui)
+  await supabaseClient.from("inbound_nfs").delete().neq("id_nota_fiscal", 0);
+  for (let i = 0; i < nfRegistros.length; i += 500) {
+    const { error } = await supabaseClient.from("inbound_nfs").insert(nfRegistros.slice(i, i+500));
+    if (error) console.error("Erro inbound_nfs:", error);
+  }
+
+  // ---- 2) Itens das NFs ----
+  const nfIds = new Set(nfRegistros.map(function(r){ return String(r.id_nota_fiscal); }));
+  const itensRegistros = linhasItens
+    .filter(function(r){ return nfIds.has(r["idNotaFiscal"]); })
+    .map(function(r){
+      const barra = String(r["Barra"] || "").trim();
+      const emb   = embalasMap.get(barra);
+      const seg   = emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados";
+      const marca = emb ? emb.marca : null;
+      return {
+        id_nota_fiscal: Number(r["idNotaFiscal"]),
+        codigo_produto:  r["Código do Produto"],
+        produto:         normalizarEncoding(r["Produto"]),
+        barra:           barra,
+        quantidade:      Number(r["Quantidade"]) || 0,
+        segmento:        seg,
+        marca:           marca,
+      };
+    });
+
+  onProgress("Gravando " + itensRegistros.length + " itens...");
+  await supabaseClient.from("inbound_itens").delete().neq("id", 0);
+  for (let i = 0; i < itensRegistros.length; i += 500) {
+    const { error } = await supabaseClient.from("inbound_itens").insert(itensRegistros.slice(i, i+500));
+    if (error) console.error("Erro inbound_itens:", error);
+  }
+
+  // ---- 3) Recebimento diário (Gerenciador de OR) ----
+  const recebPorDia = {};
+  linhasOR.forEach(function(r){
+    const d = parseDataBR(r["Data da Conferência"]);
+    if (!d) return;
+    const iso = paraDataISOLocal(d);
+    if (!recebPorDia[iso]) recebPorDia[iso] = { nfs: 0, itens: 0 };
+    recebPorDia[iso].nfs++;
+    recebPorDia[iso].itens += Number(r["Qtde. de Volumes"]) || 0;
+  });
+  const recebRegistros = Object.keys(recebPorDia).map(function(d){
+    return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
+  });
+  for (let i = 0; i < recebRegistros.length; i += 200) {
+    const { error } = await supabaseClient.from("inbound_recebimento_diario")
+      .upsert(recebRegistros.slice(i, i+200), { onConflict: "data_conferencia" });
+    if (error) console.error("Erro recebimento_diario:", error);
+  }
+
+  // ---- 4) Armazenagem diária (Kardex de End — endereços H, I, J) ----
+  const armPorDia = {};
+  linhasKardex.forEach(function(r){
+    const local = String(r["Local"] || "").toUpperCase();
+    if (!local.startsWith("H") && !local.startsWith("I") && !local.startsWith("J")) return;
+    const d = parseDataBR(r["Data"]);
+    if (!d) return;
+    const iso = paraDataISOLocal(d);
+    const qtde = (Number(r["Estoque Antes"]) || 0) - (Number(r["Estoque Após"]) || 0);
+    if (!armPorDia[iso]) armPorDia[iso] = 0;
+    armPorDia[iso] += qtde;
+  });
+  const armRegistros = Object.keys(armPorDia).map(function(d){
+    return { data_alocacao: d, itens_armazenados: armPorDia[d] };
+  });
+  for (let i = 0; i < armRegistros.length; i += 200) {
+    const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+      .upsert(armRegistros.slice(i, i+200), { onConflict: "data_alocacao" });
+    if (error) console.error("Erro armazenagem_diario:", error);
+  }
+
+  // ---- 5) Stage pendente (Recebimento Stage — endereços H, I, J) ----
+  const stageRegistros = linhasStage
+    .filter(function(r){
+      const local = String(r["Local"] || "").toUpperCase();
+      return local.startsWith("H") || local.startsWith("I") || local.startsWith("J");
+    })
+    .map(function(r){
+      const barra = String(r["Barra"] || "").trim();
+      const emb   = embalasMap.get(barra);
+      return {
+        local:       r["Local"],
+        barra:       barra,
+        produto:     normalizarEncoding(r["Produto"]),
+        estoque_un:  Number(r["Estoque (UN)"]) || 0,
+        segmento:    emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados",
+        marca:       emb ? emb.marca : null,
+      };
+    });
+
+  await supabaseClient.from("inbound_stage").delete().neq("id", 0);
+  for (let i = 0; i < stageRegistros.length; i += 500) {
+    const { error } = await supabaseClient.from("inbound_stage").insert(stageRegistros.slice(i, i+500));
+    if (error) console.error("Erro inbound_stage:", error);
+  }
+
+  // ---- Gerar payload do dashboard Inbound ----
+  onProgress("Gerando snapshot do Inbound...");
+  const payload = await gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, armPorDia, stageRegistros);
+  await salvarSnapshot("inbound", "auto", payload);
+  await registrarLog("inbound", "Relatórios Inbound", nfRegistros.length);
+
+  onProgress("✓ Inbound atualizado! " + nfRegistros.length + " NFs | " + itensRegistros.length + " itens | " + stageRegistros.length + " endereços no stage.");
+}
+
+// -------------------------------------------------------------------------
+// PAYLOAD DO DASHBOARD INBOUND
+// -------------------------------------------------------------------------
+async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, armPorDia, stageRegistros) {
+  const hoje = new Date();
+  const mesAtual = hoje.getMonth();
+  const anoAtual = hoje.getFullYear();
+
+  // KPIs de NFs
+  const nfsPendReceb = nfRegistros.filter(function(n){ return n.status === "IMPORTADA"; });
+  const nfsPendArm   = nfRegistros.filter(function(n){ return n.status === "EM CARGA/OR"; });
+  const nfIdsReceb   = new Set(nfsPendReceb.map(function(n){ return n.id_nota_fiscal; }));
+  const nfIdsArm     = new Set(nfsPendArm.map(function(n){ return n.id_nota_fiscal; }));
+
+  // KPIs de itens
+  const itensPendReceb = itensRegistros
+    .filter(function(i){ return nfIdsReceb.has(i.id_nota_fiscal); })
+    .reduce(function(s, i){ return s + i.quantidade; }, 0);
+  const itensPendArm = stageRegistros
+    .reduce(function(s, i){ return s + i.estoque_un; }, 0);
+
+  // Últimos 7 dias
+  const dias7 = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(hoje);
+    d.setDate(hoje.getDate() - i);
+    dias7.push(paraDataISOLocal(d));
+  }
+  const labelsDias = dias7.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); });
+  const receb7dias = dias7.map(function(d){ return recebPorDia[d] ? recebPorDia[d].itens : 0; });
+  const arm7dias   = dias7.map(function(d){ return armPorDia[d] || 0; });
+
+  // Acumulado mensal (soma do histórico)
+  const { data: acumReceb } = await supabaseClient
+    .from("inbound_recebimento_diario")
+    .select("itens_recebidos, data_conferencia")
+    .gte("data_conferencia", anoAtual + "-" + String(mesAtual+1).padStart(2,"0") + "-01");
+  const { data: acumArm } = await supabaseClient
+    .from("inbound_armazenagem_diario")
+    .select("itens_armazenados, data_alocacao")
+    .gte("data_alocacao", anoAtual + "-" + String(mesAtual+1).padStart(2,"0") + "-01");
+
+  const totalRecebMes = (acumReceb||[]).reduce(function(s,r){ return s + r.itens_recebidos; }, 0);
+  const totalArmMes   = (acumArm||[]).reduce(function(s,r){ return s + r.itens_armazenados; }, 0);
+
+  // Top 10 NFs por FIFO (IMPORTADA + EM CARGA/OR, mais antigas primeiro)
+  const nfsPendentes = nfRegistros
+    .filter(function(n){ return n.status === "IMPORTADA" || n.status === "EM CARGA/OR"; })
+    .sort(function(a,b){ return new Date(a.data_emissao) - new Date(b.data_emissao); })
+    .slice(0, 10)
+    .map(function(n){
+      const itensNF = itensRegistros.filter(function(i){ return i.id_nota_fiscal === n.id_nota_fiscal; });
+      const totalItens = itensNF.reduce(function(s,i){ return s + i.quantidade; }, 0);
+      const marcas = [...new Set(itensNF.map(function(i){ return i.marca; }).filter(Boolean))].join(", ");
+      const segs   = [...new Set(itensNF.map(function(i){ return i.segmento; }).filter(Boolean))].join(", ");
+      return {
+        nota_fiscal:   n.nota_fiscal,
+        status:        n.status,
+        data_emissao:  n.data_emissao,
+        total_itens:   totalItens,
+        marcas:        marcas,
+        segmentos:     segs,
+      };
+    });
+
+  // Pendente por Marca (colunas) x Segmento (linhas: Calçados / Vestuário)
+  // Considera IMPORTADA + EM CARGA/OR + Stage
+  const marcasSet = {};
+  itensRegistros.forEach(function(i){
+    if ((nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.marca) {
+      marcasSet[i.marca] = true;
+    }
+  });
+  stageRegistros.forEach(function(i){ if (i.marca) marcasSet[i.marca] = true; });
+  const marcas = Object.keys(marcasSet).sort();
+  const segmentos = ["Calçados", "Vestuário"];
+
+  function somarPendente(seg, marca) {
+    // Itens das NFs IMPORTADA
+    const deNFs = itensRegistros
+      .filter(function(i){ return (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.segmento === seg && i.marca === marca; })
+      .reduce(function(s,i){ return s + i.quantidade; }, 0);
+    // Itens no Stage
+    const doStage = stageRegistros
+      .filter(function(i){ return i.segmento === seg && i.marca === marca; })
+      .reduce(function(s,i){ return s + i.estoque_un; }, 0);
+    return deNFs + doStage;
+  }
+
+  const matrizPendente = segmentos.map(function(seg){
+    const valores = marcas.map(function(m){ return somarPendente(seg, m); });
+    const total   = valores.reduce(function(a,b){ return a+b; }, 0);
+    return { segmento: seg, marcas: marcas, valores: valores, total: total };
+  });
+
+  return {
+    gerado_em:         new Date().toISOString(),
+    kpis: {
+      nfs_pend_recebimento:  nfsPendReceb.length,
+      itens_pend_recebimento: itensPendReceb,
+      nfs_pend_armazenagem:  nfsPendArm.length,
+      itens_pend_armazenagem: itensPendArm,
+      acumulado_recebimento_mes: totalRecebMes,
+      acumulado_armazenagem_mes: totalArmMes,
+    },
+    recebimento_7dias: { dias: labelsDias, itens: receb7dias },
+    armazenagem_7dias: { dias: labelsDias, itens: arm7dias },
+    top10_nfs_fifo:    nfsPendentes,
+    matriz_pendente:   matrizPendente,
+    analise_automatica: null, // depende do Estoque — implementar depois
+  };
 }
