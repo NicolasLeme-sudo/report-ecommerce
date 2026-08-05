@@ -1286,5 +1286,6 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
     top10_nfs_fifo:    nfsPendentes,
     matriz_pendente:   matrizPendente,
     analise_automatica: null, // depende do Estoque — implementar depois
+}
   };
 }
