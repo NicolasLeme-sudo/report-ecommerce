@@ -1122,8 +1122,6 @@ ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () 
   const p=document.getElementById('filePedidosEcomm').files[0];
   return (o&&e&&i&&p) ? {arquivoOp:o,arquivoExp:e,arquivoItensNF:i,arquivoPedidosEcomm:p} : null;
 });
-ligarBotao('btnEmbalagem',  'progressEmbalagem',  processarBaseEmbalagem,  () => document.getElementById('fileEmbalas').files[0]   || null);
-ligarBotao('btnAcronimos',  'progressAcronimos',  processarBaseAcronimos,  () => document.getElementById('fileAcronimos').files[0]  || null);
 ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   const r = document.getElementById('fileRecebs').files[0];
   const i = document.getElementById('fileItensEntrada').files[0];
