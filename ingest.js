@@ -1290,4 +1290,3 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
     analise_automatica: null, // depende do Estoque — implementar depois
 }
   };
-}
