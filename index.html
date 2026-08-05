@@ -420,7 +420,6 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
     </div>
     <div class="menu-item" onclick="mostrarSecao('estoque')">
       <span class="icone">🏪</span> Estoque
-      <span class="badge-em-construcao">Em breve</span>
     </div>
     <div class="menu-item" onclick="mostrarSecao('reversa')">
       <span class="icone">↩️</span> Reversa
@@ -430,7 +429,6 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
     <div class="sidebar-section-label">Gestão</div>
     <div class="menu-item" onclick="mostrarSecao('balanco')">
       <span class="icone">⚖️</span> Balanço de Estoque
-      <span class="badge-em-construcao">Em breve</span>
     </div>
 
     <div class="sidebar-section-label">Admin</div>
@@ -480,7 +478,8 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 
     <!-- ESTOQUE (em construção) -->
     <div class="secao" id="secao-estoque">
-      <div class="placeholder">
+      <div id="estoque-conteudo"><div class="loading-msg">Clique em Estoque para carregar.</div></div>
+    </div>
         <span class="icone-grande">🏪</span>
         <h3>Gestão de Estoque — Em construção</h3>
         <p>Esta seção vai exibir o estoque atual por piso/bloco, capacidade e % de ocupação por segmento.</p>
@@ -498,7 +497,8 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 
     <!-- BALANÇO (em construção) -->
     <div class="secao" id="secao-balanco">
-      <div class="placeholder">
+      <div id="balanco-conteudo"><div class="loading-msg">Clique em Balanço para carregar.</div></div>
+    </div>
         <span class="icone-grande">⚖️</span>
         <h3>Balanço de Estoque — Gestão</h3>
         <p>Esta seção vai exibir o balanço WMS × SAP, com divergências e valor de estoque. Acesso restrito à Gestão.</p>
@@ -519,26 +519,6 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
       </div>
-
-      <div class="upload-card">
-        <h2>Atualizar Base de Embalagem</h2>
-        <div class="freq">Frequência: toda terça-feira</div>
-        <div class="file-row">
-          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
-        </div>
-        <button class="btn-upload" id="btnEmbalagem">Atualizar Base de Embalagem</button>
-        <div class="progress-box" id="progressEmbalagem"></div>
-      </div>
-
-      <div class="upload-card">
-        <h2>Atualizar Base de Acrônimos</h2>
-        <div class="freq">Frequência: só quando entra um novo parceiro</div>
-        <div class="file-row">
-          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
-        </div>
-        <button class="btn-upload" id="btnAcronimos">Atualizar Base de Acrônimos</button>
-        <div class="progress-box" id="progressAcronimos"></div>
-      </div>
 <div class="upload-card">
         <h2>Atualizar Relatórios do Inbound</h2>
         <div class="freq">Frequência: diária</div>
@@ -553,7 +533,37 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <div class="progress-box" id="progressInbound"></div>
       </div>
       <div class="upload-card">
-        <h2>Atualizar Forecast Mensal</h2>
+        <h2>Atualizar Estoque (Operação)</h2>
+        <div class="freq">Frequência: diária</div>
+        <div class="file-row">
+          <div class="file-field"><label>Estoque_Picking.tsv</label><input type="file" id="fileEstoquePicking"></div>
+        </div>
+        <button class="btn-upload" id="btnEstoque">Atualizar Estoque</button>
+        <div class="progress-box" id="progressEstoque"></div>
+      </div>
+
+      <div class="upload-card">
+        <h2>Atualizar Balanço de Estoque</h2>
+        <div class="freq">Frequência: semanal / sob demanda</div>
+        <div class="file-row">
+          <div class="file-field"><label>Estoque_completo_WMS.xlsx</label><input type="file" id="fileWMS"></div>
+          <div class="file-field"><label>Estoque_SAP.xlsx</label><input type="file" id="fileSAP"></div>
+        </div>
+        <button class="btn-upload" id="btnBalanco">Atualizar Balanço</button>
+        <div class="progress-box" id="progressBalanco"></div>
+      </div>
+
+      <div class="upload-card">
+        <h2>Atualizar Bases Gerais</h2>
+        <div class="freq">Frequência: Embalas toda terça | Custo e Acrônimos raramente</div>
+        <div class="file-row">
+          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
+          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
+          <div class="file-field"><label>Base_Custo.xlsx</label><input type="file" id="fileCusto"></div>
+        </div>
+        <button class="btn-upload" id="btnBasesGerais">Atualizar Bases Gerais</button>
+        <div class="progress-box" id="progressBasesGerais"></div>
+      </div>
         <div class="freq">Frequência: mensal</div>
         <div class="file-row">
           <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
@@ -601,6 +611,8 @@ function mostrarSecao(secao) {
   // Carrega os dados da seção se necessário
   if (secao === 'outbound') carregarOutbound();
   if (secao === 'inbound')  carregarInbound();
+  if (secao === 'estoque')  carregarEstoque();
+  if (secao === 'balanco')  carregarBalanco();
 }
 
 /* ============================================================
@@ -1120,6 +1132,28 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   const s = document.getElementById('fileStage').files[0];
   return (r&&i&&o&&k&&s) ? {arquivoRecebs:r, arquivoItens:i, arquivoOR:o, arquivoKardex:k, arquivoStage:s} : null;
 });
+  ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
+  const f = document.getElementById('fileEstoquePicking').files[0];
+  return f ? { arquivoEstoque: f } : null;
+});
+
+ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
+  const w = document.getElementById('fileWMS').files[0];
+  const s = document.getElementById('fileSAP').files[0];
+  return (w&&s) ? { arquivoWMS: w, arquivoSAP: s } : null;
+});
+
+ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) {
+  const onP = (opts&&opts.onProgress)||function(){};
+  if (files.embalas)   { onP("Atualizando Embalagem..."); await processarBaseEmbalagem(files.embalas, opts); }
+  if (files.acronimos) { onP("Atualizando Acrônimos..."); await processarBaseAcronimos(files.acronimos, opts); }
+  if (files.custo)     { onP("Atualizando Custo...");     await processarBaseCusto(files.custo, opts); }
+}, () => {
+  const e = document.getElementById('fileEmbalas').files[0];
+  const a = document.getElementById('fileAcronimos').files[0];
+  const c = document.getElementById('fileCusto').files[0];
+  return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
+});
 ligarBotao('btnForecast',   'progressForecast',   processarForecastMensal, () => document.getElementById('fileForecast').files[0]  || null);
 
 /* ============================================================
@@ -1268,6 +1302,121 @@ function renderMatrizPendente(matriz) {
   totMarca.forEach(function(t){ h += `<td>${t.toLocaleString('pt-BR')}</td>`; });
   h += `<td>${totGeral.toLocaleString('pt-BR')}</td></tr></tbody>`;
   el.innerHTML = h;
+}
+  async function carregarEstoque() {
+  document.getElementById('estoque-conteudo').innerHTML = '<div class="loading-msg">Carregando Estoque...</div>';
+  const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','estoque').order('gerado_em',{ascending:false}).limit(1);
+  if (error || !data || !data.length) { document.getElementById('estoque-conteudo').innerHTML = '<div class="erro-msg">Sem dados. Use Abastecimento → Atualizar Estoque.</div>'; return; }
+  renderizarEstoque(data[0].payload);
+}
+
+function renderizarEstoque(p) {
+  let linhas = '';
+  p.pisos.forEach(function(r) {
+    const cor = r.pct_ocupacao >= 95 ? 'var(--red)' : r.pct_ocupacao >= 85 ? 'var(--amber)' : 'var(--olive)';
+    linhas += `<tr>
+      <th>${r.piso_bloco}</th>
+      <td>${r.saldo.toLocaleString('pt-BR')}</td>
+      <td>${r.capacidade.toLocaleString('pt-BR')}</td>
+      <td style="color:${cor};font-weight:700">${r.pct_ocupacao}%</td>
+      <td><svg width="40" height="40" viewBox="0 0 40 40">
+        ${miniPizza(r.pct_ocupacao, cor)}
+      </svg></td>
+    </tr>`;
+  });
+  const totCor = p.total.pct_ocupacao >= 95 ? 'var(--red)' : p.total.pct_ocupacao >= 85 ? 'var(--amber)' : 'var(--olive)';
+  document.getElementById('estoque-conteudo').innerHTML = `
+    <div class="section-title">Ocupação de Estoque por Piso/Bloco</div>
+    <div class="card">
+      <table class="matrix">
+        <thead><tr><th>Piso/Bloco</th><th>Saldo em Estoque</th><th>Capacidade</th><th>% Ocupação</th><th></th></tr></thead>
+        <tbody>
+          ${linhas}
+          <tr>
+            <th>Total Geral</th>
+            <td>${p.total.saldo.toLocaleString('pt-BR')}</td>
+            <td>${p.total.capacidade.toLocaleString('pt-BR')}</td>
+            <td style="color:${totCor};font-weight:700">${p.total.pct_ocupacao}%</td>
+            <td><svg width="40" height="40" viewBox="0 0 40 40">${miniPizza(p.total.pct_ocupacao, totCor)}</svg></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function miniPizza(pct, cor) {
+  const r = 16, cx = 20, cy = 20;
+  const angle = (pct / 100) * 2 * Math.PI - Math.PI / 2;
+  const x = cx + r * Math.cos(angle);
+  const y = cy + r * Math.sin(angle);
+  const large = pct > 50 ? 1 : 0;
+  if (pct >= 100) return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${cor}"/>`;
+  if (pct <= 0)   return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--border)"/>`;
+  return `
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--border)"/>
+    <path d="M ${cx} ${cy-r} A ${r} ${r} 0 ${large} 1 ${x.toFixed(2)} ${y.toFixed(2)} L ${cx} ${cy} Z" fill="${cor}"/>`;
+}
+
+async function carregarBalanco() {
+  document.getElementById('balanco-conteudo').innerHTML = '<div class="loading-msg">Carregando Balanço...</div>';
+  const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','balanco').order('gerado_em',{ascending:false}).limit(1);
+  if (error || !data || !data.length) { document.getElementById('balanco-conteudo').innerHTML = '<div class="erro-msg">Sem dados. Use Abastecimento → Atualizar Balanço.</div>'; return; }
+  renderizarBalanco(data[0].payload);
+}
+
+function renderizarBalanco(p) {
+  function fmtV(v){ return 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+  function fmtQ(v){ return Number(v||0).toLocaleString('pt-BR'); }
+  function corDiff(v){ return v > 0 ? 'color:var(--red)' : v < 0 ? 'color:var(--olive)' : ''; }
+
+  // Bloco 1: WMS x SAP
+  let linhasCruz = '';
+  (p.cruzamento||[]).forEach(function(r){
+    linhasCruz += `<tr>
+      <th>${r.classificacao}</th><th>${r.bin}</th>
+      <td>${fmtQ(r.wms_qtde)}</td><td>${fmtV(r.wms_valor)}</td>
+      <td>${fmtQ(r.sap_qtde)}</td><td>${fmtV(r.sap_valor)}</td>
+      <td style="${corDiff(r.diff_qtde)}">${fmtQ(r.diff_qtde)}</td>
+      <td style="${corDiff(r.diff_valor)}">${fmtV(r.diff_valor)}</td>
+      <td style="${corDiff(r.pct)}">${Number(r.pct||0).toFixed(2).replace('.',',')}%</td>
+    </tr>`;
+  });
+
+  // Bloco 2: Estoque WMS
+  let linhasWMS = '';
+  (p.estoque_wms||[]).forEach(function(r){
+    linhasWMS += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${Number(r.pct||0).toFixed(2).replace('.',',')}%</td></tr>`;
+  });
+  linhasWMS += `<tr><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
+
+  // Bloco 3: Estoque SAP
+  let linhasSAP = '';
+  (p.estoque_sap||[]).forEach(function(r){
+    linhasSAP += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${Number(r.pct||0).toFixed(2).replace('.',',')}%</td></tr>`;
+  });
+  linhasSAP += `<tr><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
+
+  document.getElementById('balanco-conteudo').innerHTML = `
+    <div class="section-title">Estoque Geral WMS × SAP</div>
+    <div class="card" style="margin-bottom:16px;overflow-x:auto">
+      <table class="matrix">
+        <thead><tr><th>Classificação</th><th>BIN SAP</th><th>WMS Qtde</th><th>WMS Valor</th><th>SAP Qtde</th><th>SAP Valor</th><th>Diff Qtde</th><th>Diff Valor</th><th>%</th></tr></thead>
+        <tbody>${linhasCruz}</tbody>
+      </table>
+    </div>
+
+    <div class="grid2">
+      <div class="card">
+        <div class="section-title">Estoque WMS — Detalhado</div>
+        <table class="matrix"><thead><tr><th>Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
+        <tbody>${linhasWMS}</tbody></table>
+      </div>
+      <div class="card">
+        <div class="section-title">Estoque SAP — Detalhado</div>
+        <table class="matrix"><thead><tr><th>Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
+        <tbody>${linhasSAP}</tbody></table>
+      </div>
+    </div>`;
 }
 mostrarSecao('outbound');
 carregarDatasHistorico();
