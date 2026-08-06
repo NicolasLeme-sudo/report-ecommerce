@@ -1572,4 +1572,281 @@ async function processarBaseCusto(file, options) {
   await registrarLog("custo", file.name, registros.length);
   onProgress("✓ Base de Custo atualizada! " + registros.length + " SKUs.");
 }
+   // =========================================================
+// ESTOQUE (OPERAÇÃO) + BALANÇO (GESTÃO)
+// Colar no final do ingest.js
+// =========================================================
+
+// Capacidades fixas por piso/bloco (confirmadas anteriormente)
+const CAPACIDADES = {
+  "PISO 1 - A": 63840,  "PISO 1 - B": 85440,  "PISO 1 - C": 53920,
+  "PISO 2 - A": 72960,  "PISO 2 - B": 87240,  "PISO 2 - C": 76360,
+  "PISO 3 - A": 72960,  "PISO 3 - B": 93720,  "PISO 3 - C": 76360,
+  "PISO 4 - A": 72960,  "PISO 4 - B": 93720,  "PISO 4 - C": 76000,
+  "PISO 1 - E": 130464, "PISO 1 - F": 157248, "PISO 1 - G": 130176,
+};
+
+// Classificação dos BINs do SAP (fixa)
+const CLASS_SAP = {
+  "009-01": "Aguardando ação fiscal (Emissão NF-D)",
+  "009-02": "Aguardando ação fiscal (Pedidos Loja)",
+  "009-03": "Avaria (Incineração)",
+  "009-04": "Material de 2° qualidade (Outlet)",
+  "009-05": "Não Comercializável",
+  "009-07": "Vendável Under Armour",
+  "009-10": "Material em Análise",
+  "009-11": "Faltas de Recebimento",
+  "009-14": "Vendável Olympikus",
+  "009-18": "Vendável Mizuno",
+  "009-24": "Integração de NFs Reversa",
+};
+
+// Classificação do WMS por endereço/tipo de local (fora do picking)
+function classificarWMS(local, tipoLocal) {
+  const l = normalizarEncoding(local || "").toUpperCase();
+  const t = normalizarEncoding(tipoLocal || "").toUpperCase();
+
+  if (t.includes("PICKING"))           return "PICKING";
+  if (t.includes("PULMAO") || t.includes("PULMÃO")) return "Pulmão";
+  if (l.startsWith("V03") || l.startsWith("V04") || l.startsWith("T03")) return "Faltas de Recebimento";
+  if (l.startsWith("V05"))             return "Aguardando ação fiscal";
+  if (l.startsWith("K01"))             return "Não Comercializável";
+  if (l.startsWith("L03") || l.startsWith("L04") || l.startsWith("L05")) return "Aguardando ação fiscal";
+  if (t.includes("CANCEL"))            return "Cancelamento";
+  return "Outros";
+}
+
+// -------------------------------------------------------------------------
+// ESTOQUE (OPERAÇÃO) — Estoque_Picking.tsv
+// -------------------------------------------------------------------------
+async function processarEstoqueOperacao(files, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo Estoque Picking...");
+
+  const texto = await files.arquivoEstoque.text();
+  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)"]);
+
+  // Agrupar por Região (piso/bloco), só PICKING
+  const saldoPorPiso = {};
+  linhas.forEach(function(r) {
+    const tipo   = normalizarEncoding(r["Tipo do Local"] || "");
+    if (!tipo.toUpperCase().includes("PICKING")) return;
+    const regiao = normalizarEncoding(r["Região"] || "").toUpperCase().trim();
+    if (!regiao.startsWith("PISO")) return;
+    const saldo  = Number(r["Estoque (UN)"]) || 0;
+    saldoPorPiso[regiao] = (saldoPorPiso[regiao] || 0) + saldo;
+  });
+
+  // Montar registros com capacidade e % ocupação
+  const registros = Object.keys(CAPACIDADES).map(function(pb) {
+    const saldo      = saldoPorPiso[pb] || 0;
+    const capacidade = CAPACIDADES[pb];
+    const pct        = capacidade > 0 ? Math.round((saldo / capacidade) * 100) : 0;
+    return { piso_bloco: pb, saldo: saldo, capacidade: capacidade, pct_ocupacao: pct };
+  });
+
+  onProgress("Gravando " + registros.length + " pisos/blocos...");
+  await supabaseClient.from("estoque_picking").delete().neq("id", 0);
+  const { error } = await supabaseClient.from("estoque_picking").insert(registros);
+  if (error) console.error("Erro estoque_picking:", error);
+
+  // Snapshot
+  const payload = gerarPayloadEstoque(registros);
+  await salvarSnapshot("estoque", "auto", payload);
+  await registrarLog("estoque", "Estoque_Picking", registros.length);
+
+  onProgress("✓ Estoque atualizado! " + registros.length + " pisos/blocos gravados.");
+}
+
+function gerarPayloadEstoque(registros) {
+  const totalSaldo    = registros.reduce(function(s,r){ return s + r.saldo; }, 0);
+  const totalCap      = registros.reduce(function(s,r){ return s + r.capacidade; }, 0);
+  const pctTotal      = totalCap > 0 ? Math.round((totalSaldo / totalCap) * 100) : 0;
+  return {
+    gerado_em: new Date().toISOString(),
+    pisos: registros,
+    total: { saldo: totalSaldo, capacidade: totalCap, pct_ocupacao: pctTotal },
+  };
+}
+
+// -------------------------------------------------------------------------
+// BALANÇO (GESTÃO) — Estoque_completo_WMS.xlsx + Estoque_SAP.xlsx
+// -------------------------------------------------------------------------
+async function processarBalanco(files, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo bases do Supabase...");
+
+  // Carregar embalas e custo do Supabase
+  const embalasMap = new Map();
+  let off = 0;
+  while (true) {
+    const { data } = await supabaseClient.from("dim_embalas").select("codigo_barra,marca").range(off, off+999);
+    if (!data || data.length === 0) break;
+    data.forEach(function(e){ embalasMap.set(String(e.codigo_barra).trim(), e.marca); });
+    if (data.length < 1000) break;
+    off += 1000;
+  }
+
+  const custoMap = new Map();
+  off = 0;
+  while (true) {
+    const { data } = await supabaseClient.from("dim_custo").select("sku,custo_unitario").range(off, off+999);
+    if (!data || data.length === 0) break;
+    data.forEach(function(c){ custoMap.set(String(c.sku).trim(), Number(c.custo_unitario)||0); });
+    if (data.length < 1000) break;
+    off += 1000;
+  }
+  onProgress(embalasMap.size + " SKUs | " + custoMap.size + " custos carregados.");
+
+  // ---- WMS ----
+  onProgress("Lendo Estoque WMS...");
+  const wmsLinhas = await parseXLSX(files.arquivoWMS);
+  const wmsPorClass = {};
+
+  wmsLinhas.forEach(function(r) {
+    const local     = normalizarEncoding(String(r["Local"] || ""));
+    const tipoLocal = normalizarEncoding(String(r["Tipo do Local"] || ""));
+    const barra     = String(r["Barra"] || "").trim();
+    const qtde      = Number(r["Estoque (UN)"]) || 0;
+    if (qtde === 0) return;
+
+    const marca = embalasMap.get(barra) || null;
+
+    // Para PICKING, segregar por marca
+    let classif;
+    if (tipoLocal.toUpperCase().includes("PICKING") && marca) {
+      classif = "Vendável " + marca;
+    } else {
+      classif = classificarWMS(local, tipoLocal);
+    }
+
+    const custo = custoMap.get(barra) || 0;
+    if (!wmsPorClass[classif]) wmsPorClass[classif] = { qtde: 0, valor: 0 };
+    wmsPorClass[classif].qtde  += qtde;
+    wmsPorClass[classif].valor += qtde * custo;
+  });
+
+  const totalWMSQtde  = Object.values(wmsPorClass).reduce(function(s,v){ return s+v.qtde; }, 0);
+  const totalWMSValor = Object.values(wmsPorClass).reduce(function(s,v){ return s+v.valor; }, 0);
+
+  const wmsRegistros = Object.keys(wmsPorClass).map(function(c) {
+    return {
+      classificacao: c,
+      qtde:  wmsPorClass[c].qtde,
+      valor: wmsPorClass[c].valor,
+      pct:   totalWMSQtde > 0 ? (wmsPorClass[c].qtde / totalWMSQtde * 100) : 0,
+    };
+  }).sort(function(a,b){ return b.qtde - a.qtde; });
+
+  // ---- SAP ----
+  onProgress("Lendo Estoque SAP...");
+  const sapLinhas = await parseXLSX(files.arquivoSAP);
+  const sapPorBin = {};
+
+  sapLinhas.forEach(function(r) {
+    const bin  = String(r["Posição no depósito"] || "").trim();
+    const sku  = String(r["Nº do item"] || "").trim();
+    const qtde = Number(r["Quantidade do item"]) || 0;
+    if (!bin || !sku || qtde === 0) return;
+
+    const custo = custoMap.get(sku) || 0;
+    const classif = CLASS_SAP[bin] || ("BIN " + bin);
+
+    if (!sapPorBin[bin]) sapPorBin[bin] = { classificacao: classif, qtde: 0, valor: 0 };
+    sapPorBin[bin].qtde  += qtde;
+    sapPorBin[bin].valor += qtde * custo;
+  });
+
+  const totalSAPQtde  = Object.values(sapPorBin).reduce(function(s,v){ return s+v.qtde; }, 0);
+  const totalSAPValor = Object.values(sapPorBin).reduce(function(s,v){ return s+v.valor; }, 0);
+
+  const sapRegistros = Object.keys(sapPorBin).map(function(bin) {
+    return {
+      bin:           bin,
+      classificacao: sapPorBin[bin].classificacao,
+      qtde:          sapPorBin[bin].qtde,
+      valor:         sapPorBin[bin].valor,
+      pct:           totalSAPQtde > 0 ? (sapPorBin[bin].qtde / totalSAPQtde * 100) : 0,
+    };
+  }).sort(function(a,b){ return b.qtde - a.qtde; });
+
+  // Gravar no Supabase
+  onProgress("Gravando balanço...");
+  await supabaseClient.from("balanco_wms").delete().neq("id", 0);
+  await supabaseClient.from("balanco_sap").delete().neq("id", 0);
+  for (let i = 0; i < wmsRegistros.length; i += 200) {
+    const { error } = await supabaseClient.from("balanco_wms").insert(wmsRegistros.slice(i, i+200));
+    if (error) console.error("Erro balanco_wms:", error);
+  }
+  for (let i = 0; i < sapRegistros.length; i += 200) {
+    const { error } = await supabaseClient.from("balanco_sap").insert(sapRegistros.slice(i, i+200));
+    if (error) console.error("Erro balanco_sap:", error);
+  }
+
+  // Snapshot Balanço
+  const payload = gerarPayloadBalanco(wmsRegistros, sapRegistros, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor);
+  await salvarSnapshot("balanco", "auto", payload);
+  await registrarLog("balanco", "Estoque_WMS + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
+
+  onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " un | SAP: " + totalSAPQtde.toLocaleString('pt-BR') + " un.");
+}
+
+function gerarPayloadBalanco(wmsReg, sapReg, totWMSQ, totWMSV, totSAPQ, totSAPV) {
+  // Cruzamento WMS x SAP pelos vendáveis (por marca)
+  const marcasVend = ["Mizuno", "Olympikus", "Under Armour"];
+  const binVend    = { "Mizuno": "009-18", "Olympikus": "009-14", "Under Armour": "009-07" };
+
+  const cruzamento = marcasVend.map(function(marca) {
+    const wmsItem = wmsReg.find(function(w){ return w.classificacao === "Vendável " + marca; }) || { qtde:0, valor:0 };
+    const sapBin  = binVend[marca];
+    const sapItem = sapReg.find(function(s){ return s.bin === sapBin; }) || { qtde:0, valor:0 };
+    const diffQ   = wmsItem.qtde - sapItem.qtde;
+    const diffV   = wmsItem.valor - sapItem.valor;
+    const pct     = sapItem.qtde > 0 ? (diffQ / sapItem.qtde * 100) : 0;
+    return {
+      classificacao: "Vendável " + marca,
+      bin: sapBin,
+      wms_qtde:  wmsItem.qtde,  wms_valor: wmsItem.valor,
+      sap_qtde:  sapItem.qtde,  sap_valor: sapItem.valor,
+      diff_qtde: diffQ, diff_valor: diffV, pct: pct,
+    };
+  });
+
+  return {
+    gerado_em:    new Date().toISOString(),
+    cruzamento:   cruzamento,
+    total_wms:    { qtde: totWMSQ, valor: totWMSV },
+    total_sap:    { qtde: totSAPQ, valor: totSAPV },
+    estoque_wms:  wmsReg,
+    estoque_sap:  sapReg,
+  };
+}
+
+// -------------------------------------------------------------------------
+// BASE DE CUSTO (Bases Gerais)
+// -------------------------------------------------------------------------
+async function processarBaseCusto(file, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo Base de Custo...");
+
+  const linhas = await parseXLSX(file);
+  const registros = linhas
+    .filter(function(r){ return r["Item"] && r["Custo"]; })
+    .map(function(r){
+      return {
+        sku:           String(r["Item"]).trim(),
+        custo_unitario: Number(r["Custo"]) || 0,
+      };
+    });
+
+  onProgress("Gravando " + registros.length + " SKUs de custo...");
+  const LOTE = 1000;
+  for (let i = 0; i < registros.length; i += LOTE) {
+    const { error } = await supabaseClient.from("dim_custo").upsert(registros.slice(i, i+LOTE), { onConflict: "sku" });
+    if (error) console.error("Erro dim_custo:", error);
+  }
+
+  await registrarLog("custo", file.name, registros.length);
+  onProgress("✓ Base de Custo atualizada! " + registros.length + " SKUs.");
+}
   };
