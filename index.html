@@ -1310,33 +1310,35 @@ function renderMatrizPendente(matriz) {
 }
 
 function renderizarEstoque(p) {
+  // Pisos E, F, G = Vestuário (👕), demais = Calçados (👟)
+  var pisosVest = ["PISO 1 - E","PISO 1 - F","PISO 1 - G"];
+  function emojiPiso(pb){ return pisosVest.indexOf(pb) >= 0 ? '👕 ' : '👟 '; }
+
   let linhas = '';
   p.pisos.forEach(function(r) {
     const cor = r.pct_ocupacao >= 95 ? 'var(--red)' : r.pct_ocupacao >= 85 ? 'var(--amber)' : 'var(--olive)';
-    linhas += `<tr>
-      <th>${r.piso_bloco}</th>
-      <td>${r.saldo.toLocaleString('pt-BR')}</td>
-      <td>${r.capacidade.toLocaleString('pt-BR')}</td>
-      <td style="color:${cor};font-weight:700">${r.pct_ocupacao}%</td>
-      <td><svg width="40" height="40" viewBox="0 0 40 40">
-        ${miniPizza(r.pct_ocupacao, cor)}
-      </svg></td>
+    linhas += `<tr style="line-height:1.2">
+      <th style="padding:4px 8px">${emojiPiso(r.piso_bloco)}${r.piso_bloco}</th>
+      <td style="padding:4px 8px">${r.saldo.toLocaleString('pt-BR')}</td>
+      <td style="padding:4px 8px">${r.capacidade.toLocaleString('pt-BR')}</td>
+      <td style="padding:4px 8px;color:${cor};font-weight:700">${r.pct_ocupacao}%</td>
+      <td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">${miniPizza(r.pct_ocupacao, cor)}</svg></td>
     </tr>`;
   });
   const totCor = p.total.pct_ocupacao >= 95 ? 'var(--red)' : p.total.pct_ocupacao >= 85 ? 'var(--amber)' : 'var(--olive)';
   document.getElementById('estoque-conteudo').innerHTML = `
     <div class="section-title">Ocupação de Estoque por Piso/Bloco</div>
     <div class="card">
-      <table class="matrix">
-        <thead><tr><th>Piso/Bloco</th><th>Saldo em Estoque</th><th>Capacidade</th><th>% Ocupação</th><th></th></tr></thead>
+      <table class="matrix" style="font-size:13px">
+        <thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px">% Ocupação</th><th></th></tr></thead>
         <tbody>
           ${linhas}
-          <tr>
-            <th>Total Geral</th>
-            <td>${p.total.saldo.toLocaleString('pt-BR')}</td>
-            <td>${p.total.capacidade.toLocaleString('pt-BR')}</td>
-            <td style="color:${totCor};font-weight:700">${p.total.pct_ocupacao}%</td>
-            <td><svg width="40" height="40" viewBox="0 0 40 40">${miniPizza(p.total.pct_ocupacao, totCor)}</svg></td>
+          <tr style="line-height:1.2;font-weight:700">
+            <th style="padding:4px 8px">Total Geral</th>
+            <td style="padding:4px 8px">${p.total.saldo.toLocaleString('pt-BR')}</td>
+            <td style="padding:4px 8px">${p.total.capacidade.toLocaleString('pt-BR')}</td>
+            <td style="padding:4px 8px;color:${totCor};font-weight:700">${p.total.pct_ocupacao}%</td>
+            <td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">${miniPizza(p.total.pct_ocupacao, totCor)}</svg></td>
           </tr>
         </tbody>
       </table>
@@ -1366,34 +1368,52 @@ async function carregarBalanco() {
 function renderizarBalanco(p) {
   function fmtV(v){ return 'R$ ' + Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
   function fmtQ(v){ return Number(v||0).toLocaleString('pt-BR'); }
-  function corDiff(v){ return v > 0 ? 'color:var(--red)' : v < 0 ? 'color:var(--olive)' : ''; }
+  // Diff = WMS - SAP: positivo (WMS > SAP) = verde, negativo (WMS < SAP) = vermelho
+  function corDiff(v){ return v > 0 ? 'color:var(--olive)' : v < 0 ? 'color:var(--red)' : ''; }
 
-  // Bloco 1: WMS x SAP
+  // Bloco 1: WMS x SAP com Total Geral
   let linhasCruz = '';
+  var totWmsQ=0, totWmsV=0, totSapQ=0, totSapV=0, totDiffQ=0, totDiffV=0;
   (p.cruzamento||[]).forEach(function(r){
+    var dQ = (r.wms_qtde||0) - (r.sap_qtde||0);
+    var dV = (r.wms_valor||0) - (r.sap_valor||0);
+    var pct = (r.sap_qtde||0) > 0 ? (dQ / r.sap_qtde * 100) : ((r.wms_qtde||0) > 0 ? 100 : 0);
+    totWmsQ += r.wms_qtde||0; totWmsV += r.wms_valor||0;
+    totSapQ += r.sap_qtde||0; totSapV += r.sap_valor||0;
+    totDiffQ += dQ; totDiffV += dV;
     linhasCruz += `<tr>
       <th>${r.classificacao}</th><th>${r.bin}</th>
       <td>${fmtQ(r.wms_qtde)}</td><td>${fmtV(r.wms_valor)}</td>
       <td>${fmtQ(r.sap_qtde)}</td><td>${fmtV(r.sap_valor)}</td>
-      <td style="${corDiff(r.diff_qtde)}">${fmtQ(r.diff_qtde)}</td>
-      <td style="${corDiff(r.diff_valor)}">${fmtV(r.diff_valor)}</td>
-      <td style="${corDiff(r.pct)}">${Number(r.pct||0).toFixed(2).replace('.',',')}%</td>
+      <td style="${corDiff(dQ)}">${fmtQ(dQ)}</td>
+      <td style="${corDiff(dV)}">${fmtV(dV)}</td>
+      <td style="${corDiff(pct)}">${pct.toFixed(2).replace('.',',')}%</td>
     </tr>`;
   });
+  var totPct = totSapQ > 0 ? (totDiffQ / totSapQ * 100) : 0;
+  linhasCruz += `<tr style="font-weight:700;border-top:2px solid var(--border)">
+    <th>Total Geral</th><th>—</th>
+    <td>${fmtQ(totWmsQ)}</td><td>${fmtV(totWmsV)}</td>
+    <td>${fmtQ(totSapQ)}</td><td>${fmtV(totSapV)}</td>
+    <td style="${corDiff(totDiffQ)}">${fmtQ(totDiffQ)}</td>
+    <td style="${corDiff(totDiffV)}">${fmtV(totDiffV)}</td>
+    <td style="${corDiff(totPct)}">${totPct.toFixed(2).replace('.',',')}%</td>
+  </tr>`;
 
-  // Bloco 2: Estoque WMS
+  // Bloco 2: Estoque WMS Detalhado
   let linhasWMS = '';
   (p.estoque_wms||[]).forEach(function(r){
     linhasWMS += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${Number(r.pct||0).toFixed(2).replace('.',',')}%</td></tr>`;
   });
-  linhasWMS += `<tr><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
+  linhasWMS += `<tr style="font-weight:700;border-top:2px solid var(--border)"><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
 
-  // Bloco 3: Estoque SAP
+  // Bloco 3: Estoque SAP Detalhado — com BIN do lado da classificação
   let linhasSAP = '';
   (p.estoque_sap||[]).forEach(function(r){
-    linhasSAP += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${Number(r.pct||0).toFixed(2).replace('.',',')}%</td></tr>`;
+    var desc = r.bin ? r.bin + ' — ' + r.classificacao : r.classificacao;
+    linhasSAP += `<tr><th>${desc}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${Number(r.pct||0).toFixed(2).replace('.',',')}%</td></tr>`;
   });
-  linhasSAP += `<tr><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
+  linhasSAP += `<tr style="font-weight:700;border-top:2px solid var(--border)"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
 
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title">Estoque Geral WMS × SAP</div>
@@ -1412,7 +1432,7 @@ function renderizarBalanco(p) {
       </div>
       <div class="card">
         <div class="section-title">Estoque SAP — Detalhado</div>
-        <table class="matrix"><thead><tr><th>Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
+        <table class="matrix"><thead><tr><th>BIN — Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
         <tbody>${linhasSAP}</tbody></table>
       </div>
     </div>`;
