@@ -1414,8 +1414,8 @@ function gerarPayloadEstoque(registros) {
 }
 
 // -------------------------------------------------------------------------
-// BALANÇO (GESTÃO) — Estoque_completo_WMS.xlsx + Estoque_SAP.xlsx
-// Cruza com dim_embalas (marca) e dim_custo (custo unitário) do Supabase
+// BALANÇO (GESTÃO) — Estoque_completo_WMS.tsv + Estoque_SAP.xlsx
+// Lê WMS como TSV (mais leve que XLSX) e filtra só PICKING e PULMÃO BLOCADO
 // -------------------------------------------------------------------------
 async function processarBalanco(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
@@ -1446,37 +1446,43 @@ async function processarBalanco(files, options) {
     if (data.length < 1000) break;
     off += 1000;
   }
-  onProgress("Embalas: " + embalasBarraMap.size + " barcodes, " + embalasSkuMap.size + " SKUs | Custo: " + custoMap.size + " itens.");
+  onProgress("Embalas: " + embalasBarraMap.size + " barcodes | Custo: " + custoMap.size + " itens.");
 
-  // ==================== WMS ====================
-  onProgress("Lendo Estoque WMS (arquivo grande, pode demorar ~30s)...");
-  const wmsLinhas = await parseXLSX(files.arquivoWMS);
-  if (!wmsLinhas || wmsLinhas.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
-  onProgress("WMS: " + wmsLinhas.length + " linhas lidas. Classificando...");
+  // ==================== WMS (TSV) ====================
+  onProgress("Lendo Estoque WMS (TSV)...");
+  const textoWMS = await files.arquivoWMS.text();
+  const linhasWMS = parseTSVSelecionado(textoWMS, [
+    "Setor", "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
+  ]);
+  if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
+  onProgress("WMS: " + linhasWMS.length + " linhas lidas. Classificando...");
 
-  var km = montarKeyMap(wmsLinhas);
   var wmsPorClass = {};
+  linhasWMS.forEach(function(r) {
+    var tipoLoc = normalizarEncoding(String(r["Tipo do Local"] || "")).toUpperCase().trim();
 
-  wmsLinhas.forEach(function(r) {
-    var setor   = String(coluna(r, km, "Setor") || "");
-    var local   = String(coluna(r, km, "Local") || "");
-    var tipoLoc = String(coluna(r, km, "Tipo do Local") || "");
-    var barra   = String(coluna(r, km, "Barra") || "").trim();
-    var codProd = String(coluna(r, km, "Código do Produto") || "").trim();
-    var qtde    = Number(coluna(r, km, "Estoque (UN)")) || 0;
+    // Filtrar: só PICKING e PULMÃO BLOCADO
+    var isPicking = tipoLoc.includes("PICKING");
+    var isPulmao  = tipoLoc.includes("PULM");
+    if (!isPicking && !isPulmao) return;
+
+    var setor   = String(r["Setor"] || "");
+    var local   = String(r["Local"] || "");
+    var barra   = String(r["Barra"] || "").trim();
+    var codProd = String(r["Código do Produto"] || "").trim();
+    var qtde    = Number(r["Estoque (UN)"]) || 0;
     if (qtde === 0) return;
 
+    // Classificar
     var classif = classificarEnderecoWMS(setor, tipoLoc, local);
 
-    // Se Vendável → buscar marca (tenta barcode, depois SKU)
+    // Se Vendável → buscar marca
     if (classif === "Vendável") {
       var marca = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || null;
       classif = marca ? "Vendável " + marca : "Vendável (sem marca)";
     }
 
-    // Custo via Código do Produto (SKU)
     var custo = custoMap.get(codProd) || 0;
-
     if (!wmsPorClass[classif]) wmsPorClass[classif] = { qtde: 0, valor: 0 };
     wmsPorClass[classif].qtde  += qtde;
     wmsPorClass[classif].valor += qtde * custo;
@@ -1494,7 +1500,7 @@ async function processarBalanco(files, options) {
   }).sort(function(a,b){ return b.qtde - a.qtde; });
   onProgress("WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " itens em " + wmsRegistros.length + " classificações.");
 
-  // ==================== SAP ====================
+  // ==================== SAP (XLSX) ====================
   onProgress("Lendo Estoque SAP...");
   const sapLinhas = await parseXLSX(files.arquivoSAP);
   var kmSap = montarKeyMap(sapLinhas);
@@ -1508,7 +1514,6 @@ async function processarBalanco(files, options) {
 
     var custo   = custoMap.get(sku) || 0;
     var classif = CLASS_SAP[bin] || ("BIN " + bin);
-
     if (!sapPorBin[bin]) sapPorBin[bin] = { classificacao: classif, qtde: 0, valor: 0 };
     sapPorBin[bin].qtde  += qtde;
     sapPorBin[bin].valor += qtde * custo;
@@ -1541,12 +1546,11 @@ async function processarBalanco(files, options) {
   // ==================== Snapshot ====================
   var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor);
   await salvarSnapshot("balanco", "auto", payload);
-  await registrarLog("balanco", "Estoque_WMS + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
+  await registrarLog("balanco", "Estoque_WMS.tsv + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
   onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " | SAP: " + totalSAPQtde.toLocaleString('pt-BR'));
 }
 
 function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV) {
-  // Cruzamento completo WMS × SAP (TODAS as classificações)
   var cruzamento = CROSS_MAP.map(function(m) {
     var wmsD = wmsPorClass[m.wms] || { qtde: 0, valor: 0 };
     var sapD = sapPorBin[m.bin]   || { qtde: 0, valor: 0 };
@@ -1568,7 +1572,6 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
     estoque_wms: wmsReg, estoque_sap: sapReg,
   };
 }
-
 
 // -------------------------------------------------------------------------
 // BASE DE CUSTO (Bases Gerais)
