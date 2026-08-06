@@ -1322,23 +1322,33 @@ const CLASS_SAP = {
 };
 
 // Classificação WMS baseada no Setor (mapeamento da planilha de referência)
-function classificarEnderecoWMS(setor, tipoLocal, local) {
-  var s = normalizarEncoding(setor || "").toUpperCase().trim();
-  var t = normalizarEncoding(tipoLocal || "").toUpperCase().trim();
-  var l = (local || "").toUpperCase().trim();
-  if (t.includes("PICKING"))           return "Vendável";
-  if (s.includes("DANIFICADO"))        return "Avaria (Incineração)";
-  if (s.includes("FALTA RECEBIMENTO")) return "Faltas de Recebimento";
-  if (s.includes("REVERSA"))           return "Integração de NFs Reversa";
-  if (s.includes("CORTE FISICO"))      return "Material em análise";
-  if (s.includes("CANCELAMENTO")) {
-    if (l.startsWith("V05"))           return "DExPARA (Aguardando ação fiscal)";
-    return "Material em análise";
+// Mapa completo de prefixo de endereço → classificação (Gabarito_Endereços_E-comm)
+var GABARITO_PREFIX = {
+  "K01":"Não Comercializável",
+  "L05":"DExPARA (Aguardando ação fiscal)",
+  "T02":"Avaria (Incineração)","T07":"Avaria (Incineração)","T08":"Avaria (Incineração)",
+  "T03":"Faltas de Recebimento","V03":"Faltas de Recebimento","V04":"Faltas de Recebimento",
+  "S01":"Integração de NFs Reversa","S02":"Integração de NFs Reversa","S03":"Integração de NFs Reversa",
+  "S04":"Integração de NFs Reversa","S08":"Integração de NFs Reversa",
+  "T01":"Integração de NFs Reversa","T04":"Integração de NFs Reversa","T05":"Integração de NFs Reversa",
+  "T06":"Material de 2° qualidade (Outlet)","D02":"Material de 2° qualidade (Outlet)",
+  "V05":"Material em análise","V08":"Material em análise",
+};
+
+// Classificação WMS via gabarito de endereços
+// B01, B02, D01 são ambíguos: PICKING=Vendável, PULMÃO=Outlet
+function classificarEnderecoWMS(local, tipoLocal) {
+  var prefix = (local || "").substring(0, 3).toUpperCase();
+  var tipo   = normalizarEncoding(tipoLocal || "").toUpperCase().trim();
+
+  if (prefix === "B01" || prefix === "B02" || prefix === "D01") {
+    return tipo.includes("PICKING") ? "Vendável" : "Material de 2° qualidade (Outlet)";
   }
-  if (s.includes("RECEBIMENTO"))       return "Material em análise";
-  if (l.startsWith("K01"))             return "Não Comercializável";
+  if (GABARITO_PREFIX[prefix]) return GABARITO_PREFIX[prefix];
+  if (tipo.includes("PICKING")) return "Vendável";
   return "Outros";
 }
+
 
 // Helper: resolve encoding quebrado nas colunas XLSX
 function montarKeyMap(linhas) {
@@ -1474,7 +1484,7 @@ async function processarBalanco(files, options) {
     if (qtde === 0) return;
 
     // Classificar
-    var classif = classificarEnderecoWMS(setor, tipoLoc, local);
+    var classif = classificarEnderecoWMS(local, tipoLoc);
 
     // Se Vendável → buscar marca
     if (classif === "Vendável") {
