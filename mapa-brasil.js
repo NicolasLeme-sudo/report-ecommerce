@@ -102,4 +102,15 @@ function renderMapaBrasilSVG(containerId, mapaEstados) {
       svgParts += '<text x="' + e.cx + '" y="' + (e.cy + (small?8:11)) + '" text-anchor="middle" font-size="' + vs + '" fill="' + (count>0?'#ccc':'var(--text-muted)') + '" style="pointer-events:none">' + count.toLocaleString('pt-BR') + '</text>';
     }
   });
+
+  // Legenda gradiente
+  svgParts += '<defs><linearGradient id="legGrad" x1="0" y1="0" x2="0" y2="1">';
+  svgParts += '<stop offset="0%" stop-color="hsl(215,85%,25%)"/><stop offset="100%" stop-color="hsl(215,35%,68%)"/>';
+  svgParts += '</linearGradient></defs>';
+ svgParts += '<rect x="810" y="180" width="18" height="130" fill="url(#legGrad)" rx="3" stroke="var(--border)" stroke-width="0.5"/>';
+  svgParts += '<text x="819" y="170" text-anchor="middle" font-size="11" fill="var(--text-muted)">Reversas</text>';
+  svgParts += '<text x="819" y="178" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">' + maxCount.toLocaleString('pt-BR') + '</text>';
+  svgParts += '<text x="819" y="322" text-anchor="middle" font-size="10" fill="var(--text-muted)">0</text>';
+
+  el.innerHTML = '<svg viewBox="0 0 860 920" style="width:100%;max-height:520px" xmlns="http://www.w3.org/2000/svg">' + svgParts + '</svg>';
 }
