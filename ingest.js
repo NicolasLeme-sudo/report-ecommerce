@@ -1772,9 +1772,14 @@ async function processarRelatoriosReversa(files, options) {
 
   onProgress("Itens processados. Lendo Troca E-comm...");
 
-  // ---- TROCA E-COMM (CSV/TSV) ----
-  var textoTroca = await files.arquivoTroca.text();
-  // Detectar separador
+  // ---- TROCA E-COMM (CSV/TSV) — encoding Latin-1/CP1252 ----
+  // O arquivo exportado pelo Troca E-comm usa Latin-1, não UTF-8
+  var textoTroca = await new Promise(function(resolve) {
+    var r = new FileReader();
+    r.onload = function(e){ resolve(e.target.result); };
+    r.readAsText(files.arquivoTroca, 'latin-1');
+  });
+  // Detectar separador (o arquivo usa TAB)
   var primLinha = textoTroca.split('\n')[0];
   var sep = primLinha.includes('\t') ? '\t' : ',';
   var linhasTroca = parseTSVComSep(textoTroca, sep, [
