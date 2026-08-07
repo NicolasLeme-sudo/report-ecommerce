@@ -93,10 +93,13 @@ function renderMapaBrasilSVG(containerId, mapaEstados) {
     var small = ['DF','SE','AL','RN','PB','ES'].indexOf(e.s) >= 0;
     var textFill = count > 0 ? '#fff' : 'var(--text-muted)';
     var fs = small ? 7 : 10;
+    var small = ['DF','SE','AL','RN','PB','ES'].indexOf(e.s) >= 0;
+    var textFill = count > 0 ? '#fff' : 'var(--text-muted)';
+    var fs = small ? 9 : 12;
     svgParts += '<text x="' + e.cx + '" y="' + (e.cy - 1) + '" text-anchor="middle" font-size="' + fs + '" font-weight="700" fill="' + textFill + '" style="pointer-events:none">' + e.s + '</text>';
     if (count > 0) {
-      var vs = small ? 6 : 8;
-      svgParts += '<text x="' + e.cx + '" y="' + (e.cy + (small?7:10)) + '" text-anchor="middle" font-size="' + vs + '" fill="' + (count>0?'#ccc':'var(--text-muted)') + '" style="pointer-events:none">' + count.toLocaleString('pt-BR') + '</text>';
+      var vs = small ? 7 : 9;
+      svgParts += '<text x="' + e.cx + '" y="' + (e.cy + (small?8:11)) + '" text-anchor="middle" font-size="' + vs + '" fill="' + (count>0?'#ccc':'var(--text-muted)') + '" style="pointer-events:none">' + count.toLocaleString('pt-BR') + '</text>';
     }
   });
 
@@ -104,10 +107,10 @@ function renderMapaBrasilSVG(containerId, mapaEstados) {
   svgParts += '<defs><linearGradient id="legGrad" x1="0" y1="0" x2="0" y2="1">';
   svgParts += '<stop offset="0%" stop-color="hsl(215,85%,25%)"/><stop offset="100%" stop-color="hsl(215,35%,68%)"/>';
   svgParts += '</linearGradient></defs>';
-  svgParts += '<rect x="745" y="180" width="16" height="120" fill="url(#legGrad)" rx="3" stroke="var(--border)" stroke-width="0.5"/>';
-  svgParts += '<text x="753" y="172" text-anchor="middle" font-size="8" fill="var(--text-muted)">Reversas</text>';
-  svgParts += '<text x="753" y="178" text-anchor="middle" font-size="8" font-weight="600" fill="var(--text)">' + maxCount.toLocaleString('pt-BR') + '</text>';
-  svgParts += '<text x="753" y="310" text-anchor="middle" font-size="8" fill="var(--text-muted)">0</text>';
+  svgParts += '<rect x="770" y="180" width="18" height="130" fill="url(#legGrad)" rx="3" stroke="var(--border)" stroke-width="0.5"/>';
+  svgParts += '<text x="779" y="170" text-anchor="middle" font-size="11" fill="var(--text-muted)">Reversas</text>';
+  svgParts += '<text x="779" y="178" text-anchor="middle" font-size="10" font-weight="600" fill="var(--text)">' + maxCount.toLocaleString('pt-BR') + '</text>';
+  svgParts += '<text x="779" y="322" text-anchor="middle" font-size="10" fill="var(--text-muted)">0</text>';
 
-  el.innerHTML = '<svg viewBox="0 0 800 920" style="width:100%;max-height:520px" xmlns="http://www.w3.org/2000/svg">' + svgParts + '</svg>';
+  el.innerHTML = '<svg viewBox="0 0 820 920" style="width:100%;max-height:520px" xmlns="http://www.w3.org/2000/svg">' + svgParts + '</svg>';
 }
