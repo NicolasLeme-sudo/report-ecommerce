@@ -1651,7 +1651,7 @@ async function processarRelatoriosReversa(files, options) {
     if (!str) return null;
     str = str.trim();
     // dd/mm/aaaa ou dd/mm/aa
-    var m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    var m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
     if (m) {
       var y = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
       return new Date(y, parseInt(m[2])-1, parseInt(m[1]));
