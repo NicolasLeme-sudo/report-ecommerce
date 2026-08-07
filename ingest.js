@@ -1610,78 +1610,314 @@ async function processarBaseCusto(file, options) {
 // =========================================================
 async function processarRelatoriosReversa(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
-  onProgress("Lendo Controle de NF Reversa...");
+  onProgress("Carregando dim_embalas do Supabase...");
 
-  // STATUS válidos para reversa pendente
-  var STATUS_PENDENTES = ["IMPORTADA", "EM CARGA/OR"];
+  // --- dim_embalas: barcode → marca, sku → marca ---
+  var embalasBarraMap = new Map();
+  var embalasSkuMap   = new Map();
+  var off = 0;
+  while (true) {
+    var { data: emData } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+    if (!emData || emData.length === 0) break;
+    emData.forEach(function(e) {
+      if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
+      if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
+    });
+    if (emData.length < 1000) break;
+    off += 1000;
+  }
+  onProgress("Embalas: " + embalasBarraMap.size + " barcodes carregados.");
 
-  // ---- Controle NF Reversa (1 linha por NF) ----
+  // ---- CONTROLE NF REVERSA (1 linha por NF) ----
+  onProgress("Lendo Controle NF Reversa...");
   var textoControle = await files.arquivoControle.text();
   var linhasControle = parseTSVSelecionado(textoControle, [
-    "Nota Fiscal", "Status", "Data de Emissão", "Data de Cadastro"
+    "Nota Fiscal", "Status", "Data de Cadastro"
   ]);
 
-  // Mapear NFs pendentes: idNF → status
-  var nfsPorStatus = {};  // status → Set de NFs
-  STATUS_PENDENTES.forEach(function(s){ nfsPorStatus[s] = new Set(); });
+  var STATUS_PEND = { "IMPORTADA": true, "EM CARGA/OR": true };
+
+  // Mapas auxiliares
+  var nfStatusMap   = {};   // nf → status
+  var nfDataMap     = {};   // nf → data de cadastro (string dd/mm/aaaa ou iso)
+  var integ15dias   = {};   // "dd/mm" → {nfs: Set, itens: 0}
+  var acumMensal    = {};   // "YYYY-MM" → {nfs: Set, itens: 0}
+
+  // Calcular janela dos últimos 15 dias
+  var hoje = new Date();
+  var d15  = new Date(hoje); d15.setDate(hoje.getDate() - 14);
+
+  function parseDateBR(str) {
+    if (!str) return null;
+    str = str.trim();
+    // dd/mm/aaaa ou dd/mm/aa
+    var m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      var y = m[3].length === 2 ? 2000 + parseInt(m[3]) : parseInt(m[3]);
+      return new Date(y, parseInt(m[2])-1, parseInt(m[1]));
+    }
+    // ISO
+    var d = new Date(str);
+    return isNaN(d) ? null : d;
+  }
+
+  function fmtDDMM(d) {
+    return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+  }
+  function fmtYYYYMM(d) {
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+  }
 
   linhasControle.forEach(function(r) {
-    var status = (r["Status"] || "").trim().toUpperCase();
     var nf     = (r["Nota Fiscal"] || "").trim();
+    var status = (r["Status"] || "").trim().toUpperCase();
+    var dataCad = parseDateBR(r["Data de Cadastro"]);
     if (!nf) return;
-    if (status === "IMPORTADA")    nfsPorStatus["IMPORTADA"].add(nf);
-    if (status === "EM CARGA/OR")  nfsPorStatus["EM CARGA/OR"].add(nf);
+
+    nfStatusMap[nf] = status;
+    if (dataCad) nfDataMap[nf] = dataCad;
+
+    // Integração últimos 15 dias (todas as NFs, não só pendentes)
+    if (dataCad && dataCad >= d15 && dataCad <= hoje) {
+      var key = fmtDDMM(dataCad);
+      if (!integ15dias[key]) integ15dias[key] = { nfs: new Set(), itens: 0 };
+      integ15dias[key].nfs.add(nf);
+    }
+
+    // Acumulado mensal (todas as NFs)
+    if (dataCad) {
+      var mes = fmtYYYYMM(dataCad);
+      if (!acumMensal[mes]) acumMensal[mes] = { nfs: new Set(), itens: 0 };
+      acumMensal[mes].nfs.add(nf);
+    }
   });
 
-  var nfsVinculacao  = nfsPorStatus["IMPORTADA"].size;
-  var nfsArmazenagem = nfsPorStatus["EM CARGA/OR"].size;
-  var nfsTotal       = nfsVinculacao + nfsArmazenagem;
+  // Conjuntos de NFs pendentes por status
+  var nfsImportada  = new Set();
+  var nfsEmCarga    = new Set();
+  Object.keys(nfStatusMap).forEach(function(nf) {
+    var s = nfStatusMap[nf];
+    if (s === "IMPORTADA")   nfsImportada.add(nf);
+    if (s === "EM CARGA/OR") nfsEmCarga.add(nf);
+  });
+  var nfsPendentes = new Set([...nfsImportada, ...nfsEmCarga]);
 
-  onProgress("Controle: " + nfsTotal + " NFs pendentes. Lendo Itens...");
+  onProgress("Controle: " + nfsPendentes.size + " NFs pendentes. Lendo Itens...");
 
-  // ---- Itens NF Entrada (1 linha por item) ----
+  // ---- ITENS NF ENTRADA (1 linha por item/SKU) ----
   var textoItens = await files.arquivoItens.text();
   var linhasItens = parseTSVSelecionado(textoItens, [
-    "Nota Fiscal", "Status", "Quantidade"
+    "Nota Fiscal", "Status", "Quantidade", "Barra", "Código do Produto"
   ]);
 
-  // Montar set de NFs pendentes (união dos dois status)
-  var nfsPendentesSet = new Set([
-    ...nfsPorStatus["IMPORTADA"],
-    ...nfsPorStatus["EM CARGA/OR"]
-  ]);
+  // KPIs por marca
+  var kpiMarca = {};   // marca → {nfs_vinc, itens_vinc, nfs_arm, itens_arm}
+  var nfsMarcaMap = {}; // nf → marca (primeira encontrada)
 
-  var itensVinculacao  = 0;
-  var itensArmazenagem = 0;
+  // Montante pendente por marca (Bloco 3b)
+  var montanteMarca = {}; // marca → {itens_vinc, itens_arm}
+
+  var itensVinc = 0, itensArm = 0;
 
   linhasItens.forEach(function(r) {
-    var nf     = (r["Nota Fiscal"] || "").trim();
-    var status = (r["Status"] || "").trim().toUpperCase();
-    var qtde   = Number(r["Quantidade"]) || 0;
-    if (!nfsPendentesSet.has(nf)) return;
-    if (status === "IMPORTADA")   itensVinculacao  += qtde;
-    if (status === "EM CARGA/OR") itensArmazenagem += qtde;
+    var nf      = (r["Nota Fiscal"] || "").trim();
+    var status  = (r["Status"] || "").trim().toUpperCase();
+    var qtde    = Number(r["Quantidade"]) || 0;
+    var barra   = String(r["Barra"] || "").trim();
+    var codProd = String(r["Código do Produto"] || "").trim();
+    if (!nfsPendentes.has(nf) || qtde === 0) return;
+
+    // Buscar marca via embalas
+    var marca = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || "Outros";
+    if (!nfsMarcaMap[nf]) nfsMarcaMap[nf] = marca;
+
+    // Itens globais
+    if (status === "IMPORTADA")   itensVinc += qtde;
+    if (status === "EM CARGA/OR") itensArm  += qtde;
+
+    // Montante por marca
+    if (!montanteMarca[marca]) montanteMarca[marca] = { itens_vinc: 0, itens_arm: 0 };
+    if (status === "IMPORTADA")   montanteMarca[marca].itens_vinc += qtde;
+    if (status === "EM CARGA/OR") montanteMarca[marca].itens_arm  += qtde;
+
+    // Itens no gráfico integração 15 dias e acumulado mensal
+    var dataCad = nfDataMap[nf];
+    if (dataCad && dataCad >= d15 && dataCad <= hoje) {
+      var key = fmtDDMM(dataCad);
+      if (integ15dias[key]) integ15dias[key].itens += qtde;
+    }
+    if (dataCad) {
+      var mes = fmtYYYYMM(dataCad);
+      if (acumMensal[mes]) acumMensal[mes].itens += qtde;
+    }
   });
 
-  var itensTotal = itensVinculacao + itensArmazenagem;
+  // KPIs por marca (baseado em nfsMarcaMap)
+  nfsImportada.forEach(function(nf) {
+    var marca = nfsMarcaMap[nf] || "Outros";
+    if (!kpiMarca[marca]) kpiMarca[marca] = {nfs_vinc:0,itens_vinc:0,nfs_arm:0,itens_arm:0};
+    kpiMarca[marca].nfs_vinc++;
+  });
+  nfsEmCarga.forEach(function(nf) {
+    var marca = nfsMarcaMap[nf] || "Outros";
+    if (!kpiMarca[marca]) kpiMarca[marca] = {nfs_vinc:0,itens_vinc:0,nfs_arm:0,itens_arm:0};
+    kpiMarca[marca].nfs_arm++;
+  });
+  // Itens já contados acima — reatribuir por marca
+  Object.keys(montanteMarca).forEach(function(marca) {
+    if (!kpiMarca[marca]) kpiMarca[marca] = {nfs_vinc:0,itens_vinc:0,nfs_arm:0,itens_arm:0};
+    kpiMarca[marca].itens_vinc = montanteMarca[marca].itens_vinc;
+    kpiMarca[marca].itens_arm  = montanteMarca[marca].itens_arm;
+  });
 
-  onProgress("Itens: " + itensTotal.toLocaleString('pt-BR') + " pendentes. Gravando...");
+  onProgress("Itens processados. Lendo Troca E-comm...");
 
-  // ---- Montar payload e gravar snapshot ----
+  // ---- TROCA E-COMM (CSV/TSV) ----
+  var textoTroca = await files.arquivoTroca.text();
+  // Detectar separador
+  var primLinha = textoTroca.split('\n')[0];
+  var sep = primLinha.includes('\t') ? '\t' : ',';
+  var linhasTroca = parseTSVComSep(textoTroca, sep, [
+    "Loja", "Reversa", "Data de criação", "Status", "Previsão de entrega", "Estado", "Nota Fiscal de Devolução"
+  ]);
+
+  // Previsão de entrega (próximos 15 dias) — exceto Cancelado
+  var prevEntrega = {}; // "dd/mm" → count
+  var hoje15 = new Date(hoje); hoje15.setDate(hoje.getDate() + 14);
+
+  // Mapa estado → {nfs: Set} para mapa do Brasil
+  var mapaEstados = {};
+
+  // Reversas pendentes por marca (Bloco 3c)
+  var reversasPend = {}; // marca → count
+
+  linhasTroca.forEach(function(r) {
+    var status = (r["Status"] || "").trim();
+    if (status === "Cancelado") return;
+
+    var loja   = (r["Loja"] || "").trim();
+    var reversa= (r["Reversa"] || "").trim();
+    var estado = (r["Estado"] || "").trim();
+    var nfDev  = (r["Nota Fiscal de Devolução"] || "").trim();
+
+    // Marca a partir da Loja (remove " - Marketplace")
+    var marca = loja.replace(/\s*-\s*Marketplace/i,'').replace(/\s*-\s*Pedidos manuais.*/i,'').trim();
+
+    // Reversas pendentes de chegada
+    if (!reversasPend[marca]) reversasPend[marca] = 0;
+    reversasPend[marca]++;
+
+    // Mapa estados (acumulado)
+    if (estado) {
+      if (!mapaEstados[estado]) mapaEstados[estado] = { count: 0 };
+      mapaEstados[estado].count++;
+    }
+
+    // Previsão de entrega
+    var prevStr = (r["Previsão de entrega"] || "").trim();
+    var dataCriacao = parseDateBR(r["Data de criação"]);
+    var dataPrevisao;
+    if (prevStr) {
+      dataPrevisao = parseDateBR(prevStr);
+    } else if (dataCriacao) {
+      dataPrevisao = new Date(dataCriacao);
+      dataPrevisao.setDate(dataPrevisao.getDate() + 7);
+    }
+    if (dataPrevisao && dataPrevisao >= hoje && dataPrevisao <= hoje15) {
+      var key = fmtDDMM(dataPrevisao);
+      prevEntrega[key] = (prevEntrega[key] || 0) + 1;
+    }
+  });
+
+  // ---- Montar séries de datas para gráficos ----
+  // Integração 15 dias: gerar array de 15 dias corridos
+  var integSerie = [];
+  for (var d = 0; d < 15; d++) {
+    var dt = new Date(d15);
+    dt.setDate(d15.getDate() + d);
+    var key = fmtDDMM(dt);
+    var bucket = integ15dias[key] || { nfs: new Set(), itens: 0 };
+    integSerie.push({ data: key, nfs: bucket.nfs.size, itens: bucket.itens });
+  }
+
+  // Previsão 15 dias: gerar array de 15 dias futuros
+  var prevSerie = [];
+  for (var d2 = 0; d2 < 15; d2++) {
+    var dt2 = new Date(hoje);
+    dt2.setDate(hoje.getDate() + d2);
+    var key2 = fmtDDMM(dt2);
+    prevSerie.push({ data: key2, reversas: prevEntrega[key2] || 0 });
+  }
+
+  // Acumulado mensal: ordenar por mês
+  var acumSerie = Object.keys(acumMensal).sort().map(function(mes) {
+    return { mes: mes, nfs: acumMensal[mes].nfs.size, itens: acumMensal[mes].itens };
+  });
+
+  // Montante por marca como array ordenado
+  var montanteArr = Object.keys(montanteMarca).map(function(m) {
+    return {
+      marca: m,
+      itens_vinc: montanteMarca[m].itens_vinc,
+      itens_arm:  montanteMarca[m].itens_arm,
+      total: montanteMarca[m].itens_vinc + montanteMarca[m].itens_arm
+    };
+  }).sort(function(a,b){ return b.total - a.total; });
+
+  // Reversas pendentes como array
+  var reversasPendArr = Object.keys(reversasPend).map(function(m) {
+    return { marca: m, qtde: reversasPend[m] };
+  }).sort(function(a,b){ return b.qtde - a.qtde; });
+
+  // ---- Payload final ----
   var payload = {
     gerado_em: new Date().toISOString(),
     kpis: {
-      nfs_vinculacao:  nfsVinculacao,
-      itens_vinculacao: itensVinculacao,
-      nfs_armazenagem:  nfsArmazenagem,
-      itens_armazenagem: itensArmazenagem,
-      nfs_total:   nfsTotal,
-      itens_total: itensTotal,
-    }
+      total: {
+        nfs_vinculacao:   nfsImportada.size,
+        itens_vinculacao: itensVinc,
+        nfs_armazenagem:  nfsEmCarga.size,
+        itens_armazenagem: itensArm,
+        nfs_total:   nfsPendentes.size,
+        itens_total: itensVinc + itensArm,
+      },
+      por_marca: kpiMarca,
+    },
+    integracao_15dias: integSerie,
+    previsao_15dias:   prevSerie,
+    acumulado_mensal:  acumSerie,
+    montante_marca:    montanteArr,
+    reversas_pendentes: reversasPendArr,
+    mapa_estados:      mapaEstados,
   };
 
   await salvarSnapshot("reversa", "auto", payload);
-  await registrarLog("reversa", "Controle_NF_Reversa + Itens_NF_Entrada", nfsTotal);
+  await registrarLog("reversa", "Controle_NF_Reversa + Itens_NF_Entrada + Troca_Ecomm", nfsPendentes.size);
 
-  onProgress("✓ Reversa atualizada! " + nfsTotal + " NFs | " + itensTotal.toLocaleString('pt-BR') + " itens pendentes.");
+  onProgress("✓ Reversa atualizada! " + nfsPendentes.size + " NFs pendentes | " + (itensVinc+itensArm).toLocaleString('pt-BR') + " itens.");
+}
+
+// Helper: parseTSV com separador customizável
+function parseTSVComSep(texto, sep, colsDesejadas) {
+  var linhas = texto.split('\n');
+  if (linhas.length === 0) return [];
+  var header = linhas[0].split(sep).map(function(h){ return normalizarEncoding(h.trim()); });
+  var idxMap = {};
+  colsDesejadas.forEach(function(col) {
+    var normCol = normalizarEncoding(col);
+    var idx = header.findIndex(function(h){ return normalizarEncoding(h) === normCol; });
+    if (idx >= 0) idxMap[col] = idx;
+  });
+  var resultado = [];
+  for (var i = 1; i < linhas.length; i++) {
+    var row = linhas[i].split(sep);
+    if (row.length < 2) continue;
+    var obj = {};
+    colsDesejadas.forEach(function(col) {
+      var idx = idxMap[col];
+      obj[col] = idx !== undefined ? (row[idx] || "").trim() : "";
+    });
+    resultado.push(obj);
+  }
+  return resultado;
 }
