@@ -486,13 +486,9 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
   </div>
 </div>
 
-    <!-- REVERSA (em construção) -->
+    <!-- REVERSA -->
     <div class="secao" id="secao-reversa">
-      <div class="placeholder">
-        <span class="icone-grande">↩️</span>
-        <h3>Reversa — Em construção</h3>
-        <p>Esta seção vai exibir pendências de logística reversa por motivo (Troca fácil, Vinculação, Análise de qualidade).</p>
-      </div>
+      <div id="reversa-conteudo"><div class="loading-msg">Clique em Reversa para carregar.</div></div>
     </div>
 
     <!-- BALANÇO (em construção) -->
@@ -531,6 +527,16 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         </div>
         <button class="btn-upload" id="btnInbound">Atualizar Relatórios do Inbound</button>
         <div class="progress-box" id="progressInbound"></div>
+      </div>
+      <div class="upload-card">
+        <h2>Atualizar Relatórios da Reversa</h2>
+        <div class="freq">Frequência: diária</div>
+        <div class="file-row">
+          <div class="file-field"><label>Controle_NF_Reversa.tsv</label><input type="file" id="fileControleReversa"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensReversa"></div>
+        </div>
+        <button class="btn-upload" id="btnReversa">Atualizar Relatórios da Reversa</button>
+        <div class="progress-box" id="progressReversa"></div>
       </div>
       <div class="upload-card">
         <h2>Atualizar Estoque (Operação)</h2>
@@ -611,6 +617,7 @@ function mostrarSecao(secao) {
   // Carrega os dados da seção se necessário
   if (secao === 'outbound') carregarOutbound();
   if (secao === 'inbound')  carregarInbound();
+  if (secao === 'reversa')  carregarReversa();
   if (secao === 'estoque')  carregarEstoque();
   if (secao === 'balanco')  carregarBalanco();
 }
@@ -1131,6 +1138,12 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   return (r&&i&&o&&k&&s) ? {arquivoRecebs:r, arquivoItens:i, arquivoOR:o, arquivoKardex:k, arquivoStage:s} : null;
 });
 
+ligarBotao('btnReversa', 'progressReversa', processarRelatoriosReversa, () => {
+  const c = document.getElementById('fileControleReversa').files[0];
+  const i = document.getElementById('fileItensReversa').files[0];
+  return (c&&i) ? { arquivoControle: c, arquivoItens: i } : null;
+});
+
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
   const f = document.getElementById('fileEstoquePicking').files[0];
   return f ? { arquivoEstoque: f } : null;
@@ -1302,6 +1315,47 @@ function renderMatrizPendente(matriz) {
   h += `<td>${totGeral.toLocaleString('pt-BR')}</td></tr></tbody>`;
   el.innerHTML = h;
 }
+async function carregarReversa() {
+  document.getElementById('reversa-conteudo').innerHTML =
+    '<div class="loading-msg">Carregando dados da Reversa...</div>';
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('*')
+    .eq('pagina', 'reversa')
+    .order('gerado_em', { ascending: false })
+    .limit(1);
+  if (error || !data || data.length === 0) {
+    document.getElementById('reversa-conteudo').innerHTML =
+      '<div class="erro-msg">Nenhum dado encontrado. Use Abastecimento → Atualizar Relatórios da Reversa.</div>';
+    return;
+  }
+  renderizarReversa(data[0].payload);
+}
+
+function renderizarReversa(p) {
+  const k = p.kpis;
+  function fmt(v){ return (v||0).toLocaleString('pt-BR'); }
+  const html = `
+    <div class="section-title">Indicadores da Reversa</div>
+    <div class="grid3" style="margin-bottom:14px;">
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Aguardando Vinculação</div><div class="value">${fmt(k.nfs_vinculacao)}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Aguardando Vinculação</div><div class="value">${fmt(k.itens_vinculacao)}</div></div>
+      <div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total de NFs Pendentes</div><div class="value">${fmt(k.nfs_total)}</div></div>
+    </div>
+    <div class="grid3" style="margin-bottom:16px;">
+      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Aguardando Armazenagem</div><div class="value">${fmt(k.nfs_armazenagem)}</div></div>
+      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Itens Aguardando Armazenagem</div><div class="value">${fmt(k.itens_armazenagem)}</div></div>
+      <div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total de Itens Pendentes</div><div class="value">${fmt(k.itens_total)}</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">Motivos de Devolução — Em breve</div>
+      <div style="color:var(--text-muted);font-size:13px;padding:12px 0;">
+        Disponível após integração com relatório de motivos de devolução.
+      </div>
+    </div>`;
+  document.getElementById('reversa-conteudo').innerHTML = html;
+}
+
   async function carregarEstoque() {
   document.getElementById('estoque-conteudo').innerHTML = '<div class="loading-msg">Carregando Estoque...</div>';
   const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','estoque').order('gerado_em',{ascending:false}).limit(1);
