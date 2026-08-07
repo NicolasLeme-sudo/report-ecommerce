@@ -1720,37 +1720,46 @@ async function processarRelatoriosReversa(files, options) {
 
   var itensVinc = 0, itensArm = 0;
 
+  // Set de TODAS as NFs do Controle (não só pendentes) para integração
+  var todasNfsSet = new Set(Object.keys(nfStatusMap));
+
   linhasItens.forEach(function(r) {
     var nf      = (r["Nota Fiscal"] || "").trim();
     var status  = (r["Status"] || "").trim().toUpperCase();
     var qtde    = Number(r["Quantidade"]) || 0;
     var barra   = String(r["Barra"] || "").trim();
     var codProd = String(r["Código do Produto"] || "").trim();
-    if (!nfsPendentes.has(nf) || qtde === 0) return;
+    if (qtde === 0) return;
 
-    // Buscar marca via embalas
-    var marca = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || "Outros";
-    if (!nfsMarcaMap[nf]) nfsMarcaMap[nf] = marca;
+    // Buscar marca via embalas (para todas as NFs de reversa)
+    if (todasNfsSet.has(nf)) {
+      var marca = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || "Outros";
+      if (!nfsMarcaMap[nf]) nfsMarcaMap[nf] = marca;
 
-    // Itens globais
+      // Itens no gráfico integração 15 dias e acumulado mensal (TODAS as NFs)
+      var dataCad = nfDataMap[nf];
+      if (dataCad && dataCad >= d15 && dataCad <= hoje) {
+        var key = fmtDDMM(dataCad);
+        if (integ15dias[key]) integ15dias[key].itens += qtde;
+      }
+      if (dataCad) {
+        var mes = fmtYYYYMM(dataCad);
+        if (acumMensal[mes]) acumMensal[mes].itens += qtde;
+      }
+    }
+
+    // KPIs e Montante: só NFs pendentes
+    if (!nfsPendentes.has(nf)) return;
+
+    // Itens globais (pendentes)
     if (status === "IMPORTADA")   itensVinc += qtde;
     if (status === "EM CARGA/OR") itensArm  += qtde;
 
-    // Montante por marca
-    if (!montanteMarca[marca]) montanteMarca[marca] = { itens_vinc: 0, itens_arm: 0 };
-    if (status === "IMPORTADA")   montanteMarca[marca].itens_vinc += qtde;
-    if (status === "EM CARGA/OR") montanteMarca[marca].itens_arm  += qtde;
-
-    // Itens no gráfico integração 15 dias e acumulado mensal
-    var dataCad = nfDataMap[nf];
-    if (dataCad && dataCad >= d15 && dataCad <= hoje) {
-      var key = fmtDDMM(dataCad);
-      if (integ15dias[key]) integ15dias[key].itens += qtde;
-    }
-    if (dataCad) {
-      var mes = fmtYYYYMM(dataCad);
-      if (acumMensal[mes]) acumMensal[mes].itens += qtde;
-    }
+    // Montante por marca (pendentes)
+    var marcaPend = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || "Outros";
+    if (!montanteMarca[marcaPend]) montanteMarca[marcaPend] = { itens_vinc: 0, itens_arm: 0 };
+    if (status === "IMPORTADA")   montanteMarca[marcaPend].itens_vinc += qtde;
+    if (status === "EM CARGA/OR") montanteMarca[marcaPend].itens_arm  += qtde;
   });
 
   // KPIs por marca (baseado em nfsMarcaMap)
