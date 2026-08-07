@@ -1604,3 +1604,84 @@ async function processarBaseCusto(file, options) {
   await registrarLog("custo", file.name, registros.length);
   onProgress("✓ Base de Custo atualizada! " + registros.length + " SKUs.");
 }
+
+// =========================================================
+// REVERSA — Controle_NF_Reversa.tsv + Itens_de_NF_de_Entrada.tsv
+// =========================================================
+async function processarRelatoriosReversa(files, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo Controle de NF Reversa...");
+
+  // STATUS válidos para reversa pendente
+  var STATUS_PENDENTES = ["IMPORTADA", "EM CARGA/OR"];
+
+  // ---- Controle NF Reversa (1 linha por NF) ----
+  var textoControle = await files.arquivoControle.text();
+  var linhasControle = parseTSVSelecionado(textoControle, [
+    "Nota Fiscal", "Status", "Data de Emissão", "Data de Cadastro"
+  ]);
+
+  // Mapear NFs pendentes: idNF → status
+  var nfsPorStatus = {};  // status → Set de NFs
+  STATUS_PENDENTES.forEach(function(s){ nfsPorStatus[s] = new Set(); });
+
+  linhasControle.forEach(function(r) {
+    var status = (r["Status"] || "").trim().toUpperCase();
+    var nf     = (r["Nota Fiscal"] || "").trim();
+    if (!nf) return;
+    if (status === "IMPORTADA")    nfsPorStatus["IMPORTADA"].add(nf);
+    if (status === "EM CARGA/OR")  nfsPorStatus["EM CARGA/OR"].add(nf);
+  });
+
+  var nfsVinculacao  = nfsPorStatus["IMPORTADA"].size;
+  var nfsArmazenagem = nfsPorStatus["EM CARGA/OR"].size;
+  var nfsTotal       = nfsVinculacao + nfsArmazenagem;
+
+  onProgress("Controle: " + nfsTotal + " NFs pendentes. Lendo Itens...");
+
+  // ---- Itens NF Entrada (1 linha por item) ----
+  var textoItens = await files.arquivoItens.text();
+  var linhasItens = parseTSVSelecionado(textoItens, [
+    "Nota Fiscal", "Status", "Quantidade"
+  ]);
+
+  // Montar set de NFs pendentes (união dos dois status)
+  var nfsPendentesSet = new Set([
+    ...nfsPorStatus["IMPORTADA"],
+    ...nfsPorStatus["EM CARGA/OR"]
+  ]);
+
+  var itensVinculacao  = 0;
+  var itensArmazenagem = 0;
+
+  linhasItens.forEach(function(r) {
+    var nf     = (r["Nota Fiscal"] || "").trim();
+    var status = (r["Status"] || "").trim().toUpperCase();
+    var qtde   = Number(r["Quantidade"]) || 0;
+    if (!nfsPendentesSet.has(nf)) return;
+    if (status === "IMPORTADA")   itensVinculacao  += qtde;
+    if (status === "EM CARGA/OR") itensArmazenagem += qtde;
+  });
+
+  var itensTotal = itensVinculacao + itensArmazenagem;
+
+  onProgress("Itens: " + itensTotal.toLocaleString('pt-BR') + " pendentes. Gravando...");
+
+  // ---- Montar payload e gravar snapshot ----
+  var payload = {
+    gerado_em: new Date().toISOString(),
+    kpis: {
+      nfs_vinculacao:  nfsVinculacao,
+      itens_vinculacao: itensVinculacao,
+      nfs_armazenagem:  nfsArmazenagem,
+      itens_armazenagem: itensArmazenagem,
+      nfs_total:   nfsTotal,
+      itens_total: itensTotal,
+    }
+  };
+
+  await salvarSnapshot("reversa", "auto", payload);
+  await registrarLog("reversa", "Controle_NF_Reversa + Itens_NF_Entrada", nfsTotal);
+
+  onProgress("✓ Reversa atualizada! " + nfsTotal + " NFs | " + itensTotal.toLocaleString('pt-BR') + " itens pendentes.");
+}
