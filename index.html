@@ -1348,20 +1348,27 @@ function renderizarReversa(p, marcaFiltro) {
   };
   function fmt(v){ return (v||0).toLocaleString('pt-BR'); }
 
-  // Filtro marcas disponíveis
-  var marcas = ['Todas'].concat(Object.keys(p.kpis.por_marca||{}).sort());
-  var btnsMarca = marcas.map(function(m) {
-    var ativo = m === marcaFiltro ? 'style="background:var(--accent);color:#fff"' : '';
-    return '<button class="btn-filtro-marca" '+ativo+' onclick="window._reversaFiltro(\''+m+'\')">'+m+'</button>';
-  }).join(' ');
+  // Marcas para filtro
+  var marcas = ['Todas'].concat(Object.keys(p.kpis.por_marca||{}).filter(function(m){return m!=='Outros';}).sort());
+  var chipsMarca = marcas.map(function(m) {
+    var lbl = m === 'Todas' ? 'Todas' : m === 'Under Armour' ? 'UA' : m.substring(0,3).toUpperCase();
+    if (m === 'Todas') lbl = 'Todas';
+    else if (m === 'Mizuno') lbl = 'MIZ';
+    else if (m === 'Olympikus') lbl = 'OLK';
+    else if (m === 'Under Armour') lbl = 'UA';
+    else lbl = m;
+    var cls = m === marcaFiltro ? 'chip ativo' : 'chip';
+    return '<span class="'+cls+'" onclick="window._reversaFiltro(\''+m+'\')">'+lbl+'</span>';
+  }).join('');
 
-  var html = '<div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
-    + '<span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase">Marca:</span>'
-    + btnsMarca + '</div>';
+  var html = '';
 
-  // BLOCO 1 — KPIs 3x2
+  // FILTRO — estilo Outbound
+  html += '<div class="filterbar" style="margin-bottom:16px"><div class="filter-group"><label>Marca</label><div class="filter-chips">'+chipsMarca+'</div></div></div>';
+
+  // BLOCO 1 — KPIs 3x2 (nova estrutura conforme rascunho)
   html += '<div class="section-title">Pendências de Entrada</div>';
-  html += '<div class="grid3" style="margin-bottom:14px;">'
+  html += '<div class="grid3" style="margin-bottom:10px;">'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Ag. Vinculação</div><div class="value">'+fmt(k.nfs_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Ag. Armazenagem</div><div class="value">'+fmt(k.nfs_armazenagem)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total NFs Pendentes</div><div class="value">'+fmt(k.nfs_total)+'</div></div>'
@@ -1372,207 +1379,171 @@ function renderizarReversa(p, marcaFiltro) {
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total Itens Pendentes</div><div class="value">'+fmt(k.itens_total)+'</div></div>'
     + '</div>';
 
-  // BLOCO 2 — Gráficos lado a lado
-  html += '<div class="grid2" style="margin-bottom:16px;">'
-    + '<div class="card"><div class="section-title">Integração de NFs — Últimos 15 dias</div>'
-    + '<svg id="svgInteg" width="100%" height="200" viewBox="0 0 560 200" preserveAspectRatio="none"></svg></div>'
-    + '<div class="card"><div class="section-title">Previsão de Chegada — Próximos 15 dias</div>'
-    + '<svg id="svgPrevisao" width="100%" height="200" viewBox="0 0 560 200" preserveAspectRatio="none"></svg></div>'
-    + '</div>';
-
-  // BLOCO 3 — Montante + Reversas pendentes
-  html += '<div class="grid2" style="margin-bottom:16px;">'
-    + '<div class="card"><div class="section-title">Montante Pendente por Marca (Itens WMS)</div>'
-    + '<table class="matrix"><thead><tr><th>Marca</th><th>Vinculação</th><th>Armazenagem</th><th>Total</th></tr></thead>'
-    + '<tbody id="tblMontante"></tbody></table></div>'
-    + '<div class="card"><div class="section-title">Reversas Pendentes de Chegada (Troca E-comm)</div>'
-    + '<table class="matrix"><thead><tr><th>Marca</th><th>Qtde</th></tr></thead>'
-    + '<tbody id="tblReversas"></tbody></table></div>'
-    + '</div>';
-
-  // BLOCO 4 — Mapa do Brasil
+  // BLOCO 2a — Integração NFs (largura total)
   html += '<div class="card" style="margin-bottom:16px;">'
-    + '<div class="section-title">Devoluções por Estado</div>'
-    + '<div id="mapaBrasil" style="position:relative;max-width:700px;margin:0 auto"></div>'
+    + '<div class="section-title">Integração de NFs de Reversa — Últimos 15 dias</div>'
+    + '<svg id="svgInteg" width="100%" height="220" viewBox="0 0 900 220" preserveAspectRatio="none"></svg>'
+    + '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">'
+    + '<span style="color:var(--accent)">■</span> NFs &nbsp; <span style="color:var(--olive)">■</span> Itens</div></div>';
+
+  // BLOCO 2b — Previsão Entrega (largura total, com rótulos)
+  html += '<div class="card" style="margin-bottom:16px;">'
+    + '<div class="section-title">Previsão de Entrega — Próximos 15 dias</div>'
+    + '<svg id="svgPrevisao" width="100%" height="220" viewBox="0 0 900 220" preserveAspectRatio="none"></svg></div>';
+
+  // BLOCO 3 — Mapa (esq, altura dupla) + Rosca Montante (dir cima) + Rosca Pendentes (dir baixo)
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:16px;margin-bottom:16px">'
+    + '<div class="card" style="grid-row:1/3"><div class="section-title">Devoluções por Estado</div><div id="mapaBrasil" style="position:relative"></div></div>'
+    + '<div class="card"><div class="section-title">Montante Pendente por Marca (Itens WMS)</div><div id="roscaMontante" style="display:flex;align-items:center;justify-content:center;min-height:220px"></div></div>'
+    + '<div class="card"><div class="section-title">Reversas Pendentes de Chegada (Troca E-comm)</div><div id="roscaPendentes" style="display:flex;align-items:center;justify-content:center;min-height:220px"></div></div>'
     + '</div>';
 
   document.getElementById('reversa-conteudo').innerHTML = html;
 
   // Renderizar gráficos
   renderGraficoColunasReversa('svgInteg', p.integracao_15dias || []);
-  renderGraficoLinhaReversa('svgPrevisao', p.previsao_15dias || [], marcaFiltro, p);
-
-  // Tabela Montante (sempre todas as marcas)
-  var tblM = document.getElementById('tblMontante');
-  var rowsM = '';
-  (p.montante_marca || []).forEach(function(r) {
-    rowsM += '<tr><th>'+r.marca+'</th><td>'+fmt(r.itens_vinc)+'</td><td>'+fmt(r.itens_arm)+'</td><td style="font-weight:700">'+fmt(r.total)+'</td></tr>';
-  });
-  if (!rowsM) rowsM = '<tr><td colspan="4">Sem dados</td></tr>';
-  tblM.innerHTML = rowsM;
-
-  // Tabela Reversas Pendentes (filtrada por marca)
-  var tblR = document.getElementById('tblReversas');
-  var rowsR = '';
-  (p.reversas_pendentes || []).forEach(function(r) {
-    if (marcaFiltro !== 'Todas' && r.marca !== marcaFiltro) return;
-    rowsR += '<tr><th>'+r.marca+'</th><td>'+fmt(r.qtde)+'</td></tr>';
-  });
-  if (!rowsR) rowsR = '<tr><td colspan="2">Sem dados</td></tr>';
-  tblR.innerHTML = rowsR;
-
-  // Mapa do Brasil
+  renderGraficoLinhaReversa('svgPrevisao', p.previsao_15dias || []);
+  renderRosca('roscaMontante', (p.montante_marca||[]).map(function(m){ return {label:m.marca, value:m.total}; }));
+  renderRosca('roscaPendentes', (p.reversas_pendentes||[]).filter(function(r){
+    return marcaFiltro === 'Todas' || r.marca === marcaFiltro;
+  }).map(function(r){ return {label:r.marca, value:r.qtde}; }));
   renderMapaBrasil('mapaBrasil', p.mapa_estados || {});
 
-  // Guardar payload para refiltrar sem recarregar
   window._reversaPayload = p;
-  window._reversaFiltro = function(marca) {
-    renderizarReversa(window._reversaPayload, marca);
-  };
+  window._reversaFiltro = function(marca) { renderizarReversa(window._reversaPayload, marca); };
 }
 
+// ---- Gráfico de Colunas Duplas ----
 function renderGraficoColunasReversa(svgId, dados) {
   var svg = document.getElementById(svgId);
   if (!svg || !dados.length) return;
-  var W=560,H=200,pL=38,pR=8,pT=30,pB=28;
+  var W=900,H=220,pL=40,pR=10,pT=30,pB=28;
   var n = dados.length;
-  var maxNFs  = Math.max.apply(null, dados.map(function(d){return d.nfs;}));
-  var maxItens= Math.max.apply(null, dados.map(function(d){return d.itens;}));
-  var maxVal  = Math.max(maxNFs, maxItens, 1) * 1.2;
-  var bW = ((W-pL-pR)/n)*0.38;
+  var maxVal = Math.max.apply(null, dados.map(function(d){return Math.max(d.nfs,d.itens);}));
+  maxVal = Math.max(maxVal, 1) * 1.25;
+  var slotW = (W-pL-pR)/n;
+  var bW = slotW * 0.32;
 
   dados.forEach(function(d, i) {
-    var xC = pL + (i+0.5)*((W-pL-pR)/n);
-    // Barra NFs (azul)
-    var hNF  = (d.nfs/maxVal)*(H-pT-pB);
-    var yNF  = H-pB-hNF;
-    var rectNF = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    rectNF.setAttribute('x',xC-bW-1); rectNF.setAttribute('y',yNF);
-    rectNF.setAttribute('width',bW); rectNF.setAttribute('height',hNF||1);
-    rectNF.setAttribute('fill','var(--accent)'); rectNF.setAttribute('rx','2');
-    svg.appendChild(rectNF);
-    if (d.nfs > 0) {
-      var lbNF = document.createElementNS('http://www.w3.org/2000/svg','text');
-      lbNF.setAttribute('x',xC-bW/2-1); lbNF.setAttribute('y',yNF-3);
-      lbNF.setAttribute('text-anchor','middle'); lbNF.setAttribute('font-size','9');
-      lbNF.setAttribute('fill','var(--text)'); lbNF.textContent = d.nfs;
-      svg.appendChild(lbNF);
-    }
-    // Barra Itens (verde)
-    var hIt  = (d.itens/maxVal)*(H-pT-pB);
-    var yIt  = H-pB-hIt;
-    var rectIt = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    rectIt.setAttribute('x',xC+1); rectIt.setAttribute('y',yIt);
-    rectIt.setAttribute('width',bW); rectIt.setAttribute('height',hIt||1);
-    rectIt.setAttribute('fill','var(--olive)'); rectIt.setAttribute('rx','2');
-    svg.appendChild(rectIt);
-    if (d.itens > 0) {
-      var lbIt = document.createElementNS('http://www.w3.org/2000/svg','text');
-      lbIt.setAttribute('x',xC+bW/2+1); lbIt.setAttribute('y',yIt-3);
-      lbIt.setAttribute('text-anchor','middle'); lbIt.setAttribute('font-size','9');
-      lbIt.setAttribute('fill','var(--text)'); lbIt.textContent = d.itens;
-      svg.appendChild(lbIt);
-    }
+    var xC = pL + (i+0.5)*slotW;
+    var hNF = (d.nfs/maxVal)*(H-pT-pB); var yNF = H-pB-hNF;
+    var hIt = (d.itens/maxVal)*(H-pT-pB); var yIt = H-pB-hIt;
+
+    // Barra NFs
+    var r1 = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r1.setAttribute('x',xC-bW-1); r1.setAttribute('y',yNF); r1.setAttribute('width',bW); r1.setAttribute('height',Math.max(hNF,1));
+    r1.setAttribute('fill','var(--accent)'); r1.setAttribute('rx','2'); svg.appendChild(r1);
+    if (d.nfs > 0) { var t1=document.createElementNS('http://www.w3.org/2000/svg','text'); t1.setAttribute('x',xC-bW/2-1); t1.setAttribute('y',yNF-4); t1.setAttribute('text-anchor','middle'); t1.setAttribute('font-size','9.5'); t1.setAttribute('fill','var(--text)'); t1.textContent=d.nfs; svg.appendChild(t1); }
+
+    // Barra Itens
+    var r2 = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    r2.setAttribute('x',xC+1); r2.setAttribute('y',yIt); r2.setAttribute('width',bW); r2.setAttribute('height',Math.max(hIt,1));
+    r2.setAttribute('fill','var(--olive)'); r2.setAttribute('rx','2'); svg.appendChild(r2);
+    if (d.itens > 0) { var t2=document.createElementNS('http://www.w3.org/2000/svg','text'); t2.setAttribute('x',xC+bW/2+1); t2.setAttribute('y',yIt-4); t2.setAttribute('text-anchor','middle'); t2.setAttribute('font-size','9.5'); t2.setAttribute('fill','var(--text)'); t2.textContent=d.itens; svg.appendChild(t2); }
+
     // Data eixo X
-    var dt = document.createElementNS('http://www.w3.org/2000/svg','text');
-    dt.setAttribute('x',xC); dt.setAttribute('y',H-10);
-    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','8.5');
-    dt.setAttribute('fill','var(--text-muted)'); dt.textContent = d.data;
-    svg.appendChild(dt);
+    var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',xC); dt.setAttribute('y',H-8); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=d.data; svg.appendChild(dt);
   });
+}
+
+// ---- Gráfico de Linha com Rótulos ----
+function renderGraficoLinhaReversa(svgId, dados) {
+  var svg = document.getElementById(svgId); if (!svg || !dados.length) return;
+  var W=900,H=220,pL=36,pR=14,pT=30,pB=26;
+  var vals=dados.map(function(d){return d.reversas;}); var dias=dados.map(function(d){return d.data;});
+  var mx=Math.max.apply(null,vals.concat([1]))*1.3; var n=dados.length;
+  var xF=function(i){return pL+i*((W-pL-pR)/(n-1||1));}; var yF=function(v){return (H-pB)-(v/mx)*(H-pT-pB);};
+  var pts=vals.map(function(v,i){return [xF(i),yF(v)];});
+  var pathD=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
+  var path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d',pathD); path.setAttribute('fill','none'); path.setAttribute('stroke','var(--amber)'); path.setAttribute('stroke-width','2.5'); path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round'); svg.appendChild(path);
+  pts.forEach(function(pt,i){
+    var c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','4'); c.setAttribute('fill','var(--amber)'); svg.appendChild(c);
+    // RÓTULO DE DADOS — sempre visível
+    var lb=document.createElementNS('http://www.w3.org/2000/svg','text'); lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-10); lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','11'); lb.setAttribute('font-weight','600'); lb.setAttribute('fill','var(--text)'); lb.textContent=vals[i]; svg.appendChild(lb);
+    // Data eixo X
+    var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=dias[i]; svg.appendChild(dt);
+  });
+}
+
+// ---- Gráfico de Rosca (Donut) ----
+function renderRosca(containerId, dados) {
+  var el = document.getElementById(containerId); if (!el) return;
+  if (!dados.length || dados.every(function(d){return !d.value;})) { el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Sem dados</div>'; return; }
+  var total = dados.reduce(function(s,d){return s+(d.value||0);},0);
+  var cores = ['var(--accent)','var(--olive)','var(--amber)','var(--red)','#9b59b6','#1abc9c','#e67e22','#95a5a6'];
+  var R=70, r=42, cx=90, cy=90;
+  var svgParts = '';
+  var angulo = -Math.PI/2;
+  dados.forEach(function(d, i) {
+    var pct = d.value / total;
+    var a1 = angulo;
+    var a2 = angulo + pct * 2 * Math.PI;
+    var large = pct > 0.5 ? 1 : 0;
+    var x1o=cx+R*Math.cos(a1), y1o=cy+R*Math.sin(a1);
+    var x2o=cx+R*Math.cos(a2), y2o=cy+R*Math.sin(a2);
+    var x1i=cx+r*Math.cos(a2), y1i=cy+r*Math.sin(a2);
+    var x2i=cx+r*Math.cos(a1), y2i=cy+r*Math.sin(a1);
+    if (pct > 0.001) {
+      svgParts += '<path d="M'+x1o.toFixed(1)+','+y1o.toFixed(1)+' A'+R+','+R+' 0 '+large+' 1 '+x2o.toFixed(1)+','+y2o.toFixed(1)+' L'+x1i.toFixed(1)+','+y1i.toFixed(1)+' A'+r+','+r+' 0 '+large+' 0 '+x2i.toFixed(1)+','+y2i.toFixed(1)+' Z" fill="'+cores[i%cores.length]+'"/>';
+    }
+    angulo = a2;
+  });
+  // Centro com total
+  svgParts += '<text x="'+cx+'" y="'+(cy-4)+'" text-anchor="middle" font-size="11" fill="var(--text-muted)">Total</text>';
+  svgParts += '<text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" font-size="16" font-weight="700" fill="var(--text)">'+total.toLocaleString('pt-BR')+'</text>';
 
   // Legenda
-  var legNF = document.createElementNS('http://www.w3.org/2000/svg','text');
-  legNF.setAttribute('x',pL); legNF.setAttribute('y',12);
-  legNF.setAttribute('font-size','10'); legNF.setAttribute('fill','var(--accent)');
-  legNF.textContent = '■ NFs'; svg.appendChild(legNF);
-  var legIt = document.createElementNS('http://www.w3.org/2000/svg','text');
-  legIt.setAttribute('x',pL+40); legIt.setAttribute('y',12);
-  legIt.setAttribute('font-size','10'); legIt.setAttribute('fill','var(--olive)');
-  legIt.textContent = '■ Itens'; svg.appendChild(legIt);
-}
-
-function renderGraficoLinhaReversa(svgId, dados, marcaFiltro, payload) {
-  // Filtrar por marca se necessário (Troca E-comm já foi filtrado no ingest — aqui usamos dados globais)
-  var svg = document.getElementById(svgId);
-  if (!svg || !dados.length) return;
-  var W=560,H=200,pL=34,pR=12,pT=28,pB=24;
-  var vals = dados.map(function(d){return d.reversas;});
-  var dias  = dados.map(function(d){return d.data;});
-  var mx = Math.max.apply(null, vals.concat([1])) * 1.2;
-  var n = dados.length;
-  var xF = function(i){ return pL + i*((W-pL-pR)/(n-1||1)); };
-  var yF = function(v){ return (H-pB) - (v/mx)*(H-pT-pB); };
-  var pts = vals.map(function(v,i){ return [xF(i),yF(v)]; });
-  var pathD = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1); }).join(' ');
-
-  var path = document.createElementNS('http://www.w3.org/2000/svg','path');
-  path.setAttribute('d',pathD); path.setAttribute('fill','none');
-  path.setAttribute('stroke','var(--amber)'); path.setAttribute('stroke-width','2.5');
-  path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round');
-  svg.appendChild(path);
-
-  pts.forEach(function(pt,i) {
-    var c = document.createElementNS('http://www.w3.org/2000/svg','circle');
-    c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]);
-    c.setAttribute('r','3'); c.setAttribute('fill','var(--amber)');
-    svg.appendChild(c);
-    if (vals[i] > 0) {
-      var lb = document.createElementNS('http://www.w3.org/2000/svg','text');
-      lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-8);
-      lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','10');
-      lb.setAttribute('fill','var(--text)'); lb.textContent = vals[i];
-      svg.appendChild(lb);
-    }
-    var dt = document.createElementNS('http://www.w3.org/2000/svg','text');
-    dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6);
-    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','8.5');
-    dt.setAttribute('fill','var(--text-muted)'); dt.textContent = dias[i];
-    svg.appendChild(dt);
+  var legenda = '<div style="display:flex;flex-direction:column;gap:6px;margin-left:16px;font-size:12px">';
+  dados.forEach(function(d,i){
+    var pct = total>0?(d.value/total*100).toFixed(1):'0.0';
+    legenda += '<div style="display:flex;align-items:center;gap:6px"><span style="width:10px;height:10px;border-radius:2px;background:'+cores[i%cores.length]+';display:inline-block"></span>'+d.label+' <span style="color:var(--text-muted)">('+d.value.toLocaleString('pt-BR')+' — '+pct+'%)</span></div>';
   });
+  legenda += '</div>';
+
+  el.innerHTML = '<div style="display:flex;align-items:center;justify-content:center"><svg width="180" height="180" viewBox="0 0 180 180">'+svgParts+'</svg>'+legenda+'</div>';
 }
 
+// ---- Mapa do Brasil SVG ----
 function renderMapaBrasil(containerId, mapaEstados) {
-  var container = document.getElementById(containerId);
-  if (!container) return;
-
-  var SIGLAS = {
-    'AC':'Acre','AL':'Alagoas','AP':'Amapá','AM':'Amazonas','BA':'Bahia',
-    'CE':'Ceará','DF':'Distrito Federal','ES':'Espírito Santo','GO':'Goiás',
-    'MA':'Maranhão','MT':'Mato Grosso','MS':'Mato Grosso do Sul','MG':'Minas Gerais',
-    'PA':'Pará','PB':'Paraíba','PR':'Paraná','PE':'Pernambuco','PI':'Piauí',
-    'RJ':'Rio de Janeiro','RN':'Rio Grande do Norte','RS':'Rio Grande do Sul',
-    'RO':'Rondônia','RR':'Roraima','SC':'Santa Catarina','SP':'São Paulo',
-    'SE':'Sergipe','TO':'Tocantins'
+  var el = document.getElementById(containerId); if (!el) return;
+  // Posições dos estados (grid simplificado do mapa do Brasil)
+  var POS = {
+    RR:[1,0],AP:[2,0],
+    AM:[0,1],PA:[2,1],MA:[3,1],CE:[4,1],RN:[5,1],PB:[5,2],
+    AC:[0,2],TO:[3,2],PI:[4,2],PE:[5,3],AL:[5,4],SE:[5,5],
+    RO:[1,3],MT:[2,3],GO:[3,3],DF:[3,4],BA:[4,3],
+    MS:[2,4],MG:[4,4],ES:[5,6],
+    SP:[3,5],RJ:[4,5],
+    PR:[3,6],SC:[3,7],RS:[3,8]
   };
+  var maxVal = 1;
+  Object.values(mapaEstados).forEach(function(v){ if((v.count||0)>maxVal) maxVal=v.count; });
 
-  var maxVal = Math.max.apply(null, Object.values(mapaEstados).map(function(v){return v.count||0;}).concat([1]));
+  var cellW=72,cellH=50,padL=10,padT=10;
+  var maxCol=6,maxRow=9;
+  var svgW=(maxCol+1)*cellW+padL*2, svgH=(maxRow+1)*cellH+padT*2;
 
-  function corIntensidade(count) {
-    var pct = count / maxVal;
-    var r = Math.round(30 + pct*180);
-    var g = Math.round(100 - pct*70);
-    var b = Math.round(200 - pct*150);
-    return 'rgb('+r+','+g+','+b+')';
-  }
+  var svgParts='';
+  Object.keys(POS).forEach(function(uf){
+    var pos=POS[uf]; var x=padL+pos[0]*cellW; var y=padT+pos[1]*cellH;
+    var dados=mapaEstados[uf]||{count:0};
+    var count=dados.count||0;
+    var pct=count/maxVal;
+    // Cor: transparente para 0, azul escuro → vermelho intenso
+    var cor;
+    if(count===0){cor='var(--bg-card)';}
+    else{var hue=Math.round(210-pct*170);var sat=Math.round(50+pct*40);var light=Math.round(45-pct*15);cor='hsl('+hue+','+sat+'%,'+light+'%)';}
 
-  // Tabela de estados como heatmap visual (SVG seria muito complexo inline)
-  // Usamos grid de cards coloridos por intensidade
-  var estados = Object.keys(SIGLAS).sort();
-  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;padding:8px 0">';
-  estados.forEach(function(sigla) {
-    var nome = SIGLAS[sigla];
-    var dados = mapaEstados[sigla] || mapaEstados[nome] || { count: 0 };
-    var count = dados.count || 0;
-    var cor = count > 0 ? corIntensidade(count) : 'var(--bg-card)';
-    var textCor = count > 0 ? '#fff' : 'var(--text-muted)';
-    html += '<div title="'+nome+': '+count+' reversas" style="background:'+cor+';border-radius:6px;padding:8px 6px;text-align:center;cursor:default;border:1px solid var(--border)">'
-      + '<div style="font-size:13px;font-weight:700;color:'+textCor+'">'+sigla+'</div>'
-      + '<div style="font-size:11px;color:'+textCor+'">'+count.toLocaleString('pt-BR')+'</div>'
-      + '</div>';
+    svgParts+='<g class="estado-g" style="cursor:default">';
+    svgParts+='<rect x="'+x+'" y="'+y+'" width="'+(cellW-4)+'" height="'+(cellH-4)+'" rx="6" fill="'+cor+'" stroke="var(--border)" stroke-width="1"/>';
+    svgParts+='<text x="'+(x+cellW/2-2)+'" y="'+(y+20)+'" text-anchor="middle" font-size="13" font-weight="700" fill="'+(count>0?'#fff':'var(--text-muted)')+'">'+uf+'</text>';
+    svgParts+='<text x="'+(x+cellW/2-2)+'" y="'+(y+36)+'" text-anchor="middle" font-size="10.5" fill="'+(count>0?'#ddd':'var(--text-muted)')+'">'+count.toLocaleString('pt-BR')+'</text>';
+    svgParts+='<title>'+uf+': '+count.toLocaleString('pt-BR')+' reversas</title>';
+    svgParts+='</g>';
   });
-  html += '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px">Passe o mouse sobre o estado para ver o nome completo</div>';
-  container.innerHTML = html;
+
+  el.innerHTML='<svg width="100%" viewBox="0 0 '+svgW+' '+svgH+'" style="max-height:460px">'+svgParts+'</svg>';
 }
 
   async function carregarEstoque() {
