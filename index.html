@@ -534,6 +534,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <div class="file-row">
           <div class="file-field"><label>Controle_NF_Reversa.tsv</label><input type="file" id="fileControleReversa"></div>
           <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensReversa"></div>
+          <div class="file-field"><label>Troca_Ecomm.csv</label><input type="file" id="fileTrocaEcomm"></div>
         </div>
         <button class="btn-upload" id="btnReversa">Atualizar Relatórios da Reversa</button>
         <div class="progress-box" id="progressReversa"></div>
@@ -1141,7 +1142,8 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
 ligarBotao('btnReversa', 'progressReversa', processarRelatoriosReversa, () => {
   const c = document.getElementById('fileControleReversa').files[0];
   const i = document.getElementById('fileItensReversa').files[0];
-  return (c&&i) ? { arquivoControle: c, arquivoItens: i } : null;
+  const t = document.getElementById('fileTrocaEcomm').files[0];
+  return (c&&i&&t) ? { arquivoControle: c, arquivoItens: i, arquivoTroca: t } : null;
 });
 
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
@@ -1332,28 +1334,245 @@ async function carregarReversa() {
   renderizarReversa(data[0].payload);
 }
 
-function renderizarReversa(p) {
-  const k = p.kpis;
+function renderizarReversa(p, marcaFiltro) {
+  marcaFiltro = marcaFiltro || 'Todas';
+  var kTotal = p.kpis.total || {};
+  var kMarca = (p.kpis.por_marca || {})[marcaFiltro] || {};
+  var k = marcaFiltro === 'Todas' ? kTotal : {
+    nfs_vinculacao:    kMarca.nfs_vinc    || 0,
+    itens_vinculacao:  kMarca.itens_vinc  || 0,
+    nfs_armazenagem:   kMarca.nfs_arm     || 0,
+    itens_armazenagem: kMarca.itens_arm   || 0,
+    nfs_total:   (kMarca.nfs_vinc||0)   + (kMarca.nfs_arm||0),
+    itens_total: (kMarca.itens_vinc||0) + (kMarca.itens_arm||0),
+  };
   function fmt(v){ return (v||0).toLocaleString('pt-BR'); }
-  const html = `
-    <div class="section-title">Indicadores da Reversa</div>
-    <div class="grid3" style="margin-bottom:14px;">
-      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Aguardando Vinculação</div><div class="value">${fmt(k.nfs_vinculacao)}</div></div>
-      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Aguardando Vinculação</div><div class="value">${fmt(k.itens_vinculacao)}</div></div>
-      <div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total de NFs Pendentes</div><div class="value">${fmt(k.nfs_total)}</div></div>
-    </div>
-    <div class="grid3" style="margin-bottom:16px;">
-      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Aguardando Armazenagem</div><div class="value">${fmt(k.nfs_armazenagem)}</div></div>
-      <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Itens Aguardando Armazenagem</div><div class="value">${fmt(k.itens_armazenagem)}</div></div>
-      <div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total de Itens Pendentes</div><div class="value">${fmt(k.itens_total)}</div></div>
-    </div>
-    <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">Motivos de Devolução — Em breve</div>
-      <div style="color:var(--text-muted);font-size:13px;padding:12px 0;">
-        Disponível após integração com relatório de motivos de devolução.
-      </div>
-    </div>`;
+
+  // Filtro marcas disponíveis
+  var marcas = ['Todas'].concat(Object.keys(p.kpis.por_marca||{}).sort());
+  var btnsMarca = marcas.map(function(m) {
+    var ativo = m === marcaFiltro ? 'style="background:var(--accent);color:#fff"' : '';
+    return '<button class="btn-filtro-marca" '+ativo+' onclick="window._reversaFiltro(\''+m+'\')">'+m+'</button>';
+  }).join(' ');
+
+  var html = '<div style="margin-bottom:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">'
+    + '<span style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase">Marca:</span>'
+    + btnsMarca + '</div>';
+
+  // BLOCO 1 — KPIs 3x2
+  html += '<div class="section-title">Pendências de Entrada</div>';
+  html += '<div class="grid3" style="margin-bottom:14px;">'
+    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Ag. Vinculação</div><div class="value">'+fmt(k.nfs_vinculacao)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Ag. Armazenagem</div><div class="value">'+fmt(k.nfs_armazenagem)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total NFs Pendentes</div><div class="value">'+fmt(k.nfs_total)+'</div></div>'
+    + '</div>';
+  html += '<div class="grid3" style="margin-bottom:20px;">'
+    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Ag. Vinculação</div><div class="value">'+fmt(k.itens_vinculacao)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Itens Ag. Armazenagem</div><div class="value">'+fmt(k.itens_armazenagem)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total Itens Pendentes</div><div class="value">'+fmt(k.itens_total)+'</div></div>'
+    + '</div>';
+
+  // BLOCO 2 — Gráficos lado a lado
+  html += '<div class="grid2" style="margin-bottom:16px;">'
+    + '<div class="card"><div class="section-title">Integração de NFs — Últimos 15 dias</div>'
+    + '<svg id="svgInteg" width="100%" height="200" viewBox="0 0 560 200" preserveAspectRatio="none"></svg></div>'
+    + '<div class="card"><div class="section-title">Previsão de Chegada — Próximos 15 dias</div>'
+    + '<svg id="svgPrevisao" width="100%" height="200" viewBox="0 0 560 200" preserveAspectRatio="none"></svg></div>'
+    + '</div>';
+
+  // BLOCO 3 — Montante + Reversas pendentes
+  html += '<div class="grid2" style="margin-bottom:16px;">'
+    + '<div class="card"><div class="section-title">Montante Pendente por Marca (Itens WMS)</div>'
+    + '<table class="matrix"><thead><tr><th>Marca</th><th>Vinculação</th><th>Armazenagem</th><th>Total</th></tr></thead>'
+    + '<tbody id="tblMontante"></tbody></table></div>'
+    + '<div class="card"><div class="section-title">Reversas Pendentes de Chegada (Troca E-comm)</div>'
+    + '<table class="matrix"><thead><tr><th>Marca</th><th>Qtde</th></tr></thead>'
+    + '<tbody id="tblReversas"></tbody></table></div>'
+    + '</div>';
+
+  // BLOCO 4 — Mapa do Brasil
+  html += '<div class="card" style="margin-bottom:16px;">'
+    + '<div class="section-title">Devoluções por Estado</div>'
+    + '<div id="mapaBrasil" style="position:relative;max-width:700px;margin:0 auto"></div>'
+    + '</div>';
+
   document.getElementById('reversa-conteudo').innerHTML = html;
+
+  // Renderizar gráficos
+  renderGraficoColunasReversa('svgInteg', p.integracao_15dias || []);
+  renderGraficoLinhaReversa('svgPrevisao', p.previsao_15dias || [], marcaFiltro, p);
+
+  // Tabela Montante (sempre todas as marcas)
+  var tblM = document.getElementById('tblMontante');
+  var rowsM = '';
+  (p.montante_marca || []).forEach(function(r) {
+    rowsM += '<tr><th>'+r.marca+'</th><td>'+fmt(r.itens_vinc)+'</td><td>'+fmt(r.itens_arm)+'</td><td style="font-weight:700">'+fmt(r.total)+'</td></tr>';
+  });
+  if (!rowsM) rowsM = '<tr><td colspan="4">Sem dados</td></tr>';
+  tblM.innerHTML = rowsM;
+
+  // Tabela Reversas Pendentes (filtrada por marca)
+  var tblR = document.getElementById('tblReversas');
+  var rowsR = '';
+  (p.reversas_pendentes || []).forEach(function(r) {
+    if (marcaFiltro !== 'Todas' && r.marca !== marcaFiltro) return;
+    rowsR += '<tr><th>'+r.marca+'</th><td>'+fmt(r.qtde)+'</td></tr>';
+  });
+  if (!rowsR) rowsR = '<tr><td colspan="2">Sem dados</td></tr>';
+  tblR.innerHTML = rowsR;
+
+  // Mapa do Brasil
+  renderMapaBrasil('mapaBrasil', p.mapa_estados || {});
+
+  // Guardar payload para refiltrar sem recarregar
+  window._reversaPayload = p;
+  window._reversaFiltro = function(marca) {
+    renderizarReversa(window._reversaPayload, marca);
+  };
+}
+
+function renderGraficoColunasReversa(svgId, dados) {
+  var svg = document.getElementById(svgId);
+  if (!svg || !dados.length) return;
+  var W=560,H=200,pL=38,pR=8,pT=30,pB=28;
+  var n = dados.length;
+  var maxNFs  = Math.max.apply(null, dados.map(function(d){return d.nfs;}));
+  var maxItens= Math.max.apply(null, dados.map(function(d){return d.itens;}));
+  var maxVal  = Math.max(maxNFs, maxItens, 1) * 1.2;
+  var bW = ((W-pL-pR)/n)*0.38;
+
+  dados.forEach(function(d, i) {
+    var xC = pL + (i+0.5)*((W-pL-pR)/n);
+    // Barra NFs (azul)
+    var hNF  = (d.nfs/maxVal)*(H-pT-pB);
+    var yNF  = H-pB-hNF;
+    var rectNF = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    rectNF.setAttribute('x',xC-bW-1); rectNF.setAttribute('y',yNF);
+    rectNF.setAttribute('width',bW); rectNF.setAttribute('height',hNF||1);
+    rectNF.setAttribute('fill','var(--accent)'); rectNF.setAttribute('rx','2');
+    svg.appendChild(rectNF);
+    if (d.nfs > 0) {
+      var lbNF = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbNF.setAttribute('x',xC-bW/2-1); lbNF.setAttribute('y',yNF-3);
+      lbNF.setAttribute('text-anchor','middle'); lbNF.setAttribute('font-size','9');
+      lbNF.setAttribute('fill','var(--text)'); lbNF.textContent = d.nfs;
+      svg.appendChild(lbNF);
+    }
+    // Barra Itens (verde)
+    var hIt  = (d.itens/maxVal)*(H-pT-pB);
+    var yIt  = H-pB-hIt;
+    var rectIt = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    rectIt.setAttribute('x',xC+1); rectIt.setAttribute('y',yIt);
+    rectIt.setAttribute('width',bW); rectIt.setAttribute('height',hIt||1);
+    rectIt.setAttribute('fill','var(--olive)'); rectIt.setAttribute('rx','2');
+    svg.appendChild(rectIt);
+    if (d.itens > 0) {
+      var lbIt = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lbIt.setAttribute('x',xC+bW/2+1); lbIt.setAttribute('y',yIt-3);
+      lbIt.setAttribute('text-anchor','middle'); lbIt.setAttribute('font-size','9');
+      lbIt.setAttribute('fill','var(--text)'); lbIt.textContent = d.itens;
+      svg.appendChild(lbIt);
+    }
+    // Data eixo X
+    var dt = document.createElementNS('http://www.w3.org/2000/svg','text');
+    dt.setAttribute('x',xC); dt.setAttribute('y',H-10);
+    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','8.5');
+    dt.setAttribute('fill','var(--text-muted)'); dt.textContent = d.data;
+    svg.appendChild(dt);
+  });
+
+  // Legenda
+  var legNF = document.createElementNS('http://www.w3.org/2000/svg','text');
+  legNF.setAttribute('x',pL); legNF.setAttribute('y',12);
+  legNF.setAttribute('font-size','10'); legNF.setAttribute('fill','var(--accent)');
+  legNF.textContent = '■ NFs'; svg.appendChild(legNF);
+  var legIt = document.createElementNS('http://www.w3.org/2000/svg','text');
+  legIt.setAttribute('x',pL+40); legIt.setAttribute('y',12);
+  legIt.setAttribute('font-size','10'); legIt.setAttribute('fill','var(--olive)');
+  legIt.textContent = '■ Itens'; svg.appendChild(legIt);
+}
+
+function renderGraficoLinhaReversa(svgId, dados, marcaFiltro, payload) {
+  // Filtrar por marca se necessário (Troca E-comm já foi filtrado no ingest — aqui usamos dados globais)
+  var svg = document.getElementById(svgId);
+  if (!svg || !dados.length) return;
+  var W=560,H=200,pL=34,pR=12,pT=28,pB=24;
+  var vals = dados.map(function(d){return d.reversas;});
+  var dias  = dados.map(function(d){return d.data;});
+  var mx = Math.max.apply(null, vals.concat([1])) * 1.2;
+  var n = dados.length;
+  var xF = function(i){ return pL + i*((W-pL-pR)/(n-1||1)); };
+  var yF = function(v){ return (H-pB) - (v/mx)*(H-pT-pB); };
+  var pts = vals.map(function(v,i){ return [xF(i),yF(v)]; });
+  var pathD = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1); }).join(' ');
+
+  var path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d',pathD); path.setAttribute('fill','none');
+  path.setAttribute('stroke','var(--amber)'); path.setAttribute('stroke-width','2.5');
+  path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round');
+  svg.appendChild(path);
+
+  pts.forEach(function(pt,i) {
+    var c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]);
+    c.setAttribute('r','3'); c.setAttribute('fill','var(--amber)');
+    svg.appendChild(c);
+    if (vals[i] > 0) {
+      var lb = document.createElementNS('http://www.w3.org/2000/svg','text');
+      lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-8);
+      lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','10');
+      lb.setAttribute('fill','var(--text)'); lb.textContent = vals[i];
+      svg.appendChild(lb);
+    }
+    var dt = document.createElementNS('http://www.w3.org/2000/svg','text');
+    dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6);
+    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','8.5');
+    dt.setAttribute('fill','var(--text-muted)'); dt.textContent = dias[i];
+    svg.appendChild(dt);
+  });
+}
+
+function renderMapaBrasil(containerId, mapaEstados) {
+  var container = document.getElementById(containerId);
+  if (!container) return;
+
+  var SIGLAS = {
+    'AC':'Acre','AL':'Alagoas','AP':'Amapá','AM':'Amazonas','BA':'Bahia',
+    'CE':'Ceará','DF':'Distrito Federal','ES':'Espírito Santo','GO':'Goiás',
+    'MA':'Maranhão','MT':'Mato Grosso','MS':'Mato Grosso do Sul','MG':'Minas Gerais',
+    'PA':'Pará','PB':'Paraíba','PR':'Paraná','PE':'Pernambuco','PI':'Piauí',
+    'RJ':'Rio de Janeiro','RN':'Rio Grande do Norte','RS':'Rio Grande do Sul',
+    'RO':'Rondônia','RR':'Roraima','SC':'Santa Catarina','SP':'São Paulo',
+    'SE':'Sergipe','TO':'Tocantins'
+  };
+
+  var maxVal = Math.max.apply(null, Object.values(mapaEstados).map(function(v){return v.count||0;}).concat([1]));
+
+  function corIntensidade(count) {
+    var pct = count / maxVal;
+    var r = Math.round(30 + pct*180);
+    var g = Math.round(100 - pct*70);
+    var b = Math.round(200 - pct*150);
+    return 'rgb('+r+','+g+','+b+')';
+  }
+
+  // Tabela de estados como heatmap visual (SVG seria muito complexo inline)
+  // Usamos grid de cards coloridos por intensidade
+  var estados = Object.keys(SIGLAS).sort();
+  var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;padding:8px 0">';
+  estados.forEach(function(sigla) {
+    var nome = SIGLAS[sigla];
+    var dados = mapaEstados[sigla] || mapaEstados[nome] || { count: 0 };
+    var count = dados.count || 0;
+    var cor = count > 0 ? corIntensidade(count) : 'var(--bg-card)';
+    var textCor = count > 0 ? '#fff' : 'var(--text-muted)';
+    html += '<div title="'+nome+': '+count+' reversas" style="background:'+cor+';border-radius:6px;padding:8px 6px;text-align:center;cursor:default;border:1px solid var(--border)">'
+      + '<div style="font-size:13px;font-weight:700;color:'+textCor+'">'+sigla+'</div>'
+      + '<div style="font-size:11px;color:'+textCor+'">'+count.toLocaleString('pt-BR')+'</div>'
+      + '</div>';
+  });
+  html += '</div><div style="font-size:10px;color:var(--text-muted);margin-top:4px">Passe o mouse sobre o estado para ver o nome completo</div>';
+  container.innerHTML = html;
 }
 
   async function carregarEstoque() {
