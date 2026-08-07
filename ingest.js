@@ -885,6 +885,11 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     cd:      mediaMaxMin(pedidos.map(function(p){ return p.leadtime_cd_horas; }), pedidos.map(function(p){ return p.pedido_venda; })),
   };
 
+  // Só pedidos em operação real: ABERTO e não cancelado
+  const pedidosOp = pedidos.filter(function(p){
+    return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
+  });
+
   // Status por etapa x Marca (itens e pedidos)
   // OBS: "06 - Despachado" fica de fora dessas tabelas — só entra no
   // gráfico de Expedição x Forecast, aqui é só o que está em fluxo.
@@ -894,11 +899,6 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
 
   const etapasOperacionais = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
                   "04 - Separado - Conferir", "05 - Conferido - Despachar"];
-
-// Só pedidos em operação real: ABERTO e não cancelado
-  const pedidosOp = pedidos.filter(function(p){
-    return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
-  });
 
   function tabelaStatusPorMarca(unidade) {
     return etapasOperacionais.map(function(etapa){
