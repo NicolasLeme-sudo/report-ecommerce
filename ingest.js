@@ -1783,9 +1783,24 @@ async function processarRelatoriosReversa(files, options) {
   // Detectar separador (o arquivo usa TAB)
   var primLinha = textoTroca.split('\n')[0];
   var sep = primLinha.includes('\t') ? '\t' : ',';
-  var linhasTroca = parseTSVComSep(textoTroca, sep, [
-    "Loja", "Reversa", "Data de criação", "Status", "Previsão de entrega", "Estado", "Nota Fiscal de Devolução"
-  ]);
+  // Leitura do Troca E-comm por ÍNDICE FIXO (evita problemas de encoding nos nomes com acento)
+  // Col 0=Loja, 1=Reversa, 2=Data de criação, 8=Status, 16=Previsão entrega, 30=Estado, 63=NF Devolução
+  var linhasTrocaRaw = textoTroca.split('\n');
+  var linhasTroca = [];
+  for (var ti = 1; ti < linhasTrocaRaw.length; ti++) {
+    var cols = linhasTrocaRaw[ti].split(sep);
+    if (cols.length < 9) continue;
+    linhasTroca.push({
+      "Loja":            (cols[0]||"").trim(),
+      "Reversa":         (cols[1]||"").trim(),
+      "Data de criacao":  (cols[2]||"").trim(),
+      "Status":          (cols[8]||"").trim(),
+      "Previsao":        (cols[16]||"").trim(),
+      "Estado":          (cols[30]||"").trim(),
+      "NF Devolucao":    (cols[63]||"").trim()
+    });
+  }
+  console.log("Troca E-comm:", linhasTroca.length, "linhas lidas por indice fixo");
 
   // Previsão de entrega (próximos 15 dias) — exceto Cancelado
   var prevEntrega = {}; // "dd/mm" → count
@@ -1804,7 +1819,7 @@ async function processarRelatoriosReversa(files, options) {
     var loja   = (r["Loja"] || "").trim();
     var reversa= (r["Reversa"] || "").trim();
     var estado = (r["Estado"] || "").trim();
-    var nfDev  = (r["Nota Fiscal de Devolução"] || "").trim();
+    var nfDev  = (r["NF Devolucao"] || "").trim();
 
     // Marca a partir da Loja (remove " - Marketplace", aspas, etc.)
     var marca = loja.replace(/\s*-\s*Marketplace/i,'').replace(/\s*-\s*Pedidos manuais.*/i,'').replace(/["\']/g,'').trim();
@@ -1821,8 +1836,8 @@ async function processarRelatoriosReversa(files, options) {
     }
 
     // Previsão de entrega
-    var prevStr = (r["Previsão de entrega"] || "").trim();
-    var dataCriacao = parseDateBR(r["Data de criação"]);
+    var prevStr = (r["Previsao"] || "").trim();
+    var dataCriacao = parseDateBR(r["Data de criacao"]);
     var dataPrevisao;
     if (prevStr) {
       dataPrevisao = parseDateBR(prevStr);
