@@ -1162,7 +1162,7 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   const onP = (opts&&opts.onProgress)||function(){};
   if (files.embalas)   { onP("Atualizando Embalagem..."); await processarBaseEmbalagem(files.embalas, opts); }
   if (files.acronimos) { onP("Atualizando Acrônimos..."); await processarBaseAcronimos(files.acronimos, opts); }
-  if (files.custo)    { onP("Custo: funcionalidade em construção — ignorado por enquanto."); }
+  if (files.custo)  { onP("Atualizando Custo..."); await processarBaseCusto(files.custo, opts); }
 }, () => {
   const e = document.getElementById('fileEmbalas').files[0];
   const a = document.getElementById('fileAcronimos').files[0];
