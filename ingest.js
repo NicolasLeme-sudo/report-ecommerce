@@ -1671,13 +1671,14 @@ async function processarRelatoriosReversa(files, options) {
   linhasControle.forEach(function(r) {
     var nf     = (r["Nota Fiscal"] || "").trim();
     var status = (r["Status"] || "").trim().toUpperCase();
-    var dataCad = parseDateBR(r["Data de Cadastro"]);
+    var dataCadStr = r["Data de Cadastro"] || "";
+    var dataCad = parseDateBR(dataCadStr);
     if (!nf) return;
 
     nfStatusMap[nf] = status;
     if (dataCad) nfDataMap[nf] = dataCad;
 
-    // Integração últimos 15 dias (todas as NFs, não só pendentes)
+    // Integração últimos 15 dias — TODAS as NFs (IMPORTADA, EM CARGA/OR, PROCESSADA, CANCELADA)
     if (dataCad && dataCad >= d15 && dataCad <= hoje) {
       var key = fmtDDMM(dataCad);
       if (!integ15dias[key]) integ15dias[key] = { nfs: new Set(), itens: 0 };
@@ -1805,8 +1806,9 @@ async function processarRelatoriosReversa(files, options) {
     var estado = (r["Estado"] || "").trim();
     var nfDev  = (r["Nota Fiscal de Devolução"] || "").trim();
 
-    // Marca a partir da Loja (remove " - Marketplace")
-    var marca = loja.replace(/\s*-\s*Marketplace/i,'').replace(/\s*-\s*Pedidos manuais.*/i,'').trim();
+    // Marca a partir da Loja (remove " - Marketplace", aspas, etc.)
+    var marca = loja.replace(/\s*-\s*Marketplace/i,'').replace(/\s*-\s*Pedidos manuais.*/i,'').replace(/["\']/g,'').trim();
+    if (!marca) marca = "Outros";
 
     // Reversas pendentes de chegada
     if (!reversasPend[marca]) reversasPend[marca] = 0;
@@ -1903,16 +1905,21 @@ async function processarRelatoriosReversa(files, options) {
 }
 
 // Helper: parseTSV com separador customizável
+// Matching robusto: remove acentos para comparar nomes de colunas
+function stripAccents(s) {
+  return (s||"").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
 function parseTSVComSep(texto, sep, colsDesejadas) {
   var linhas = texto.split('\n');
   if (linhas.length === 0) return [];
-  var header = linhas[0].split(sep).map(function(h){ return normalizarEncoding(h.trim()); });
+  var header = linhas[0].split(sep).map(function(h){ return h.trim().replace(/^\ufeff/,''); });
   var idxMap = {};
   colsDesejadas.forEach(function(col) {
-    var normCol = normalizarEncoding(col);
-    var idx = header.findIndex(function(h){ return normalizarEncoding(h) === normCol; });
+    var normCol = stripAccents(col);
+    var idx = header.findIndex(function(h){ return stripAccents(h) === normCol; });
     if (idx >= 0) idxMap[col] = idx;
   });
+  console.log("parseTSVComSep — colunas encontradas:", Object.keys(idxMap).join(", "), "| não encontradas:", colsDesejadas.filter(function(c){ return !(c in idxMap); }).join(", ") || "nenhuma");
   var resultado = [];
   for (var i = 1; i < linhas.length; i++) {
     var row = linhas[i].split(sep);
