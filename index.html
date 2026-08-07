@@ -985,14 +985,15 @@ function renderMatriz(tabela, elId) {
   tabela.forEach(e => {
     h += `<tr><th>${e.status}</th>`;
     e.valores.forEach(v => {
+      v = v || 0;
       const cls = v===0 ? 'cell-0' : v>3000 ? 'cell-hi' : '';
       h += `<td class="${cls}">${v.toLocaleString('pt-BR')}</td>`;
     });
-    h += `<td style="font-weight:700">${e.total.toLocaleString('pt-BR')}</td></tr>`;
+    h += `<td style="font-weight:700">${(e.total||0).toLocaleString('pt-BR')}</td></tr>`;
   });
   h += `<tr><th>Total</th>`;
-  totMarca.forEach(t => h += `<td>${t.toLocaleString('pt-BR')}</td>`);
-  h += `<td>${totGeral.toLocaleString('pt-BR')}</td></tr></tbody>`;
+  totMarca.forEach(t => h += `<td>${(t||0).toLocaleString('pt-BR')}</td>`);
+  h += `<td>${(totGeral||0).toLocaleString('pt-BR')}</td></tr></tbody>`;
   el.innerHTML = h;
 }
 
