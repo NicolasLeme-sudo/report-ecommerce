@@ -1205,7 +1205,9 @@ async function processarRelatoriosInbound(files, options) {
 
   // ---- 3) Recebimento diário (Gerenciador de OR cruzado com Itens NF de entrada) ----
   // Definição: itens recebidos no dia = itens das NFs conferidas naquele dia (pelo Gerenciador de OR)
-  // A NF do OR é cruzada com itensRegistros para pegar a quantidade real de itens
+  // A NF do OR é cruzada com itensRegistros para pegar a quantidade real de itens.
+  // DEDUPLICAÇÃO: o OR pode ter múltiplas linhas por NF (uma por OR/volume). Cada NF
+  // deve contar seus itens apenas UMA vez por dia, senão o total fica inflado.
   const nfParaIdNF = new Map();
   nfRegistros.forEach(function(n){ nfParaIdNF.set(String(n.nota_fiscal).trim(), n.id_nota_fiscal); });
 
@@ -1217,31 +1219,36 @@ async function processarRelatoriosInbound(files, options) {
   });
 
   const recebPorDia = {};
+  const nfJaContadaNoDia = new Set(); // evita contar mesma NF 2x no mesmo dia
   linhasOR.forEach(function(r){
     const d = parseDataBR(r["Data da Conferência"]);
     if (!d) return;
     const iso = paraDataISOLocal(d);
     if (!recebPorDia[iso]) recebPorDia[iso] = { nfs: 0, itens: 0 };
-    recebPorDia[iso].nfs++;
-    // Cruza com itens reais da NF de entrada
+
     const nfNum = String(r["Nota Fiscal"] || "").trim();
-    const idNF  = nfParaIdNF.get(nfNum);
-    const qtde  = idNF ? (idNFParaItens.get(String(idNF)) || 0) : 0;
+    const chaveDedupNF = iso + "||" + nfNum;
+    if (nfJaContadaNoDia.has(chaveDedupNF)) return; // já contou esta NF neste dia
+    nfJaContadaNoDia.add(chaveDedupNF);
+
+    recebPorDia[iso].nfs++;
+    const idNF = nfParaIdNF.get(nfNum);
+    const qtde = idNF ? (idNFParaItens.get(String(idNF)) || 0) : 0;
     recebPorDia[iso].itens += qtde;
   });
   const recebRegistros = Object.keys(recebPorDia).map(function(d){
     return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
   });
-  // Limpa histórico antes de reinserir para garantir que dados corrigidos sobrescrevem os antigos
-  await supabaseClient.from("inbound_recebimento_diario").delete().neq("data_conferencia", "");
+  // Upsert para preservar histórico acumulado (dias anteriores que não estão mais no arquivo atual)
   for (let i = 0; i < recebRegistros.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_recebimento_diario")
-      .insert(recebRegistros.slice(i, i+200));
+      .upsert(recebRegistros.slice(i, i+200), { onConflict: "data_conferencia" });
     if (error) console.error("Erro recebimento_diario:", error);
   }
 
   // ---- 4) Armazenagem diária (Kardex de End — endereços H, I, J) ----
   // Definição: itens armazenados no dia = Estoque Antes - Estoque Após (saída do stage para endereço)
+  // Upsert para preservar histórico acumulado
   const armPorDia = {};
   linhasKardex.forEach(function(r){
     const local = String(r["Local"] || "").toUpperCase();
@@ -1256,11 +1263,9 @@ async function processarRelatoriosInbound(files, options) {
   const armRegistros = Object.keys(armPorDia).map(function(d){
     return { data_alocacao: d, itens_armazenados: armPorDia[d] };
   });
-  // Limpa histórico antes de reinserir para garantir que dados corrigidos sobrescrevem os antigos
-  await supabaseClient.from("inbound_armazenagem_diario").delete().neq("data_alocacao", "");
   for (let i = 0; i < armRegistros.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-      .insert(armRegistros.slice(i, i+200));
+      .upsert(armRegistros.slice(i, i+200), { onConflict: "data_alocacao" });
     if (error) console.error("Erro armazenagem_diario:", error);
   }
 
