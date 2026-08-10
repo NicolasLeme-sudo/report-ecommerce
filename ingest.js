@@ -558,6 +558,25 @@ async function upsertPedidoItens(itensPorPedido) {
     }
   }
 
+  // DEDUPLICAÇÃO: o arquivo de origem pode trazer o mesmo produto mais de uma vez
+  // no mesmo pedido (ex: mesmo SKU em endereços/lotes diferentes da NF). Quando isso
+  // acontece, o insert() do Postgres rejeita o lote inteiro com erro 409 (conflito de
+  // chave), mesmo com o delete prévio, porque a duplicidade ocorre dentro do próprio
+  // lote sendo inserido. Aqui somamos a quantidade de duplicatas em um único registro
+  // por pedido+produto, evitando o conflito sem perder volume.
+  const dedupMap = new Map();
+  registros.forEach(function(r){
+    const chave = r.pedido_venda + "||" + (r.codigo_produto || r.barra || "");
+    if (dedupMap.has(chave)) {
+      const existente = dedupMap.get(chave);
+      existente.quantidade = (Number(existente.quantidade) || 0) + (Number(r.quantidade) || 0);
+      existente.qtde_faturada = (Number(existente.qtde_faturada) || 0) + (Number(r.qtde_faturada) || 0);
+    } else {
+      dedupMap.set(chave, r);
+    }
+  });
+  const registrosDedup = Array.from(dedupMap.values());
+
   // CORREÇÃO ANTI-DUPLICAÇÃO: antes de inserir, apaga os itens já
   // gravados desses mesmos pedidos. Sem isso, cada clique em "Atualizar"
   // acumulava uma cópia nova de cada item (insert puro não substitui).
@@ -571,8 +590,8 @@ async function upsertPedidoItens(itensPorPedido) {
   }
 
   const TAMANHO_LOTE = 500;
-  for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
-    const lote = registros.slice(i, i + TAMANHO_LOTE);
+  for (let i = 0; i < registrosDedup.length; i += TAMANHO_LOTE) {
+    const lote = registrosDedup.slice(i, i + TAMANHO_LOTE);
     const resultado = await supabaseClient.from("pedido_itens").insert(lote);
     if (resultado.error) console.error("Erro ao gravar pedido_itens:", resultado.error);
   }
@@ -752,6 +771,16 @@ for (let r = 0; r < 8; r++) {
 
     linhasLidas++;
   }
+
+  // DIAGNÓSTICO TEMPORÁRIO — remover depois de validar
+  console.log('=== DIAGNÓSTICO FORECAST (domingo) ===');
+  registros.filter(function(r){
+    const dow = new Date(r.data + 'T12:00:00').getDay(); // 0 = domingo
+    return dow === 0 || dow === 6;
+  }).forEach(function(r){
+    console.log(r.data, '(dia da semana', new Date(r.data + 'T12:00:00').getDay(), ')', '-> itens_forecast:', r.itens_forecast);
+  });
+  console.log('========================================');
 
   if (linhasLidas === 0) {
     throw new Error('Nenhuma linha de dados válida encontrada no arquivo de forecast. Verifique se o arquivo tem dados a partir da linha 4.');
