@@ -1062,8 +1062,8 @@ function renderBacklog(backlog) {
 function renderExpedicao(dados) {
   if (!dados) return;
   const tE=dados.expedido.reduce((a,b)=>a+b,0), tF=dados.forecast.reduce((a,b)=>a+b,0);
-  document.getElementById('totalExpedido').textContent=tE.toLocaleString('pt-BR');
-  document.getElementById('totalForecast').textContent=tF.toLocaleString('pt-BR');
+  document.getElementById('totalExpedido').textContent=Math.round(tE).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  document.getElementById('totalForecast').textContent=Math.round(tF).toLocaleString('pt-BR',{maximumFractionDigits:0});
   const svg=document.getElementById('weekSvg');
   const w=1100,h=190,pL=40,pR=20,pT=34,pB=34;
   const mx=Math.max(...dados.expedido,...dados.forecast,1)*1.15;
@@ -1084,7 +1084,7 @@ function renderExpedicao(dados) {
       const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
       lb.setAttribute('x',pt[0]); lb.setAttribute('y',acima?pt[1]-10:pt[1]+18);
       lb.setAttribute('text-anchor','middle'); lb.setAttribute('class','line-label'); lb.setAttribute('fill',col);
-      lb.textContent=vals[i].toLocaleString('pt-BR'); svg.appendChild(lb);
+      lb.textContent=Math.round(vals[i]).toLocaleString('pt-BR',{maximumFractionDigits:0}); svg.appendChild(lb);
     });
   }
   drawL(dados.forecast,'var(--accent)',true);
