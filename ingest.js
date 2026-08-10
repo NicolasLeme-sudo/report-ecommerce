@@ -1239,11 +1239,31 @@ async function processarRelatoriosInbound(files, options) {
   const recebRegistros = Object.keys(recebPorDia).map(function(d){
     return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
   });
-  // Upsert para preservar histórico acumulado (dias anteriores que não estão mais no arquivo atual)
+  // Upsert de recebimento: mesma lógica — só sobrescreve o dia mais recente,
+  // dias anteriores são inseridos apenas se não existirem (preserva histórico consolidado).
+  const datasReceb = Object.keys(recebPorDia).sort();
+  const diaRecenteReceb = datasReceb.length > 0 ? datasReceb[datasReceb.length - 1] : null;
+
   for (let i = 0; i < recebRegistros.length; i += 200) {
-    const { error } = await supabaseClient.from("inbound_recebimento_diario")
-      .upsert(recebRegistros.slice(i, i+200), { onConflict: "data_conferencia" });
-    if (error) console.error("Erro recebimento_diario:", error);
+    const lote = recebRegistros.slice(i, i + 200);
+    if (diaRecenteReceb) {
+      const doRecente = lote.filter(function(r){ return r.data_conferencia === diaRecenteReceb; });
+      const historico = lote.filter(function(r){ return r.data_conferencia !== diaRecenteReceb; });
+      if (doRecente.length > 0) {
+        const { error } = await supabaseClient.from("inbound_recebimento_diario")
+          .upsert(doRecente, { onConflict: "data_conferencia" });
+        if (error) console.error("Erro recebimento_diario (recente):", error);
+      }
+      if (historico.length > 0) {
+        const { error } = await supabaseClient.from("inbound_recebimento_diario")
+          .upsert(historico, { onConflict: "data_conferencia", ignoreDuplicates: true });
+        if (error) console.error("Erro recebimento_diario (histórico):", error);
+      }
+    } else {
+      const { error } = await supabaseClient.from("inbound_recebimento_diario")
+        .upsert(lote, { onConflict: "data_conferencia" });
+      if (error) console.error("Erro recebimento_diario:", error);
+    }
   }
 
   // ---- 4) Armazenagem diária (Kardex de End — endereços H, I, J) ----
@@ -1263,10 +1283,35 @@ async function processarRelatoriosInbound(files, options) {
   const armRegistros = Object.keys(armPorDia).map(function(d){
     return { data_alocacao: d, itens_armazenados: armPorDia[d] };
   });
+  // Upsert de armazenagem: só insere/atualiza dias que estão no arquivo atual.
+  // Para não sobrescrever dados históricos já consolidados (que podem ter sido
+  // complementados via SQL ou processamento anterior mais completo), só faz upsert
+  // do dia MAIS RECENTE do arquivo (dia que ainda pode ser atualizado).
+  // Dias anteriores são inseridos apenas se NÃO existirem ainda no Supabase.
+  const datasArm = Object.keys(armPorDia).sort();
+  const diaRecente = datasArm.length > 0 ? datasArm[datasArm.length - 1] : null;
+
   for (let i = 0; i < armRegistros.length; i += 200) {
-    const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-      .upsert(armRegistros.slice(i, i+200), { onConflict: "data_alocacao" });
-    if (error) console.error("Erro armazenagem_diario:", error);
+    const lote = armRegistros.slice(i, i + 200);
+    if (diaRecente) {
+      // Dia mais recente: sempre sobrescreve (pode estar sendo atualizado ao longo do dia)
+      const doRecente = lote.filter(function(r){ return r.data_alocacao === diaRecente; });
+      const historico = lote.filter(function(r){ return r.data_alocacao !== diaRecente; });
+      if (doRecente.length > 0) {
+        const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+          .upsert(doRecente, { onConflict: "data_alocacao" });
+        if (error) console.error("Erro armazenagem_diario (recente):", error);
+      }
+      if (historico.length > 0) {
+        const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+          .upsert(historico, { onConflict: "data_alocacao", ignoreDuplicates: true });
+        if (error) console.error("Erro armazenagem_diario (histórico):", error);
+      }
+    } else {
+      const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+        .upsert(lote, { onConflict: "data_alocacao" });
+      if (error) console.error("Erro armazenagem_diario:", error);
+    }
   }
 
   // ---- 5) Stage pendente (Recebimento Stage — endereços H, I, J) ----
@@ -1335,7 +1380,8 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   const itensPendArmStage = stageRegistros
     .reduce(function(s, i){ return s + i.estoque_un; }, 0);
   const itensPendArm = itensPendArmNF + itensPendArmStage;
-  // Últimos 7 dias
+  // Últimos 7 dias — lê do Supabase (não da memória) para incluir dados históricos
+  // que já foram inseridos em dias anteriores e não estão mais nos arquivos atuais
   const dias7 = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(hoje);
@@ -1343,10 +1389,24 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
     dias7.push(paraDataISOLocal(d));
   }
   const labelsDias = dias7.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); });
-  const receb7dias = dias7.map(function(d){ return recebPorDia[d] ? recebPorDia[d].itens : 0; });
-  const arm7dias   = dias7.map(function(d){ return armPorDia[d] || 0; });
 
-  // Acumulado mensal (soma do histórico)
+  const { data: receb7diasDB } = await supabaseClient
+    .from("inbound_recebimento_diario")
+    .select("data_conferencia, itens_recebidos")
+    .in("data_conferencia", dias7);
+  const recebDBMap = {};
+  (receb7diasDB || []).forEach(function(r){ recebDBMap[r.data_conferencia] = r.itens_recebidos; });
+  const receb7dias = dias7.map(function(d){ return recebDBMap[d] || 0; });
+
+  const { data: arm7diasDB } = await supabaseClient
+    .from("inbound_armazenagem_diario")
+    .select("data_alocacao, itens_armazenados")
+    .in("data_alocacao", dias7);
+  const armDBMap = {};
+  (arm7diasDB || []).forEach(function(r){ armDBMap[r.data_alocacao] = r.itens_armazenados; });
+  const arm7dias = dias7.map(function(d){ return armDBMap[d] || 0; });
+
+  // Acumulado mensal (soma do histórico completo do mês)
   const { data: acumReceb } = await supabaseClient
     .from("inbound_recebimento_diario")
     .select("itens_recebidos, data_conferencia")
