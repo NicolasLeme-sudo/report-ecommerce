@@ -95,6 +95,17 @@ function paraDataISOLocal(date) {
   return `${ano}-${mes}-${dia}`;
 }
 
+// Formata uma Date como "yyyy-mm-dd" usando horário UTC — necessário para datas
+// vindas de seriais do Excel (excelSerialParaData), que são criadas à meia-noite UTC.
+// Se usarmos getFullYear/getMonth/getDate (local), em fusos negativos como BRT (UTC-3)
+// a data cai 1 dia atrás (meia-noite UTC = 21h do dia anterior em BRT).
+function paraDataISOUTC(date) {
+  const ano = date.getUTCFullYear();
+  const mes = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const dia = String(date.getUTCDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
 
 
 // -------------------------------------------------------------------------
@@ -741,7 +752,7 @@ async function processarForecastMensal(file, options) {
     const colTotal = colData + 4;
 
     const data = excelSerialParaData(serial);
-    const dataISO = paraDataISOLocal(data);
+    const dataISO = paraDataISOUTC(data); // UTC obrigatório: serial do Excel é meia-noite UTC
     const diaSemana = data.getUTCDay(); // 0=domingo, 6=sábado (serial já é UTC-based)
 
     // Sábados e domingos não têm expedição programada — zera independente do
@@ -762,15 +773,15 @@ async function processarForecastMensal(file, options) {
 
   onProgress(`${linhasLidas} dias de forecast lidos. Gravando ${registros.length} registros...`);
 
-  // Limpa registros antigos por marca (Mizuno/Olympikus/Under Armour) que não são mais gravados,
-  // mantendo a tabela consistente só com "TOTAL"
-  await supabaseClient.from("forecast_diario").delete().in("marca", ["Mizuno", "Olympikus", "Under Armour"]);
+  // DELETE completo antes de inserir — garante que dados corrigidos sempre sobrescrevem
+  // os anteriores, sem depender do upsert resolver conflitos corretamente.
+  await supabaseClient.from("forecast_diario").delete().neq("id", 0);
 
   let erros = 0;
   const TAMANHO_LOTE = 200;
   for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
     const lote = registros.slice(i, i + TAMANHO_LOTE);
-    const resultado = await supabaseClient.from("forecast_diario").upsert(lote, { onConflict: "data,marca" });
+    const resultado = await supabaseClient.from("forecast_diario").insert(lote);
     if (resultado.error) { console.error("Erro ao gravar forecast_diario:", resultado.error); erros++; }
   }
 
