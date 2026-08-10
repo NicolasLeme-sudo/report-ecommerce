@@ -687,11 +687,14 @@ async function processarBaseAcronimos(file, options) {
 // -------------------------------------------------------------------------
 // -------------------------------------------------------------------------
 // 12) FORECAST MENSAL — corrigido com índices reais confirmados no arquivo:
-//   Linha 1: vazia
-//   Linha 2: marcas (MZ, OLY, UA, TOTAL ECOM)
-//   Linha 3: cabeçalhos (Data, Itens, Pedidos, Faturamento...)
-//   Linha 4+: dados (col 1=Data serial, 2=MZ Itens, 6=OLY Itens,
-//             10=UA Itens, 14=TOTAL Itens, 15=TOTAL Pedidos, 16=TOTAL Fat.)
+// -------------------------------------------------------------------------
+// FORECAST MENSAL — estrutura simplificada (a partir de ago/2026):
+//   Linha 1 (índice 0): marcas — MZ, OLY, UA, TOTAL ECOM (colunas C, D, E, F)
+//   Linha 2 (índice 1): cabeçalhos — "Data" (col B) e "Itens" repetido nas demais
+//   Linha 3+ (índice 2+): dados — col B(1)=Data serial, C(2)=MZ, D(3)=OLY, E(4)=UA, F(5)=TOTAL
+// O card "Expedição x Forecast" usa exclusivamente a coluna TOTAL (índice 5).
+// As colunas por marca (C/D/E) são gravadas apenas para uso futuro, sem uso no
+// dashboard hoje.
 // -------------------------------------------------------------------------
 async function processarForecastMensal(file, options) {
   const onProgress = (options && options.onProgress) || function(){};
@@ -705,85 +708,50 @@ async function processarForecastMensal(file, options) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-  // Validação: linha de marcas deve conter "TOTAL ECOM"
-  // (Estrutura: linha 1=vazia, linha 2=info extra, linha 3=vazia, linha 4=marcas, linha 5=cabeçalhos, linha 6+=dados)
-  // Procura a linha que contém 'MZ' nas primeiras 8 linhas (estrutura pode variar entre meses)
-let linhasMarcas = [];
-let linhasDados = 6; // padrão
-let linhaMarcasIdx = -1;
-for (let r = 0; r < 8; r++) {
-  const l = linhas[r] || [];
-  const temMZ = l.some(function(v){ return String(v||'').toUpperCase().includes('MZ'); });
-  if (temMZ) { linhasMarcas = l; linhaMarcasIdx = r; linhasDados = r + 2; break; }
-}
-  const temMZ    = linhasMarcas.some(function(v){ return String(v||'').toUpperCase() === 'MZ'; });
-  const temTotal = linhasMarcas.some(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
-  if (!temMZ && !temTotal) {
+  // Validação: linha de marcas (índice 0) deve conter "MZ" e "TOTAL ECOM"
+  const linhaMarcas = linhas[0] || [];
+  const temMZ    = linhaMarcas.some(function(v){ return String(v||'').toUpperCase() === 'MZ'; });
+  const temTotal = linhaMarcas.some(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
+  if (!temMZ || !temTotal) {
     throw new Error(
-      'Arquivo inválido para Forecast. Esperado: "MZ" na coluna C e "TOTAL ECOM" na coluna O da linha 4. ' +
+      'Arquivo inválido para Forecast. Esperado "MZ" e "TOTAL ECOM" na 1ª linha da planilha. ' +
       'Verifique se selecionou o arquivo correto (Acompanhamento_Faturamento_CD).' +
-      '\nEncontrado na linha 4: ' + JSON.stringify(linhasMarcas.slice(0,16))
+      '\nEncontrado na linha 1: ' + JSON.stringify(linhaMarcas.slice(0,8))
     );
   }
 
-  // Localiza a coluna "Itens" do bloco TOTAL ECOM dinamicamente:
-  // 1) acha a posição de "TOTAL ECOM" na linha de marcas
-  // 2) a partir dali, acha a 1ª ocorrência de "Itens" na linha de cabeçalhos (linhaMarcasIdx+1)
-  const idxTotalEcomBloco = linhasMarcas.findIndex(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
-  if (idxTotalEcomBloco < 0) {
-    throw new Error('Não foi possível localizar o bloco "TOTAL ECOM" na planilha de Forecast.');
-  }
-  const linhaCabecalhos = linhas[linhaMarcasIdx + 1] || [];
-  let colItensTotalEcom = -1;
-  for (let c = idxTotalEcomBloco; c < linhaCabecalhos.length; c++) {
-    if (String(linhaCabecalhos[c] || '').trim().toUpperCase() === 'ITENS') { colItensTotalEcom = c; break; }
-  }
-  if (colItensTotalEcom < 0) {
-    throw new Error(
-      'Não foi possível localizar a coluna "Itens" do bloco TOTAL ECOM (procurada a partir da coluna ' +
-      idxTotalEcomBloco + '). Cabeçalhos encontrados: ' + JSON.stringify(linhaCabecalhos.slice(idxTotalEcomBloco, idxTotalEcomBloco+6))
-    );
-  }
+  const COL_DATA = 1;   // coluna B
+  const COL_TOTAL = 5;  // coluna F (TOTAL ECOM — Itens)
+  const LINHA_DADOS_INICIO = 2; // linha 3 (índice 2)
 
   const registros = [];
   let linhasLidas = 0;
 
-  // Dados começam na linha 6 (índice 5) — pula cabeçalhos e linhas de marcas
-  for (let i = linhasDados; i < linhas.length; i++) {
+  for (let i = LINHA_DADOS_INICIO; i < linhas.length; i++) {
     const linha = linhas[i];
     if (!linha) continue;
 
-    // Procura o serial de data em qualquer posição da linha (SheetJS pode deslocar colunas)
-    let serial = null;
-    for (let c = 0; c < 5; c++) {
-      const v = Number(linha[c]);
-      if (!isNaN(v) && v >= 40000 && v <= 60000) { serial = v; break; }
-    }
-    if (!serial) continue;
+    const serial = Number(linha[COL_DATA]);
+    if (isNaN(serial) || serial < 40000 || serial > 60000) continue;
 
     const data = excelSerialParaData(serial);
     const dataISO = paraDataISOLocal(data);
+    const diaSemana = data.getUTCDay(); // 0=domingo, 6=sábado (serial já é UTC-based)
 
-    // Total ECOM — Itens, localizado dinamicamente pelo cabeçalho (coluna O na planilha padrão)
-    const totalItens = Number(linha[colItensTotalEcom]) || 0;
+    // Sábados e domingos não têm expedição programada — zera independente do
+    // que a planilha trouxer (proteção contra fórmulas de rateio semanal que
+    // eventualmente preencham essas células com valor residual).
+    const totalItens = (diaSemana === 0 || diaSemana === 6)
+      ? 0
+      : Math.round(Number(linha[COL_TOTAL]) || 0);
 
     registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens, pedidos_forecast: 0, faturamento_forecast: 0 });
 
     linhasLidas++;
   }
 
-  // DIAGNÓSTICO TEMPORÁRIO — remover depois de validar
-  console.log('=== DIAGNÓSTICO FORECAST (domingo) ===');
-  registros.filter(function(r){
-    const dow = new Date(r.data + 'T12:00:00').getDay(); // 0 = domingo
-    return dow === 0 || dow === 6;
-  }).forEach(function(r){
-    console.log(r.data, '(dia da semana', new Date(r.data + 'T12:00:00').getDay(), ')', '-> itens_forecast:', r.itens_forecast);
-  });
-  console.log('========================================');
-
   if (linhasLidas === 0) {
-    throw new Error('Nenhuma linha de dados válida encontrada no arquivo de forecast. Verifique se o arquivo tem dados a partir da linha 4.');
+    throw new Error('Nenhuma linha de dados válida encontrada no arquivo de forecast. Verifique se o arquivo tem dados a partir da linha 3.');
   }
 
   onProgress(`${linhasLidas} dias de forecast lidos. Gravando ${registros.length} registros...`);
