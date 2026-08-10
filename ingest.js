@@ -900,6 +900,22 @@ function mediaMaxMin(valores, pedidos) {
   };
 }
 
+// Segmento predominante de um pedido: soma quantidade por segmento entre os itens
+// da NF e retorna o segmento com maior volume (fallback "Calçados" se sem itens)
+function segmentoPredominante(itensP) {
+  if (!itensP || itensP.length === 0) return "Calçados";
+  const somaPorSeg = {};
+  itensP.forEach(function(it){
+    const seg = it.segmento || "Calçados";
+    somaPorSeg[seg] = (somaPorSeg[seg] || 0) + (Number(it.quantidade) || 0);
+  });
+  let melhor = "Calçados", melhorValor = -1;
+  Object.keys(somaPorSeg).forEach(function(seg){
+    if (somaPorSeg[seg] > melhorValor) { melhor = seg; melhorValor = somaPorSeg[seg]; }
+  });
+  return melhor;
+}
+
 async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   const abertos = pedidos.filter(function(p){
     return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
@@ -963,15 +979,21 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // NOTA: "Expedição x Forecast" precisa de uma fonte de dados de meta/forecast
   // que ainda não temos — esse bloco fica pendente até definirmos a origem.
 
-  // Forecast, Marketplace e Segmento — vêm de fontes/views separadas do Supabase
+  // Forecast e Integração — permanecem como séries de 7 dias, fora do escopo dos filtros
   const forecastRows = await buscarForecastUltimos7Dias();
   const expedicao_semana = computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = computarIntegracao7Dias(pedidos);
 
-  const marketplacesRaw = await buscarMarketplaces();
-  const marketplaces = marketplacesRaw.map(function(m){
-    return { nome: m.marketplace_nome, valor: m.itens };
+  // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP)
+  // NÃO usa mais a view vw_marketplace_resumo — permite reaproveitar o mesmo dado no filtro.
+  const mktContador = {};
+  pedidosOp.forEach(function(p){
+    const nome = p.marketplace_acronimo || "Não identificado";
+    mktContador[nome] = (mktContador[nome] || 0) + (p.qtd_total_produto || 0);
   });
+  const marketplaces = Object.keys(mktContador)
+    .map(function(nome){ return { nome: nome, valor: mktContador[nome] }; })
+    .sort(function(a,b){ return b.valor - a.valor; });
 
   // SEGMENTO: calculado diretamente dos itens já processados (com fallback Calçados)
   // NÃO usa mais a view vw_segmento_resumo — o cruzamento já foi feito na ingestão.
@@ -994,6 +1016,25 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     return { nome: nome, pct: (segContador[nome] / totalItensSegmento) * 100 };
   }).sort(function(a,b){ return b.pct - a.pct; });
 
+  // PEDIDOS_DETALHE: dado de nível fino para filtros funcionais (Marca, Marketplace, Backlog FIFO)
+  // recalculados no navegador sem nova consulta ao Supabase. Só pedidos abertos/não cancelados.
+  const pedidos_detalhe = pedidosOp.map(function(p){
+    const itensP = itensPorPedido ? itensPorPedido.get(String(p.pedido_venda)) : null;
+    return {
+      pedido_venda: p.pedido_venda,
+      marca: p.marca || "Sem Marca",
+      marketplace: p.marketplace_acronimo || "Não identificado",
+      backlog_fifo_bucket: p.backlog_fifo_bucket,
+      status_calculado: p.status_calculado,
+      qtd_total_produto: p.qtd_total_produto || 0,
+      otif: p.otif,
+      leadtime_sap_wms_horas: p.leadtime_sap_wms_horas,
+      leadtime_nf_horas: p.leadtime_nf_horas,
+      leadtime_cd_horas: p.leadtime_cd_horas,
+      segmento_predominante: segmentoPredominante(itensP),
+    };
+  });
+
   return {
     gerado_em: new Date().toISOString(),
     kpis: kpis,
@@ -1005,6 +1046,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     integracao_7dias: integracao_7dias,
     marketplaces: marketplaces,
     segmentos: segmentos,
+    pedidos_detalhe: pedidos_detalhe,
   };
 }
 
