@@ -1158,9 +1158,9 @@ async function processarRelatoriosInbound(files, options) {
         id_nota_fiscal:     Number(r["idNotaFiscal"]),
         nota_fiscal:        r["Nota Fiscal"],
         status:             r["Status"],
-        data_emissao:       parseDataBR(r["Data de Emissão"]),
-        data_cadastro:      parseDataBR(r["Data de Cadastro"]),
-        data_processamento: parseDataBR(r["Data de Processamento"]),
+        data_emissao:       r["Data de Emissão"]    ? paraDataISOLocal(parseDataBR(r["Data de Emissão"]))    : null,
+        data_cadastro:      r["Data de Cadastro"]   ? paraDataISOLocal(parseDataBR(r["Data de Cadastro"]))   : null,
+        data_processamento: r["Data de Processamento"] ? paraDataISOLocal(parseDataBR(r["Data de Processamento"])) : null,
         emitente:           r["Emitente"],
         ordem_recebimento:  r["Ordem de Recebimento"],
       };
