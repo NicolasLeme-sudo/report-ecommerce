@@ -873,14 +873,19 @@ function computarExpedicaoSemana(pedidos, forecastRows) {  const hoje = new Date
 
   const expedidoPorDia = {};
   dias.forEach(function(d){ expedidoPorDia[d] = 0; });
-  pedidos.forEach(function(p){
-    if (p.processado_em) {
-      const diaISO = paraDataISOLocal(p.processado_em);
-      if (expedidoPorDia[diaISO] !== undefined) {
-        expedidoPorDia[diaISO] += p.qtd_total_produto;
+
+  // Filtra apenas pedidos EXPEDIDOS (vindos do Acompanhamento_Exp) e não cancelados
+  // para não contaminar o total com pedidos ainda em aberto que tenham processado_em preenchido
+  pedidos
+    .filter(function(p){ return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado"; })
+    .forEach(function(p){
+      if (p.processado_em) {
+        const diaISO = paraDataISOLocal(p.processado_em);
+        if (expedidoPorDia[diaISO] !== undefined) {
+          expedidoPorDia[diaISO] += p.qtd_total_produto;
+        }
       }
-    }
-  });
+    });
 
   const forecastPorDia = {};
   forecastRows.forEach(function(r){ forecastPorDia[r.data] = r.itens_forecast; });
