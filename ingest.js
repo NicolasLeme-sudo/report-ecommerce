@@ -1203,7 +1203,19 @@ async function processarRelatoriosInbound(files, options) {
     if (error) console.error("Erro inbound_itens:", error);
   }
 
-  // ---- 3) Recebimento diário (Gerenciador de OR) ----
+  // ---- 3) Recebimento diário (Gerenciador de OR cruzado com Itens NF de entrada) ----
+  // Definição: itens recebidos no dia = itens das NFs conferidas naquele dia (pelo Gerenciador de OR)
+  // A NF do OR é cruzada com itensRegistros para pegar a quantidade real de itens
+  const nfParaIdNF = new Map();
+  nfRegistros.forEach(function(n){ nfParaIdNF.set(String(n.nota_fiscal).trim(), n.id_nota_fiscal); });
+
+  const idNFParaItens = new Map();
+  itensRegistros.forEach(function(it){
+    const id = String(it.id_nota_fiscal);
+    if (!idNFParaItens.has(id)) idNFParaItens.set(id, 0);
+    idNFParaItens.set(id, idNFParaItens.get(id) + (Number(it.quantidade) || 0));
+  });
+
   const recebPorDia = {};
   linhasOR.forEach(function(r){
     const d = parseDataBR(r["Data da Conferência"]);
@@ -1211,18 +1223,25 @@ async function processarRelatoriosInbound(files, options) {
     const iso = paraDataISOLocal(d);
     if (!recebPorDia[iso]) recebPorDia[iso] = { nfs: 0, itens: 0 };
     recebPorDia[iso].nfs++;
-    recebPorDia[iso].itens += Number(r["Qtde. de Volumes"]) || 0;
+    // Cruza com itens reais da NF de entrada
+    const nfNum = String(r["Nota Fiscal"] || "").trim();
+    const idNF  = nfParaIdNF.get(nfNum);
+    const qtde  = idNF ? (idNFParaItens.get(String(idNF)) || 0) : 0;
+    recebPorDia[iso].itens += qtde;
   });
   const recebRegistros = Object.keys(recebPorDia).map(function(d){
     return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
   });
+  // Limpa histórico antes de reinserir para garantir que dados corrigidos sobrescrevem os antigos
+  await supabaseClient.from("inbound_recebimento_diario").delete().neq("data_conferencia", "");
   for (let i = 0; i < recebRegistros.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_recebimento_diario")
-      .upsert(recebRegistros.slice(i, i+200), { onConflict: "data_conferencia" });
+      .insert(recebRegistros.slice(i, i+200));
     if (error) console.error("Erro recebimento_diario:", error);
   }
 
   // ---- 4) Armazenagem diária (Kardex de End — endereços H, I, J) ----
+  // Definição: itens armazenados no dia = Estoque Antes - Estoque Após (saída do stage para endereço)
   const armPorDia = {};
   linhasKardex.forEach(function(r){
     const local = String(r["Local"] || "").toUpperCase();
@@ -1237,9 +1256,11 @@ async function processarRelatoriosInbound(files, options) {
   const armRegistros = Object.keys(armPorDia).map(function(d){
     return { data_alocacao: d, itens_armazenados: armPorDia[d] };
   });
+  // Limpa histórico antes de reinserir para garantir que dados corrigidos sobrescrevem os antigos
+  await supabaseClient.from("inbound_armazenagem_diario").delete().neq("data_alocacao", "");
   for (let i = 0; i < armRegistros.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-      .upsert(armRegistros.slice(i, i+200), { onConflict: "data_alocacao" });
+      .insert(armRegistros.slice(i, i+200));
     if (error) console.error("Erro armazenagem_diario:", error);
   }
 
@@ -1289,23 +1310,26 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   const anoAtual = hoje.getFullYear();
 
   // KPIs de NFs
-  // Pendente de recebimento = IMPORTADA (não recebida) + EM CARGA/OR (recebida, aguardando armazenagem)
-  // O "pendente" no seu report representa tudo que ainda não foi PROCESSADA
+  // Pendente Recebimento = NFs com status IMPORTADA (ainda não recebidas fisicamente)
+  // Pendente Armazenagem = NFs com status EM CARGA/OR + itens no Stage (H/I/J)
   const nfsPendReceb = nfRegistros.filter(function(n){ return n.status === "IMPORTADA"; });
   const nfsPendArm   = nfRegistros.filter(function(n){ return n.status === "EM CARGA/OR"; });
   const nfIdsReceb   = new Set(nfsPendReceb.map(function(n){ return n.id_nota_fiscal; }));
-  // Armazenagem pendente vem do Stage (já definido), NFs EM CARGA/OR são subconjunto do pendente receb
   const nfIdsArm     = new Set(nfsPendArm.map(function(n){ return n.id_nota_fiscal; }));
 
   // KPIs de itens
+  // Pendente Recebimento: itens das NFs IMPORTADA
   const itensPendReceb = itensRegistros
     .filter(function(i){ return nfIdsReceb.has(i.id_nota_fiscal); })
     .reduce(function(s, i){ return s + i.quantidade; }, 0);
+
+  // Pendente Armazenagem: itens das NFs EM CARGA/OR + itens no Stage (H/I/J)
   const itensPendArmNF = itensRegistros
     .filter(function(i){ return nfIdsArm.has(i.id_nota_fiscal); })
     .reduce(function(s, i){ return s + i.quantidade; }, 0);
-  const itensPendArm = itensPendArmNF + stageRegistros
+  const itensPendArmStage = stageRegistros
     .reduce(function(s, i){ return s + i.estoque_un; }, 0);
+  const itensPendArm = itensPendArmNF + itensPendArmStage;
   // Últimos 7 dias
   const dias7 = [];
   for (let i = 6; i >= 0; i--) {
