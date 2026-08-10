@@ -720,19 +720,25 @@ async function processarForecastMensal(file, options) {
     );
   }
 
-  const COL_DATA = 1;   // coluna B
-  const COL_TOTAL = 5;  // coluna F (TOTAL ECOM — Itens)
-  const LINHA_DADOS_INICIO = 2; // linha 3 (índice 2)
-
   const registros = [];
   let linhasLidas = 0;
 
-  for (let i = LINHA_DADOS_INICIO; i < linhas.length; i++) {
+  for (let i = 2; i < linhas.length; i++) {
     const linha = linhas[i];
     if (!linha) continue;
 
-    const serial = Number(linha[COL_DATA]);
-    if (isNaN(serial) || serial < 40000 || serial > 60000) continue;
+    // Localiza a coluna com o serial de data dinamicamente (o SheetJS pode ou não
+    // incluir uma coluna vazia inicial, dependendo de como a planilha foi salva).
+    let colData = -1, serial = null;
+    for (let c = 0; c < 4; c++) {
+      const v = Number(linha[c]);
+      if (!isNaN(v) && v >= 40000 && v <= 60000) { colData = c; serial = v; break; }
+    }
+    if (colData < 0) continue;
+
+    // A coluna TOTAL fica 3 posições à direita da coluna de Data
+    // (Data, MZ, OLY, UA, TOTAL — 4 colunas de marca entre Data e Total)
+    const colTotal = colData + 4;
 
     const data = excelSerialParaData(serial);
     const dataISO = paraDataISOLocal(data);
@@ -743,7 +749,7 @@ async function processarForecastMensal(file, options) {
     // eventualmente preencham essas células com valor residual).
     const totalItens = (diaSemana === 0 || diaSemana === 6)
       ? 0
-      : Math.round(Number(linha[COL_TOTAL]) || 0);
+      : Math.round(Number(linha[colTotal]) || 0);
 
     registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens, pedidos_forecast: 0, faturamento_forecast: 0 });
 
