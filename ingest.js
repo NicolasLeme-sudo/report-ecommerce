@@ -413,8 +413,8 @@ async function processarRelatoriosDaOperacao(files, options) {
       codigo_produto: r["Código do Produto"],
       produto: descricaoProduto,
       barra: barra,
-      quantidade: r["Quantidade"],
-      qtde_faturada: r["Qtde. Faturada"],
+      quantidade: Number(r["Quantidade"]) || 0,
+      qtde_faturada: Number(r["Qtde. Faturada"]) || 0,
       segmento: segmento,
       marca_item: marcaItem,
     });
