@@ -768,6 +768,11 @@ async function carregarSnapshot(id) {
 /* ============================================================
    OUTBOUND — carrega e renderiza
    ============================================================ */
+
+// Estado global do Outbound: payload atual + filtros ativos
+let outboundPayloadAtual = null;
+let outboundFiltros = { marca: 'Todas', marketplace: 'Todos', backlog: 'Todos' };
+
 async function carregarOutbound() {
   document.getElementById('outbound-conteudo').innerHTML =
     '<div class="loading-msg">Carregando dados do Outbound...</div>';
@@ -793,6 +798,9 @@ async function carregarOutbound() {
   const atual    = data[0].payload;
   const anterior = data[1] ? data[1].payload : null;
 
+  outboundPayloadAtual = atual;
+  outboundFiltros = { marca: 'Todas', marketplace: 'Todos', backlog: 'Todos' };
+
   const d = new Date(data[0].gerado_em);
   document.getElementById('topbarSub').textContent =
     'Última atualização: ' + formatarDataBR(data[0].gerado_em);
@@ -806,15 +814,15 @@ function renderizarOutbound(atual, anterior) {
     <div class="filterbar">
       <div class="filter-group">
         <label>Marca</label>
-        <div class="filter-chips">
-          <span class="chip ativo">Todas</span>
-          <span class="chip">MIZ</span><span class="chip">OLK</span>
-          <span class="chip">UA</span><span class="chip">Opanka</span>
+        <div class="filter-chips" id="fMarcaChips">
+          <span class="chip ativo" data-marca="Todas">Todas</span>
+          <span class="chip" data-marca="Mizuno">MIZ</span><span class="chip" data-marca="Olympikus">OLK</span>
+          <span class="chip" data-marca="Under Armour">UA</span><span class="chip" data-marca="Opanka">Opanka</span>
         </div>
       </div>
       <div class="filter-group">
         <label>Marketplace</label>
-        <select id="fMarketplace"><option>Todos</option></select>
+        <select id="fMarketplace"><option value="Todos">Todos</option></select>
       </div>
       <div class="filter-group">
         <label>Backlog FIFO</label>
@@ -867,12 +875,39 @@ function renderizarOutbound(atual, anterior) {
 
   document.getElementById('outbound-conteudo').innerHTML = html;
 
-  // chips de filtro FIFO
+  // Preenche o select de Marketplace dinamicamente com valores reais de pedidos_detalhe
+  const selectMkt = document.getElementById('fMarketplace');
+  const marketplacesUnicos = [...new Set((atual.pedidos_detalhe || []).map(p => p.marketplace))].sort();
+  marketplacesUnicos.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m; opt.textContent = m;
+    selectMkt.appendChild(opt);
+  });
+
+  // chips de Marca
+  document.querySelectorAll('#fMarcaChips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('#fMarcaChips .chip').forEach(x => x.classList.remove('ativo'));
+      c.classList.add('ativo');
+      outboundFiltros.marca = c.dataset.marca;
+      aplicarFiltrosOutbound(anterior);
+    });
+  });
+
+  // chips de Backlog FIFO
   document.querySelectorAll('#fFifoChips .chip').forEach(c => {
     c.addEventListener('click', () => {
       document.querySelectorAll('#fFifoChips .chip').forEach(x => x.classList.remove('ativo'));
       c.classList.add('ativo');
+      outboundFiltros.backlog = c.dataset.fifo;
+      aplicarFiltrosOutbound(anterior);
     });
+  });
+
+  // select de Marketplace
+  selectMkt.addEventListener('change', () => {
+    outboundFiltros.marketplace = selectMkt.value;
+    aplicarFiltrosOutbound(anterior);
   });
 
   renderKpis(atual, anterior);
@@ -884,6 +919,128 @@ function renderizarOutbound(atual, anterior) {
   renderBacklog(atual.backlog_fifo);
   renderBarrasSeg(atual.segmentos, 'segBars');
   renderExpedicao(atual.expedicao_semana);
+}
+
+/* ---------- Filtros funcionais (Marca, Marketplace, Backlog FIFO) ---------- */
+function filtrarPedidosDetalhe(pedidosDetalhe, filtros) {
+  return (pedidosDetalhe || []).filter(p => {
+    if (filtros.marca !== 'Todas' && p.marca !== filtros.marca) return false;
+    if (filtros.marketplace !== 'Todos' && p.marketplace !== filtros.marketplace) return false;
+    if (filtros.backlog !== 'Todos' && p.backlog_fifo_bucket !== filtros.backlog) return false;
+    return true;
+  });
+}
+
+// Mesma lógica de mediaMaxMin do ingest.js, adaptada para rodar no navegador
+function mediaMaxMinCliente(valores, pedidosVenda) {
+  const validos = [];
+  for (let i = 0; i < valores.length; i++) {
+    const v = valores[i];
+    if (v !== null && v !== undefined && !isNaN(v)) validos.push({ v, pedido: pedidosVenda[i] });
+  }
+  if (validos.length === 0) return null;
+  let soma = 0, max = validos[0], min = validos[0];
+  for (const x of validos) {
+    soma += x.v;
+    if (x.v > max.v) max = x;
+    if (x.v < min.v) min = x;
+  }
+  return {
+    media: soma / validos.length,
+    max: { valor: max.v, pedido: max.pedido },
+    min: { valor: min.v, pedido: min.pedido },
+  };
+}
+
+const ETAPAS_OPERACIONAIS = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
+                             "04 - Separado - Conferir", "05 - Conferido - Despachar"];
+
+// Recalcula todos os cards afetados a partir da lista de pedidos já filtrada
+function recalcularOutboundFiltrado(pedidosFiltrados) {
+  const kpis = {
+    pedidos_em_fluxo: pedidosFiltrados.length,
+    itens_em_fluxo: pedidosFiltrados.reduce((s, p) => s + (p.qtd_total_produto || 0), 0),
+    otif_pct: (() => {
+      const comOtif = pedidosFiltrados.filter(p => p.status_calculado === "06 - Despachado");
+      if (comOtif.length === 0) return null;
+      return (comOtif.filter(p => p.otif).length / comOtif.length) * 100;
+    })(),
+  };
+
+  const leadtimes = {
+    sap_wms: mediaMaxMinCliente(pedidosFiltrados.map(p => p.leadtime_sap_wms_horas), pedidosFiltrados.map(p => p.pedido_venda)),
+    nf:      mediaMaxMinCliente(pedidosFiltrados.map(p => p.leadtime_nf_horas), pedidosFiltrados.map(p => p.pedido_venda)),
+    cd:      mediaMaxMinCliente(pedidosFiltrados.map(p => p.leadtime_cd_horas), pedidosFiltrados.map(p => p.pedido_venda)),
+  };
+
+  const marcasSet = {};
+  pedidosFiltrados.forEach(p => { if (p.marca) marcasSet[p.marca] = true; });
+  const marcas = Object.keys(marcasSet);
+
+  function tabelaStatusPorMarca(unidade) {
+    return ETAPAS_OPERACIONAIS.map(etapa => {
+      const valores = marcas.map(marca =>
+        pedidosFiltrados
+          .filter(p => p.status_calculado === etapa && p.marca === marca)
+          .reduce((s, p) => s + (unidade === "itens" ? (p.qtd_total_produto || 0) : 1), 0)
+      );
+      const totalEtapa = valores.reduce((a, b) => a + b, 0);
+      return { status: etapa, marcas, valores, total: totalEtapa };
+    });
+  }
+
+  const backlog_fifo = ["01", "02", "03", "04+"].map(bucket => ({
+    label: bucket,
+    valor: pedidosFiltrados.filter(p => p.backlog_fifo_bucket === bucket)
+                            .reduce((s, p) => s + (p.qtd_total_produto || 0), 0),
+  }));
+
+  const mktContador = {};
+  pedidosFiltrados.forEach(p => {
+    const nome = p.marketplace || "Não identificado";
+    mktContador[nome] = (mktContador[nome] || 0) + (p.qtd_total_produto || 0);
+  });
+  const marketplaces = Object.keys(mktContador)
+    .map(nome => ({ nome, valor: mktContador[nome] }))
+    .sort((a, b) => b.valor - a.valor);
+
+  const segContador = {};
+  pedidosFiltrados.forEach(p => {
+    const seg = p.segmento_predominante || "Calçados";
+    segContador[seg] = (segContador[seg] || 0) + (p.qtd_total_produto || 0);
+  });
+  const totalSeg = Object.values(segContador).reduce((a, b) => a + b, 0) || 1;
+  const segmentos = Object.keys(segContador)
+    .map(nome => ({ nome, pct: (segContador[nome] / totalSeg) * 100 }))
+    .sort((a, b) => b.pct - a.pct);
+
+  return {
+    kpis,
+    leadtimes,
+    status_por_etapa_itens: tabelaStatusPorMarca("itens"),
+    status_por_etapa_pedidos: tabelaStatusPorMarca("pedidos"),
+    backlog_fifo,
+    marketplaces,
+    segmentos,
+  };
+}
+
+// Aplica o estado atual de outboundFiltros, recalcula e re-renderiza os cards afetados.
+// Integração no WMS e Expedição x Forecast permanecem fixos (séries de 7 dias, fora do escopo do filtro).
+function aplicarFiltrosOutbound(anterior) {
+  if (!outboundPayloadAtual) return;
+  const pedidosFiltrados = filtrarPedidosDetalhe(outboundPayloadAtual.pedidos_detalhe, outboundFiltros);
+  const recalculado = recalcularOutboundFiltrado(pedidosFiltrados);
+
+  document.getElementById('kpiRow').innerHTML = '';
+  renderKpis(recalculado, anterior);
+  renderSparkline(outboundPayloadAtual.integracao_7dias);
+  renderLeadtimes(recalculado);
+  renderMatriz(recalculado.status_por_etapa_itens, 'matrixItens');
+  renderMatriz(recalculado.status_por_etapa_pedidos, 'matrixPedidos');
+  renderBarras(recalculado.marketplaces, 'mktBars', 5);
+  renderBacklog(recalculado.backlog_fifo);
+  renderBarrasSeg(recalculado.segmentos, 'segBars');
 }
 
 /* ---------- KPIs ---------- */
