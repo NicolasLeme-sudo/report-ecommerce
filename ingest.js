@@ -726,16 +726,6 @@ for (let r = 0; r < 8; r++) {
     );
   }
 
-  // DIAGNÓSTICO TEMPORÁRIO — remover depois de validar
-  console.log('=== DIAGNÓSTICO FORECAST ===');
-  console.log('Linha de marcas (índice ' + linhaMarcasIdx + '):', JSON.stringify(linhasMarcas));
-  console.log('idxTotalEcomBloco (posição de "TOTAL ECOM"):', idxTotalEcomBloco);
-  console.log('Linha de cabeçalhos (índice ' + (linhaMarcasIdx+1) + '):', JSON.stringify(linhaCabecalhos));
-  console.log('colItensTotalEcom (coluna escolhida para "Itens"):', colItensTotalEcom);
-  console.log('Exemplo linha de dados (índice ' + linhasDados + '):', JSON.stringify(linhas[linhasDados]));
-  console.log('Valor lido nessa linha na coluna escolhida:', linhas[linhasDados] ? linhas[linhasDados][colItensTotalEcom] : 'N/A');
-  console.log('=============================');
-
   const registros = [];
   let linhasLidas = 0;
 
