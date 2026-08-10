@@ -1186,6 +1186,8 @@ function renderBarrasSeg(lista, elId) {
 function renderBacklog(backlog) {
   const svg = document.getElementById('donutSvg');
   const leg = document.getElementById('donutLegend');
+  svg.innerHTML = '';
+  leg.innerHTML = '';
   const cores = { '01':'var(--olive)', '02':'var(--amber)', '03':'var(--text-muted)', '04+':'var(--red)' };
   const total = (backlog||[]).reduce((a,b)=>a+b.valor,0) || 1;
   let ang = -90;
