@@ -22,7 +22,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Report E-commerce</title>
-<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📦</text></svg>">
 
 <!-- Supabase: cliente de banco de dados -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -128,7 +128,7 @@ body {
 }
 .sidebar-brand .mark {
   width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
-  background: linear-gradient(135deg, #1A3A6B, #1A3A6B);
+  background: linear-gradient(135deg, #6B7F3A, #8FA355);
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px; color: #132043;
 }
@@ -405,7 +405,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
   <!-- ===== SIDEBAR ===== -->
   <aside class="sidebar">
     <div class="sidebar-brand">
-      <div class="mark"><img src="/favicon.png" alt="Logo" style="width:100%;height:100%;object-fit:contain;border-radius:inherit"></div>
+      <div class="mark">CD</div>
       <div>
         <div class="nome">Report E-commerce</div>
         <div class="sub">Vulcabras · Extrema</div>
@@ -839,7 +839,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title">Indicadores do dia</div>
     <div class="kpi-row" id="kpiRow"></div>
-    <div class="leadtime-row" id="leadtimeRow"></div>
+    
 
     <div class="grid2">
       <div class="stack">
@@ -913,7 +913,6 @@ function renderizarOutbound(atual, anterior) {
 
   renderKpis(atual, anterior);
   renderSparkline(atual.integracao_7dias);
-  renderLeadtimes(atual);
   renderMatriz(atual.status_por_etapa_itens, 'matrixItens');
   renderMatriz(atual.status_por_etapa_pedidos, 'matrixPedidos');
   renderBarras(atual.marketplaces, 'mktBars', 5);
@@ -1036,7 +1035,6 @@ function aplicarFiltrosOutbound(anterior) {
   document.getElementById('kpiRow').innerHTML = '';
   renderKpis(recalculado, anterior);
   renderSparkline(outboundPayloadAtual.integracao_7dias);
-  renderLeadtimes(recalculado);
   renderMatriz(recalculado.status_por_etapa_itens, 'matrixItens');
   renderMatriz(recalculado.status_por_etapa_pedidos, 'matrixPedidos');
   renderBarras(recalculado.marketplaces, 'mktBars', 5);
@@ -1046,18 +1044,9 @@ function aplicarFiltrosOutbound(anterior) {
 
 /* ---------- KPIs ---------- */
 function renderKpis(atual, anterior) {
-  const otifA = atual.kpis.otif_pct;
-  const otifB = anterior ? anterior.kpis.otif_pct : null;
-  let dTxt = '—', dCls = 'delta-flat';
-  if (otifA !== null && otifB !== null) {
-    const d = otifA - otifB;
-    dTxt = (d >= 0 ? '+' : '') + d.toFixed(1).replace('.', ',') + ' p.p.';
-    dCls = d > 0 ? 'delta-up' : d < 0 ? 'delta-down' : 'delta-flat';
-  }
   const kpis = [
     { tag: 'Pedidos em fluxo', val: (atual.kpis.pedidos_em_fluxo||0).toLocaleString('pt-BR'), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: (atual.kpis.itens_em_fluxo||0).toLocaleString('pt-BR'),   delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
-    { tag: 'OTIF',             val: otifA !== null ? otifA.toFixed(1).replace('.', ',') + '%' : '—', delta: dTxt, bar: 'bar-ok', dc: dCls },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
