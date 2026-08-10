@@ -407,10 +407,11 @@ async function processarRelatoriosDaOperacao(files, options) {
     const emb = embalasMap.get(barra);
     // Fallback para "Calçados" se não encontrar na base de embalagem
     const segmento = emb ? emb.segmento : "Calçados";
-    const marcaItem = emb ? emb.marca : null;
+    const descricaoProduto = normalizarEncoding(r["Produto"] || r["Descrição do item"] || "");
+    const marcaItem = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(descricaoProduto);
     itensPorPedido.get(chave).push({
       codigo_produto: r["Código do Produto"],
-      produto: normalizarEncoding(r["Produto"]),
+      produto: descricaoProduto,
       barra: barra,
       quantidade: r["Quantidade"],
       qtde_faturada: r["Qtde. Faturada"],
@@ -450,7 +451,7 @@ async function processarRelatoriosDaOperacao(files, options) {
 
       // Vindo do SAP (Pedidos_E-comm_Geral)
       data_pedido_sap: sap["Data do pedido SAP"] ? new Date(sap["Data do pedido SAP"]) : null,
-      marca: sap["Marca"] || null,
+      marca: sap["Marca"] || null, // fallback aplicado abaixo
       marketplace_acronimo: sap["Marketplace"] || null,
 
       situacao: linha.origem === "Acompanhamento_Exp"
@@ -458,6 +459,22 @@ async function processarRelatoriosDaOperacao(files, options) {
         : "ABERTO",
       origem_arquivo: linha.origem,
     };
+
+    // Fallback de marca: se SAP não retornou, inferir pelos itens do pedido
+    if (!p.marca) {
+      var itensP = itensPorPedido.get(String(pedidoVenda)) || [];
+      for (var ii = 0; ii < itensP.length; ii++) {
+        if (itensP[ii].marca_item) { p.marca = itensP[ii].marca_item; break; }
+      }
+    }
+    // Segundo fallback: inferir pelo campo produto/descrição dos itens
+    if (!p.marca) {
+      var itensP2 = itensPorPedido.get(String(pedidoVenda)) || [];
+      for (var jj = 0; jj < itensP2.length; jj++) {
+        var inf = inferirMarcaPorDescricao(itensP2[jj].produto);
+        if (inf) { p.marca = inf; break; }
+      }
+    }
 
     p.status_calculado = calcularStatus(p);
 
@@ -894,7 +911,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // OBS: "06 - Despachado" fica de fora dessas tabelas — só entra no
   // gráfico de Expedição x Forecast, aqui é só o que está em fluxo.
   const marcasSet = {};
-  pedidosOp.forEach(function(p){ marcasSet[p.marca || "Sem Marca"] = true; });
+  pedidosOp.forEach(function(p){ if (p.marca) marcasSet[p.marca] = true; });
   const marcas = Object.keys(marcasSet);
 
   const etapasOperacionais = ["01 - Gerar", "02 - Em Separação", "03 - Separado - Aguardando NF",
@@ -1932,6 +1949,16 @@ async function processarRelatoriosReversa(files, options) {
 // Matching robusto: remove acentos para comparar nomes de colunas
 function stripAccents(s) {
   return (s||"").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+
+// Fallback: inferir marca pelo nome/descrição do item quando dim_embalas não retorna marca
+function inferirMarcaPorDescricao(descricao) {
+  var d = normalizarEncoding(String(descricao || "")).toUpperCase();
+  if (/MIZUNO|\bMIZ\b/.test(d))                    return "Mizuno";
+  if (/UNDER ARMOUR|\bUA\b|UNDERARMOUR/.test(d))   return "Under Armour";
+  if (/OLYMPIKUS|\bOLY\b|\bOLK\b/.test(d))       return "Olympikus";
+  if (/OPANKA/.test(d))                              return "Opanka";
+  return null;
 }
 function parseTSVComSep(texto, sep, colsDesejadas) {
   var linhas = texto.split('\n');
