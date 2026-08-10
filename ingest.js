@@ -686,15 +686,16 @@ async function processarForecastMensal(file, options) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-  // Validação: linha 4 (índice 3) deve ter "MZ" na posição 2 e "TOTAL ECOM" na posição 14
+  // Validação: linha de marcas deve conter "TOTAL ECOM"
   // (Estrutura: linha 1=vazia, linha 2=info extra, linha 3=vazia, linha 4=marcas, linha 5=cabeçalhos, linha 6+=dados)
   // Procura a linha que contém 'MZ' nas primeiras 8 linhas (estrutura pode variar entre meses)
 let linhasMarcas = [];
 let linhasDados = 6; // padrão
+let linhaMarcasIdx = -1;
 for (let r = 0; r < 8; r++) {
   const l = linhas[r] || [];
   const temMZ = l.some(function(v){ return String(v||'').toUpperCase().includes('MZ'); });
-  if (temMZ) { linhasMarcas = l; linhasDados = r + 2; break; }
+  if (temMZ) { linhasMarcas = l; linhaMarcasIdx = r; linhasDados = r + 2; break; }
 }
   const temMZ    = linhasMarcas.some(function(v){ return String(v||'').toUpperCase() === 'MZ'; });
   const temTotal = linhasMarcas.some(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
@@ -703,6 +704,25 @@ for (let r = 0; r < 8; r++) {
       'Arquivo inválido para Forecast. Esperado: "MZ" na coluna C e "TOTAL ECOM" na coluna O da linha 4. ' +
       'Verifique se selecionou o arquivo correto (Acompanhamento_Faturamento_CD).' +
       '\nEncontrado na linha 4: ' + JSON.stringify(linhasMarcas.slice(0,16))
+    );
+  }
+
+  // Localiza a coluna "Itens" do bloco TOTAL ECOM dinamicamente:
+  // 1) acha a posição de "TOTAL ECOM" na linha de marcas
+  // 2) a partir dali, acha a 1ª ocorrência de "Itens" na linha de cabeçalhos (linhaMarcasIdx+1)
+  const idxTotalEcomBloco = linhasMarcas.findIndex(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
+  if (idxTotalEcomBloco < 0) {
+    throw new Error('Não foi possível localizar o bloco "TOTAL ECOM" na planilha de Forecast.');
+  }
+  const linhaCabecalhos = linhas[linhaMarcasIdx + 1] || [];
+  let colItensTotalEcom = -1;
+  for (let c = idxTotalEcomBloco; c < linhaCabecalhos.length; c++) {
+    if (String(linhaCabecalhos[c] || '').trim().toUpperCase() === 'ITENS') { colItensTotalEcom = c; break; }
+  }
+  if (colItensTotalEcom < 0) {
+    throw new Error(
+      'Não foi possível localizar a coluna "Itens" do bloco TOTAL ECOM (procurada a partir da coluna ' +
+      idxTotalEcomBloco + '). Cabeçalhos encontrados: ' + JSON.stringify(linhaCabecalhos.slice(idxTotalEcomBloco, idxTotalEcomBloco+6))
     );
   }
 
@@ -725,15 +745,10 @@ for (let r = 0; r < 8; r++) {
     const data = excelSerialParaData(serial);
     const dataISO = paraDataISOLocal(data);
 
-    // Total ECOM (índices 14, 15, 16)
-    const totalItens = Number(linha[14]) || 0;
-    const totalPedidos = Number(linha[15]) || 0;
-    const totalFat = Number(linha[16]) || 0;
+    // Total ECOM — Itens, localizado dinamicamente pelo cabeçalho (coluna O na planilha padrão)
+    const totalItens = Number(linha[colItensTotalEcom]) || 0;
 
-    registros.push({ data: dataISO, marca: "TOTAL",        itens_forecast: totalItens,           pedidos_forecast: totalPedidos,        faturamento_forecast: totalFat });
-    registros.push({ data: dataISO, marca: "Mizuno",       itens_forecast: Number(linha[2])||0,  pedidos_forecast: Number(linha[3])||0,  faturamento_forecast: Number(linha[4])||0 });
-    registros.push({ data: dataISO, marca: "Olympikus",    itens_forecast: Number(linha[6])||0,  pedidos_forecast: Number(linha[7])||0,  faturamento_forecast: Number(linha[8])||0 });
-    registros.push({ data: dataISO, marca: "Under Armour", itens_forecast: Number(linha[10])||0, pedidos_forecast: Number(linha[11])||0, faturamento_forecast: Number(linha[12])||0 });
+    registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens, pedidos_forecast: 0, faturamento_forecast: 0 });
 
     linhasLidas++;
   }
@@ -743,6 +758,10 @@ for (let r = 0; r < 8; r++) {
   }
 
   onProgress(`${linhasLidas} dias de forecast lidos. Gravando ${registros.length} registros...`);
+
+  // Limpa registros antigos por marca (Mizuno/Olympikus/Under Armour) que não são mais gravados,
+  // mantendo a tabela consistente só com "TOTAL"
+  await supabaseClient.from("forecast_diario").delete().in("marca", ["Mizuno", "Olympikus", "Under Armour"]);
 
   let erros = 0;
   const TAMANHO_LOTE = 200;
@@ -1102,11 +1121,13 @@ async function processarRelatoriosInbound(files, options) {
       const barra = String(r["Barra"] || "").trim();
       const emb   = embalasMap.get(barra);
       const seg   = emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados";
-      const marca = emb ? emb.marca : null;
+      const produtoDescricao = normalizarEncoding(r["Produto"]);
+      // Marca: 1ª tentativa dim_embalas (via Barra); só se não localizado, cai no fallback por Descrição
+      const marca = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(produtoDescricao);
       return {
         id_nota_fiscal: Number(r["idNotaFiscal"]),
         codigo_produto:  r["Código do Produto"],
-        produto:         normalizarEncoding(r["Produto"]),
+        produto:         produtoDescricao,
         barra:           barra,
         quantidade:      Number(r["Quantidade"]) || 0,
         segmento:        seg,
@@ -1170,13 +1191,16 @@ async function processarRelatoriosInbound(files, options) {
     .map(function(r){
       const barra = String(r["Barra"] || "").trim();
       const emb   = embalasMap.get(barra);
+      const produtoDescricao = normalizarEncoding(r["Produto"]);
+      // Marca: 1ª tentativa dim_embalas (via Barra); só se não localizado, cai no fallback por Descrição
+      const marca = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(produtoDescricao);
       return {
         local:       r["Local"],
         barra:       barra,
-        produto:     normalizarEncoding(r["Produto"]),
+        produto:     produtoDescricao,
         estoque_un:  Number(r["Estoque (UN)"]) || 0,
         segmento:    emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados",
-        marca:       emb ? emb.marca : null,
+        marca:       marca,
       };
     });
 
