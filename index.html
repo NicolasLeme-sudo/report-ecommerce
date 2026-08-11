@@ -1489,13 +1489,13 @@ function gerarAnaliseAutomatica(inbound, estoque) {
       regioesTexto = '<span style="color:var(--red);font-weight:500">Sem capacidade disponível nas regiões mapeadas.</span>';
     }
 
-    paragrafos += '<div style="font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:10px;padding:10px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid var(--border)">'
+    paragrafos += '<div style="font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:10px;padding:10px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid var(--text-muted)">'
       + '<span style="font-weight:500;color:var(--text)">' + marca + '</span> — '
       + '<span style="font-weight:500;color:var(--text)">' + fmtInt(itens) + '</span> itens pendentes de armazenagem '
       + '(<span style="font-weight:500;color:var(--text)">' + fmtInt(volumes) + '</span> volumes, '
       + '<span style="font-weight:500;color:var(--text)">' + fmtInt(pallets) + '</span> pallets). '
       + regioesTexto + ' '
-      + '<span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
+      + '<br><span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
       + '</div>';
   });
 
@@ -1505,7 +1505,7 @@ function gerarAnaliseAutomatica(inbound, estoque) {
       + '<span style="font-weight:500;color:var(--text)">Vestuário, Meias e Acessórios</span> — '
       + '<span style="font-weight:500;color:var(--text)">' + fmtInt(pendVest) + '</span> itens pendentes de armazenagem. '
       + 'Regiões disponíveis: <span style="color:#5DCAA5;font-weight:500">PISO 1 - E</span>, <span style="color:#5DCAA5;font-weight:500">PISO 1 - F</span> e <span style="color:#5DCAA5;font-weight:500">PISO 1 - G</span>. '
-      + '<span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
+      + '<br><span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
       + '</div>';
   }
 
