@@ -1333,23 +1333,25 @@ async function carregarInbound() {
   document.getElementById('inbound-conteudo').innerHTML =
     '<div class="loading-msg">Carregando dados do Inbound...</div>';
 
-  const { data, error } = await supabaseClient
-    .from('dashboard_snapshots')
-    .select('*')
-    .eq('pagina', 'inbound')
-    .order('gerado_em', { ascending: false })
-    .limit(1);
+  const [resInbound, resEstoque] = await Promise.all([
+    supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','inbound').order('gerado_em',{ascending:false}).limit(1),
+    supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','estoque').order('gerado_em',{ascending:false}).limit(1),
+  ]);
 
-  if (error || !data || data.length === 0) {
+  if (resInbound.error || !resInbound.data || resInbound.data.length === 0) {
     document.getElementById('inbound-conteudo').innerHTML =
       '<div class="erro-msg">Nenhum dado encontrado. Use Abastecimento → Atualizar Relatórios do Inbound.</div>';
     return;
   }
 
-  renderizarInbound(data[0].payload);
+  var estoquePayload = (resEstoque.data && resEstoque.data.length > 0) ? resEstoque.data[0].payload : null;
+  renderizarInbound(resInbound.data[0].payload, estoquePayload);
 }
 
-function renderizarInbound(p) {
+function renderizarInbound(p, estoquePayload) {
+  // Análise automática: cruza pendente de armazenagem (por marca/segmento) com ocupação do estoque
+  var analiseHTML = gerarAnaliseAutomatica(p, estoquePayload);
+
   const html = `
     <div class="section-title">Indicadores do Inbound</div>
     <div class="grid3" style="margin-bottom:14px;">
@@ -1374,11 +1376,9 @@ function renderizarInbound(p) {
       </div>
     </div>
 
-    <div class="card" style="margin-bottom:16px;">
+    <div style="margin-bottom:16px;">
       <div class="section-title">Análise Automática — Start Operacional / Movimentação</div>
-      <div style="color:var(--text-muted);font-size:13px;padding:12px 0;">
-        Disponível após implementação do módulo de Estoque — será exibida a recomendação de andares para alocação da carga, cruzando ocupação atual com segmento e marca do material pendente.
-      </div>
+      <div id="analiseAutomaticaConteudo"></div>
     </div>
 
     <div class="grid2">
@@ -1393,10 +1393,123 @@ function renderizarInbound(p) {
     </div>`;
 
   document.getElementById('inbound-conteudo').innerHTML = html;
+  document.getElementById('analiseAutomaticaConteudo').innerHTML = analiseHTML;
   renderGraficoLinhaInbound('svgReceb', p.recebimento_7dias);
   renderGraficoLinhaInbound('svgArm',   p.armazenagem_7dias);
   renderTabelaFifo(p.top10_nfs_fifo);
   renderMatrizPendente(p.matriz_pendente);
+}
+
+/* ---------- Análise Automática — Start Operacional / Movimentação ---------- */
+function gerarAnaliseAutomatica(inbound, estoque) {
+  if (!estoque || !estoque.pisos || !inbound.matriz_pendente) {
+    return '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">Carregue o módulo de Estoque (Abastecimento → Atualizar Estoque) para habilitar a análise automática.</div>';
+  }
+
+  // Mapeamento marca → pisos (com proporção de capacidade)
+  var MARCA_PISOS = {
+    "Mizuno": [
+      {piso:"PISO 1 - C",frac:1},{piso:"PISO 2 - C",frac:1},
+      {piso:"PISO 3 - C",frac:1},{piso:"PISO 4 - C",frac:1}
+    ],
+    "Olympikus": [
+      {piso:"PISO 1 - A",frac:1},{piso:"PISO 1 - B",frac:1},
+      {piso:"PISO 2 - A",frac:0.24},{piso:"PISO 2 - B",frac:1},
+      {piso:"PISO 3 - A",frac:0.32},{piso:"PISO 3 - B",frac:1},
+      {piso:"PISO 4 - A",frac:0.53},{piso:"PISO 4 - B",frac:1}
+    ],
+    "Under Armour": [
+      {piso:"PISO 2 - A",frac:0.76},
+      {piso:"PISO 3 - A",frac:0.68},
+      {piso:"PISO 4 - A",frac:0.47}
+    ],
+  };
+
+  // Monta mapa de ocupação por piso a partir do payload de estoque
+  var ocupPiso = {};
+  estoque.pisos.forEach(function(r){
+    ocupPiso[r.piso_bloco] = { saldo:r.saldo, cap:r.capacidade, livre:r.capacidade-r.saldo };
+  });
+
+  // Extrai itens pendentes de armazenagem por marca e segmento da matriz_pendente
+  // matriz_pendente tem formato: [{segmento, marcas:[], valores:[], total}]
+  var pendCalcPorMarca = {};
+  var pendVest = 0;
+  (inbound.matriz_pendente || []).forEach(function(row){
+    if (row.segmento === 'Total') return;
+    var isCalc = (row.segmento === 'Calçados');
+    for (var i = 0; i < row.marcas.length; i++) {
+      var marca = row.marcas[i];
+      var val = row.valores[i] || 0;
+      if (isCalc) {
+        pendCalcPorMarca[marca] = (pendCalcPorMarca[marca] || 0) + val;
+      } else {
+        pendVest += val;
+      }
+    }
+  });
+
+  // Gera parágrafo para cada marca de calçados
+  var paragrafos = '';
+  ["Under Armour","Mizuno","Olympikus"].forEach(function(marca){
+    var itens = pendCalcPorMarca[marca] || 0;
+    if (itens <= 0) return;
+    var volumes = Math.ceil(itens / 12);
+    var pallets = Math.ceil(volumes / 12);
+
+    // Ordena pisos dessa marca por % livre (maior primeiro)
+    var pisosMarca = (MARCA_PISOS[marca] || []).map(function(pm){
+      var oc = ocupPiso[pm.piso];
+      if (!oc) return null;
+      var capMarca = Math.round(oc.cap * pm.frac);
+      var saldoMarca = Math.round(oc.saldo * pm.frac);
+      var livreMarca = capMarca - saldoMarca;
+      var pctLivre = capMarca > 0 ? ((livreMarca / capMarca) * 100) : 0;
+      return { piso:pm.piso, livre:livreMarca, pctLivre:pctLivre };
+    }).filter(function(x){ return x && x.livre > 0; })
+      .sort(function(a,b){ return b.livre - a.livre; });
+
+    // Seleciona regiões necessárias: acumula capacidade livre até cobrir o volume pendente
+    var regioesSelecionadas = [];
+    var acumulado = 0;
+    for (var i = 0; i < pisosMarca.length && acumulado < itens; i++) {
+      regioesSelecionadas.push(pisosMarca[i]);
+      acumulado += pisosMarca[i].livre;
+    }
+
+    var regioesTexto = '';
+    if (regioesSelecionadas.length === 1) {
+      regioesTexto = 'Volume comportado pela região <span style="color:#5DCAA5;font-weight:500">' + regioesSelecionadas[0].piso + '</span> (' + fmtPct(regioesSelecionadas[0].pctLivre) + ' livre).';
+    } else if (regioesSelecionadas.length > 1) {
+      regioesTexto = 'Recomendado distribuir entre ';
+      regioesTexto += regioesSelecionadas.map(function(r){
+        return '<span style="color:#5DCAA5;font-weight:500">' + r.piso + '</span> (' + fmtPct(r.pctLivre) + ' livre)';
+      }).join(', ') + '.';
+    } else {
+      regioesTexto = '<span style="color:var(--red);font-weight:500">Sem capacidade disponível nas regiões mapeadas.</span>';
+    }
+
+    paragrafos += '<div style="font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:10px;padding:10px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid var(--border)">'
+      + '<span style="font-weight:500;color:var(--text)">' + marca + '</span> — '
+      + '<span style="font-weight:500;color:var(--text)">' + fmtInt(itens) + '</span> itens pendentes de armazenagem '
+      + '(<span style="font-weight:500;color:var(--text)">' + fmtInt(volumes) + '</span> volumes, '
+      + '<span style="font-weight:500;color:var(--text)">' + fmtInt(pallets) + '</span> pallets). '
+      + regioesTexto + ' '
+      + '<span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
+      + '</div>';
+  });
+
+  // Vestuário
+  if (pendVest > 0) {
+    paragrafos += '<div style="font-size:13px;color:var(--text-muted);line-height:1.8;margin-bottom:10px;padding:10px 14px;background:var(--bg-card);border-radius:8px;border-left:3px solid var(--text-muted)">'
+      + '<span style="font-weight:500;color:var(--text)">Vestuário, Meias e Acessórios</span> — '
+      + '<span style="font-weight:500;color:var(--text)">' + fmtInt(pendVest) + '</span> itens pendentes de armazenagem. '
+      + 'Regiões disponíveis: <span style="color:#5DCAA5;font-weight:500">PISO 1 - E</span>, <span style="color:#5DCAA5;font-weight:500">PISO 1 - F</span> e <span style="color:#5DCAA5;font-weight:500">PISO 1 - G</span>. '
+      + '<span style="font-style:italic;color:var(--text-muted)">Validar disponibilidade física e headcount.</span>'
+      + '</div>';
+  }
+
+  return paragrafos || '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">Sem material pendente de armazenagem no momento.</div>';
 }
 
 function renderGraficoLinhaInbound(svgId, dados) {
