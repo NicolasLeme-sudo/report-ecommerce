@@ -23,13 +23,10 @@ const SUPABASE_URL = "https://tawliuofpmfohylqdnix.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__a5cJ6yFJIMgf505C4v7vQ_igDbuv5k";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// ============================================================
+// BACKLOG FIFO — Implementação fiel ao Excel
+// ============================================================
 
-// -------------------------------------------------------------------------
-// 1) CALENDÁRIO DE DIAS ÚTEIS — Extrema-MG
-//    Pontos facultativos NÃO entram aqui (vocês trabalham normalmente,
-//    confirmado). Só feriados oficiais (nacional + municipal).
-//    IMPORTANTE: essa lista precisa ser atualizada todo ano.
-// -------------------------------------------------------------------------
 const FERIADOS_2026 = new Set([
   "2026-01-01", // Confraternização Universal
   "2026-04-18", // Sexta-feira Santa
@@ -46,15 +43,35 @@ const FERIADOS_2026 = new Set([
 ]);
 
 function ehDiaUtil(date) {
-  const dow = date.getDay(); // 0=domingo, 6=sábado
+  const dow = date.getDay();
   if (dow === 0 || dow === 6) return false;
   const iso = date.toISOString().slice(0, 10);
   return !FERIADOS_2026.has(iso);
 }
 
-// Soma N dias úteis a uma data, preservando o horário
+// ========== FÓRMULA EXATA DO EXCEL ==========
+// Implementa: =DIATRABALHOTOTAL(dataInicial; dataFinal) - 1
+// Retorna a quantidade de dias úteis ENTRE as duas datas.
+function diferencaDiasUteis(dataInicial, dataFinal) {
+  // Zera o horário para comparar apenas as datas (início do dia)
+  const inicio = new Date(dataInicial);
+  inicio.setHours(0, 0, 0, 0);
+  const fim = new Date(dataFinal);
+  fim.setHours(0, 0, 0, 0);
+
+  let contados = 0;
+  let d = new Date(inicio);
+  while (d < fim) {
+    d.setDate(d.getDate() + 1);
+    if (ehDiaUtil(d)) contados++;
+  }
+  return contados;
+}
+
+// Soma N dias úteis a uma data (usado no OTIF)
 function somarDiasUteis(dataInicial, n) {
   const d = new Date(dataInicial);
+  d.setHours(0, 0, 0, 0);
   let contados = 0;
   while (contados < n) {
     d.setDate(d.getDate() + 1);
@@ -63,23 +80,14 @@ function somarDiasUteis(dataInicial, n) {
   return d;
 }
 
-// Diferença em dias úteis completos entre duas datas (usado no Backlog FIFO)
-function diferencaDiasUteis(dataInicial, dataFinal) {
-  let contados = 0;
-  const d = new Date(dataInicial);
-  while (d < dataFinal) {
-    d.setDate(d.getDate() + 1);
-    if (ehDiaUtil(d)) contados++;
-  }
-  return contados;
+// Bucket FIFO — regra idêntica ao Excel
+function calcularBucketFifo(importadoEm, hoje) {
+  const dias = diferencaDiasUteis(importadoEm, hoje);
+  if (dias <= 1) return "01";
+  if (dias === 2) return "02";
+  if (dias === 3) return "03";
+  return "04+";
 }
-
-// NOTA / SUPOSIÇÃO A CONFIRMAR: o prazo de "2 dias úteis" é contado
-// preservando o horário de Importado em (ex: importado seg 14h -> prazo
-// qua 14h). Se a regra da operação for "até o fim do 2º dia útil"
-// (ex: qua 23:59), me avisa que ajusto essa função.
-
-
 // Converte um número serial de data do Excel (ex: 46235) em Date
 function excelSerialParaData(serial) {
   const epoch = new Date(Date.UTC(1899, 11, 30));
@@ -331,28 +339,6 @@ function calcularOnTime(p) {
 function calcularInFull(itensDoPedido) {
   if (!itensDoPedido || itensDoPedido.length === 0) return null; // sem NF ainda
   return itensDoPedido.every(it => Number(it.quantidade) === Number(it.qtde_faturada));
-}
-
-// -------------------------------------------------------------------------
-// 7) BACKLOG FIFO (dias úteis desde Importado em) — só pedidos ainda ABERTOS
-//
-// REGRA: o prazo é de 2 dias úteis. Um pedido importado hoje OU ontem
-// ainda está no dia 01 (dentro do prazo do dia corrente).
-// Importado 2 dias úteis atrás = dia 02 (1 dia de atraso), e assim por diante.
-//
-// Exemplo numa sexta-feira:
-//   importado na sexta ou quinta → 01
-//   importado na quarta          → 02
-//   importado na terça           → 03
-//   importado na segunda ou antes → 04+
-// -------------------------------------------------------------------------
-function calcularBucketFifo(importadoEm, hoje) {
-  const dias = diferencaDiasUteis(importadoEm, hoje);
-  // 0 dias = importado hoje; 1 dia = importado ontem → ambos são "01"
-  if (dias <= 1) return "01";
-  if (dias === 2) return "02";
-  if (dias === 3) return "03";
-  return "04+";
 }
 
 
