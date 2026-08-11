@@ -1239,31 +1239,15 @@ async function processarRelatoriosInbound(files, options) {
   const recebRegistros = Object.keys(recebPorDia).map(function(d){
     return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
   });
-  // Upsert de recebimento: mesma lógica — só sobrescreve o dia mais recente,
-  // dias anteriores são inseridos apenas se não existirem (preserva histórico consolidado).
-  const datasReceb = Object.keys(recebPorDia).sort();
-  const diaRecenteReceb = datasReceb.length > 0 ? datasReceb[datasReceb.length - 1] : null;
-
-  for (let i = 0; i < recebRegistros.length; i += 200) {
-    const lote = recebRegistros.slice(i, i + 200);
-    if (diaRecenteReceb) {
-      const doRecente = lote.filter(function(r){ return r.data_conferencia === diaRecenteReceb; });
-      const historico = lote.filter(function(r){ return r.data_conferencia !== diaRecenteReceb; });
-      if (doRecente.length > 0) {
-        const { error } = await supabaseClient.from("inbound_recebimento_diario")
-          .upsert(doRecente, { onConflict: "data_conferencia" });
-        if (error) console.error("Erro recebimento_diario (recente):", error);
-      }
-      if (historico.length > 0) {
-        const { error } = await supabaseClient.from("inbound_recebimento_diario")
-          .upsert(historico, { onConflict: "data_conferencia", ignoreDuplicates: true });
-        if (error) console.error("Erro recebimento_diario (histórico):", error);
-      }
-    } else {
-      const { error } = await supabaseClient.from("inbound_recebimento_diario")
-        .upsert(lote, { onConflict: "data_conferencia" });
-      if (error) console.error("Erro recebimento_diario:", error);
-    }
+  // Recebimento: consulta quais dias já existem no Supabase e insere APENAS os novos.
+  const { data: recebExistentes } = await supabaseClient
+    .from("inbound_recebimento_diario").select("data_conferencia");
+  const diasRecebExistentes = new Set((recebExistentes || []).map(function(r){ return r.data_conferencia; }));
+  const recebNovos = recebRegistros.filter(function(r){ return !diasRecebExistentes.has(r.data_conferencia); });
+  for (let i = 0; i < recebNovos.length; i += 200) {
+    const { error } = await supabaseClient.from("inbound_recebimento_diario")
+      .insert(recebNovos.slice(i, i + 200));
+    if (error) console.error("Erro recebimento_diario:", error);
   }
 
   // ---- 4) Armazenagem diária (Kardex de End — endereços H, I, J) ----
@@ -1283,35 +1267,16 @@ async function processarRelatoriosInbound(files, options) {
   const armRegistros = Object.keys(armPorDia).map(function(d){
     return { data_alocacao: d, itens_armazenados: armPorDia[d] };
   });
-  // Upsert de armazenagem: só insere/atualiza dias que estão no arquivo atual.
-  // Para não sobrescrever dados históricos já consolidados (que podem ter sido
-  // complementados via SQL ou processamento anterior mais completo), só faz upsert
-  // do dia MAIS RECENTE do arquivo (dia que ainda pode ser atualizado).
-  // Dias anteriores são inseridos apenas se NÃO existirem ainda no Supabase.
-  const datasArm = Object.keys(armPorDia).sort();
-  const diaRecente = datasArm.length > 0 ? datasArm[datasArm.length - 1] : null;
-
-  for (let i = 0; i < armRegistros.length; i += 200) {
-    const lote = armRegistros.slice(i, i + 200);
-    if (diaRecente) {
-      // Dia mais recente: sempre sobrescreve (pode estar sendo atualizado ao longo do dia)
-      const doRecente = lote.filter(function(r){ return r.data_alocacao === diaRecente; });
-      const historico = lote.filter(function(r){ return r.data_alocacao !== diaRecente; });
-      if (doRecente.length > 0) {
-        const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-          .upsert(doRecente, { onConflict: "data_alocacao" });
-        if (error) console.error("Erro armazenagem_diario (recente):", error);
-      }
-      if (historico.length > 0) {
-        const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-          .upsert(historico, { onConflict: "data_alocacao", ignoreDuplicates: true });
-        if (error) console.error("Erro armazenagem_diario (histórico):", error);
-      }
-    } else {
-      const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-        .upsert(lote, { onConflict: "data_alocacao" });
-      if (error) console.error("Erro armazenagem_diario:", error);
-    }
+  // Armazenagem: consulta quais dias já existem no Supabase e insere APENAS os novos.
+  // Dias já gravados (inclusive correções via SQL) nunca são tocados.
+  const { data: armExistentes } = await supabaseClient
+    .from("inbound_armazenagem_diario").select("data_alocacao");
+  const diasArmExistentes = new Set((armExistentes || []).map(function(r){ return r.data_alocacao; }));
+  const armNovos = armRegistros.filter(function(r){ return !diasArmExistentes.has(r.data_alocacao); });
+  for (let i = 0; i < armNovos.length; i += 200) {
+    const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+      .insert(armNovos.slice(i, i + 200));
+    if (error) console.error("Erro armazenagem_diario:", error);
   }
 
   // ---- 5) Stage pendente (Recebimento Stage — endereços H, I, J) ----
@@ -1591,7 +1556,7 @@ async function processarEstoqueOperacao(files, options) {
   const registros = Object.keys(CAPACIDADES).map(function(pb) {
     const saldo = saldoPorPiso[pb] || 0;
     const cap   = CAPACIDADES[pb];
-    return { piso_bloco: pb, saldo: saldo, capacidade: cap, pct_ocupacao: cap > 0 ? Math.round((saldo / cap) * 100) : 0 };
+    return { piso_bloco: pb, saldo: saldo, capacidade: cap, pct_ocupacao: cap > 0 ? (saldo / cap) * 100 : 0 };
   });
 
   onProgress("Gravando " + registros.length + " pisos/blocos...");
@@ -1610,7 +1575,7 @@ function gerarPayloadEstoque(registros) {
   return {
     gerado_em: new Date().toISOString(),
     pisos: registros,
-    total: { saldo: totalSaldo, capacidade: totalCap, pct_ocupacao: totalCap > 0 ? Math.round((totalSaldo / totalCap) * 100) : 0 },
+    total: { saldo: totalSaldo, capacidade: totalCap, pct_ocupacao: totalCap > 0 ? (totalSaldo / totalCap) * 100 : 0 },
   };
 }
 
