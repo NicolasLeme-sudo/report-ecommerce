@@ -1256,7 +1256,7 @@ async function processarRelatoriosInbound(files, options) {
   const armPorDia = {};
   linhasKardex.forEach(function(r){
     const local = String(r["Local"] || "").toUpperCase();
-    if (!local.startsWith("H") && !local.startsWith("I") && !local.startsWith("J")) return;
+    if (!local.startsWith("H") && !local.startsWith("I") && !local.startsWith("J") && !local.startsWith("S")) return;
     const d = parseDataBR(r["Data"]);
     if (!d) return;
     const iso = paraDataISOLocal(d);
