@@ -880,14 +880,84 @@ function computarIntegracao7Dias(pedidos) {
     itens_integrados: dias.map(function(d){ return itensPorDia[d]; }),
   };
 }
+// Grava o dia D-1 (ontem, dia corrido, sem pular fim de semana/feriado) como
+// registro FECHADO de Expedição. Uma vez gravado, esse dia não muda mais
+// sozinho em reprocessamentos futuros — só se você chamar de novo passando
+// esse mesmo dia manualmente (dataAlvo).
+async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
+  // dataAlvo: string "yyyy-mm-dd". Se não informado, usa ontem (hoje - 1 dia corrido).
+  let diaISO = dataAlvo;
+  if (!diaISO) {
+    const ontem = new Date();
+    ontem.setDate(ontem.getDate() - 1);
+    diaISO = paraDataISOLocal(ontem);
+  }
 
-function computarExpedicaoSemana(pedidos, forecastRows) {  const hoje = new Date();
+  const doDia = pedidos.filter(function(p) {
+    if (p.situacao !== "EXPEDIDO" || p.status_calculado === "Cancelado") return false;
+    if (!p.processado_em) return false;
+    return paraDataISOLocal(p.processado_em) === diaISO;
+  });
+
+  const itens = doDia.reduce(function(s, p) { return s + (p.qtd_total_produto || 0); }, 0);
+  const qtdPedidos = doDia.length;
+
+  // DELETE + INSERT: garante que só esse dia é regravado, sem afetar os outros
+  await supabaseClient.from("expedicao_diaria").delete().eq("data", diaISO);
+  const resultado = await supabaseClient.from("expedicao_diaria").insert({
+    data: diaISO,
+    itens_expedidos: itens,
+    pedidos_expedidos: qtdPedidos,
+  });
+  if (resultado.error) console.error("Erro ao gravar expedicao_diaria:", resultado.error);
+
+  return { data: diaISO, itens: itens, pedidos: qtdPedidos };
+}
+async function computarExpedicaoSemana(pedidos, forecastRows) {
+  const hoje = new Date();
+  const hojeISO = paraDataISOLocal(hoje);
   const dias = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(hoje);
     d.setDate(hoje.getDate() - i);
     dias.push(paraDataISOLocal(d));
   }
+
+  // Busca os registros já fechados na tabela histórica
+  const { data: fechados, error } = await supabaseClient
+    .from("expedicao_diaria")
+    .select("data, itens_expedidos")
+    .gte("data", dias[0])
+    .lte("data", dias[dias.length - 1]);
+  if (error) console.error("Erro ao buscar expedicao_diaria:", error);
+
+  const expedidoPorDia = {};
+  dias.forEach(function(d){ expedidoPorDia[d] = 0; });
+  (fechados || []).forEach(function(r){
+    expedidoPorDia[r.data] = r.itens_expedidos;
+  });
+
+  // O dia de HOJE não está fechado ainda — calcula ao vivo
+  pedidos
+    .filter(function(p){ return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado"; })
+    .forEach(function(p){
+      if (p.processado_em) {
+        const diaISO = paraDataISOLocal(p.processado_em);
+        if (diaISO === hojeISO) {
+          expedidoPorDia[hojeISO] += p.qtd_total_produto;
+        }
+      }
+    });
+
+  const forecastPorDia = {};
+  forecastRows.forEach(function(r){ forecastPorDia[r.data] = r.itens_forecast; });
+
+  return {
+    dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
+    expedido: dias.map(function(d){ return expedidoPorDia[d]; }),
+    forecast: dias.map(function(d){ return forecastPorDia[d] || 0; }),
+  };
+}
 
   const expedidoPorDia = {};
   dias.forEach(function(d){ expedidoPorDia[d] = 0; });
@@ -1018,7 +1088,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
 
   // Forecast e Integração — permanecem como séries de 7 dias, fora do escopo dos filtros
   const forecastRows = await buscarForecastUltimos7Dias();
-  const expedicao_semana = computarExpedicaoSemana(pedidos, forecastRows);
+  await fecharExpedicaoDoDia(pedidos); const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = computarIntegracao7Dias(pedidos);
 
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP)
