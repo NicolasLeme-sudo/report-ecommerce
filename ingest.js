@@ -71,7 +71,7 @@ function diferencaDiasUteis(dataInicial, dataFinal) {
   const fim = new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate());
   let contados = 0;
   const d = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
-  while (d <= fim) {
+  while (d < fim) {
     d.setDate(d.getDate() + 1);
     if (ehDiaUtil(d)) contados++;
   }
@@ -352,7 +352,6 @@ function calcularInFull(itensDoPedido) {
 // -------------------------------------------------------------------------
 function calcularBucketFifo(importadoEm, hoje) {
   const dias = diferencaDiasUteis(importadoEm, hoje);
-  // 0 dias = importado hoje; 1 dia = importado ontem → ambos são "01"
   if (dias <= 1) return "01";
   if (dias === 2) return "02";
   if (dias === 3) return "03";
