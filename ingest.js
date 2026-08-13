@@ -71,7 +71,7 @@ function diferencaDiasUteis(dataInicial, dataFinal) {
   const fim = new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate());
   let contados = 0;
   const d = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
-  while (d < fim) {
+  while (d <= fim) {
     d.setDate(d.getDate() + 1);
     if (ehDiaUtil(d)) contados++;
   }
