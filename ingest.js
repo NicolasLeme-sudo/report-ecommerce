@@ -416,7 +416,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   // ---- Índice de itens por pedido (com segmento resolvido) ----
   const itensPorPedido = new Map();
   for (const r of linhasItens) {
-    const chave = r["Pedido de Venda"];
+    const chave = String(r["Pedido de Venda"]).trim();
     if (!itensPorPedido.has(chave)) itensPorPedido.set(chave, []);
     const barra = String(r["Barra"] || "").trim();
     const emb = embalasMap.get(barra);
