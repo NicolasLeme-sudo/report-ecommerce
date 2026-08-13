@@ -1049,7 +1049,6 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     }
   });
   const totalItensSegmento = Object.values(segContador).reduce(function(a,b){ return a+b; }, 0) || 1;
-  console.log("DEBUG segContador:", JSON.stringify(segContador), "| total:", totalItensSegmento, "| pedidos abertos:", abertos.length);
   const segmentos = Object.keys(segContador).map(function(nome) {
     return { nome: nome, pct: (segContador[nome] / totalItensSegmento) * 100 };
   }).sort(function(a,b){ return b.pct - a.pct; });
