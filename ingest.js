@@ -67,7 +67,7 @@ function somarDiasUteis(dataInicial, n) {
 }
 
 // Diferença em dias úteis completos entre duas datas (usado no Backlog FIFO)
-ffunction diferencaDiasUteis(dataInicial, dataFinal) {
+function diferencaDiasUteis(dataInicial, dataFinal) {
   const fim = new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate());
   let contados = 0;
   const d = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
