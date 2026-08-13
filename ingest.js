@@ -552,12 +552,26 @@ async function processarRelatoriosDaOperacao(files, options) {
 // 9) UPSERTS NO SUPABASE
 // -------------------------------------------------------------------------
 async function upsertPedidos(pedidos) {
-  // Envia em lotes de 500 para não estourar o limite de payload da API
+  // Envia em lotes de 500, com até 6 lotes em paralelo por vez
+  // (concorrência limitada para não estourar o pool de conexões do Supabase)
   const TAMANHO_LOTE = 500;
+  const CONCORRENCIA = 6;
+
+  const lotes = [];
   for (let i = 0; i < pedidos.length; i += TAMANHO_LOTE) {
-    const lote = pedidos.slice(i, i + TAMANHO_LOTE);
-    const resultado = await supabaseClient.from("pedidos").upsert(lote, { onConflict: "pedido_venda" });
-    if (resultado.error) console.error("Erro ao gravar pedidos:", resultado.error);
+    lotes.push(pedidos.slice(i, i + TAMANHO_LOTE));
+  }
+
+  for (let i = 0; i < lotes.length; i += CONCORRENCIA) {
+    const grupo = lotes.slice(i, i + CONCORRENCIA);
+    const resultados = await Promise.all(
+      grupo.map(function(lote) {
+        return supabaseClient.from("pedidos").upsert(lote, { onConflict: "pedido_venda" });
+      })
+    );
+    resultados.forEach(function(resultado) {
+      if (resultado.error) console.error("Erro ao gravar pedidos:", resultado.error);
+    });
   }
 }
 
