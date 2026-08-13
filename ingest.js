@@ -68,14 +68,15 @@ function somarDiasUteis(dataInicial, n) {
 
 // Diferença em dias úteis completos entre duas datas (usado no Backlog FIFO)
 function diferencaDiasUteis(dataInicial, dataFinal) {
+  const ini = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
   const fim = new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate());
   let contados = 0;
-  const d = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
-  while (d < fim) {
-    d.setDate(d.getDate() + 1);
+  const d = new Date(ini);
+  while (d <= fim) {
     if (ehDiaUtil(d)) contados++;
+    d.setDate(d.getDate() + 1);
   }
-  return contados;
+  return contados - 1;
 }
 
 // NOTA / SUPOSIÇÃO A CONFIRMAR: o prazo de "2 dias úteis" é contado
