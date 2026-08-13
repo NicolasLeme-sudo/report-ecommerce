@@ -48,7 +48,10 @@ const FERIADOS_2026 = new Set([
 function ehDiaUtil(date) {
   const dow = date.getDay(); // 0=domingo, 6=sábado
   if (dow === 0 || dow === 6) return false;
-  const iso = date.toISOString().slice(0, 10);
+  const ano = date.getFullYear();
+  const mes = String(date.getMonth() + 1).padStart(2, "0");
+  const dia = String(date.getDate()).padStart(2, "0");
+  const iso = `${ano}-${mes}-${dia}`;
   return !FERIADOS_2026.has(iso);
 }
 
@@ -64,10 +67,11 @@ function somarDiasUteis(dataInicial, n) {
 }
 
 // Diferença em dias úteis completos entre duas datas (usado no Backlog FIFO)
-function diferencaDiasUteis(dataInicial, dataFinal) {
+ffunction diferencaDiasUteis(dataInicial, dataFinal) {
+  const fim = new Date(dataFinal.getFullYear(), dataFinal.getMonth(), dataFinal.getDate());
   let contados = 0;
-  const d = new Date(dataInicial);
-  while (d < dataFinal) {
+  const d = new Date(dataInicial.getFullYear(), dataInicial.getMonth(), dataInicial.getDate());
+  while (d < fim) {
     d.setDate(d.getDate() + 1);
     if (ehDiaUtil(d)) contados++;
   }
