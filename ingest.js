@@ -1716,40 +1716,48 @@ const embalasBarraMap = new Map();
   onProgress("Lendo Estoque WMS (TSV)...");
   const textoWMS = await files.arquivoWMS.text();
   const linhasWMS = parseTSVSelecionado(textoWMS, [
-    "Setor", "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
+    "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
   ]);
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
-  onProgress("WMS: " + linhasWMS.length + " linhas lidas. Classificando...");
+  onProgress("WMS: " + linhasWMS.length + " linhas lidas. Enviando para staging...");
+
+  await supabaseClient.from("stg_estoque_wms").delete().neq("id", 0);
+
+  const registrosStaging = linhasWMS
+    .map(function(r) {
+      return {
+        local: String(r["Local"] || ""),
+        tipo_local: String(r["Tipo do Local"] || ""),
+        barra: String(r["Barra"] || "").trim(),
+        codigo_produto: String(r["Código do Produto"] || "").trim(),
+        estoque_un: Number(r["Estoque (UN)"]) || 0,
+      };
+    })
+    .filter(function(r) { return r.estoque_un !== 0; });
+
+  const LOTE_STAGING = 2000;
+  for (let i = 0; i < registrosStaging.length; i += LOTE_STAGING) {
+    const lote = registrosStaging.slice(i, i + LOTE_STAGING);
+    const { error: errStaging } = await supabaseClient.from("stg_estoque_wms").insert(lote);
+    if (errStaging) {
+      console.error("Erro ao subir staging WMS:", errStaging);
+      onProgress("✗ Erro ao enviar dados do WMS: " + errStaging.message);
+      return;
+    }
+    onProgress("Staging: " + Math.min(i + LOTE_STAGING, registrosStaging.length) + " de " + registrosStaging.length + " linhas enviadas...");
+  }
+
+  onProgress("Calculando balanço no banco...");
+  const { data: resultadoWMS, error: errCalculo } = await supabaseClient.rpc("calcular_balanco_wms");
+  if (errCalculo) {
+    console.error("Erro ao calcular balanço WMS:", errCalculo);
+    onProgress("✗ Erro ao calcular balanço: " + errCalculo.message);
+    return;
+  }
 
   var wmsPorClass = {};
-  linhasWMS.forEach(function(r) {
-    var tipoLoc = normalizarEncoding(String(r["Tipo do Local"] || "")).toUpperCase().trim();
-
-    // Filtrar: só PICKING e PULMÃO BLOCADO
-    var isPicking = tipoLoc.includes("PICKING");
-    var isPulmao  = tipoLoc.includes("PULM");
-    if (!isPicking && !isPulmao) return;
-
-    var setor   = String(r["Setor"] || "");
-    var local   = String(r["Local"] || "");
-    var barra   = String(r["Barra"] || "").trim();
-    var codProd = String(r["Código do Produto"] || "").trim();
-    var qtde    = Number(r["Estoque (UN)"]) || 0;
-    if (qtde === 0) return;
-
-    // Classificar
-    var classif = classificarEnderecoWMS(local, tipoLoc);
-
-    // Se Vendável → buscar marca
-    if (classif === "Vendável") {
-      var marca = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || null;
-      classif = marca ? "Vendável " + marca : "Vendável (sem marca)";
-    }
-
-    var custo = custoMap.get(codProd) || 0;
-    if (!wmsPorClass[classif]) wmsPorClass[classif] = { qtde: 0, valor: 0 };
-    wmsPorClass[classif].qtde  += qtde;
-    wmsPorClass[classif].valor += qtde * custo;
+  resultadoWMS.forEach(function(r) {
+    wmsPorClass[r.classificacao] = { qtde: Number(r.qtde), valor: Number(r.valor) };
   });
 
   var totalWMSQtde  = Object.values(wmsPorClass).reduce(function(s,v){ return s + v.qtde; }, 0);
