@@ -2009,6 +2009,10 @@ var embalasBarraMap = new Map();
   // Montante pendente por marca (Bloco 3b)
   var montanteMarca = {}; // marca → {itens_vinc, itens_arm}
 
+  // Coleta bruta para enviar à staging (marca calculada no banco, evitando
+  // depender do Map de embalas carregado no navegador — mesmo padrão do WMS)
+  var registrosParaStaging = [];
+
   var itensVinc = 0, itensArm = 0;
 
   // Set de TODAS as NFs do Controle (não só pendentes) para integração
@@ -2046,12 +2050,64 @@ var embalasBarraMap = new Map();
     if (status === "IMPORTADA")   itensVinc += qtde;
     if (status === "EM CARGA/OR") itensArm  += qtde;
 
-    // Montante por marca (pendentes)
+    // Montante por marca (pendentes) — cálculo local como fallback
     var marcaPend = embalasBarraMap.get(barra) || embalasSkuMap.get(codProd) || "Outros";
     if (!montanteMarca[marcaPend]) montanteMarca[marcaPend] = { itens_vinc: 0, itens_arm: 0 };
     if (status === "IMPORTADA")   montanteMarca[marcaPend].itens_vinc += qtde;
     if (status === "EM CARGA/OR") montanteMarca[marcaPend].itens_arm  += qtde;
+
+    // Guarda para recalcular via banco (mais confiável)
+    registrosParaStaging.push({ barra: barra, codigo_produto: codProd, status: status, qtde: qtde });
   });
+
+  // Recalcula o Montante por marca via banco, para evitar a mesma falha de
+  // carregamento incompleto de dim_embalas que já vimos no Balanço de Estoque
+  onProgress("Enviando itens de reversa para staging (" + registrosParaStaging.length + ")...");
+  const { error: errLimpezaReversa } = await supabaseClient.rpc("limpar_stg_reversa_itens");
+  if (errLimpezaReversa) {
+    console.error("Erro ao limpar staging de reversa:", errLimpezaReversa);
+  } else {
+    var LOTE_REVERSA = 2000;
+    var falhouEnvioReversa = false;
+    for (var iRev = 0; iRev < registrosParaStaging.length; iRev += LOTE_REVERSA) {
+      var loteRev = registrosParaStaging.slice(iRev, iRev + LOTE_REVERSA);
+      var resRev = await supabaseClient.from("stg_reversa_itens").insert(loteRev);
+      if (resRev.error) {
+        console.error("Erro ao enviar staging de reversa:", resRev.error);
+        falhouEnvioReversa = true;
+        break;
+      }
+    }
+
+    if (!falhouEnvioReversa) {
+      var errCalculoReversa = null;
+      for (var tentRev = 1; tentRev <= 3; tentRev++) {
+        var resCalcRev = await supabaseClient.rpc("calcular_reversa_montante_final");
+        errCalculoReversa = resCalcRev.error;
+        if (!errCalculoReversa) break;
+        console.error("Erro ao calcular montante de reversa (tentativa " + tentRev + "):", errCalculoReversa);
+        if (tentRev < 3) await new Promise(function(resolve){ setTimeout(resolve, 2000); });
+      }
+
+      if (!errCalculoReversa) {
+        var { data: resultadoMontante, error: errLeituraMontante } = await supabaseClient
+          .from("reversa_montante_resultado")
+          .select("marca, itens_vinc, itens_arm");
+        if (!errLeituraMontante && resultadoMontante) {
+          // Sobrescreve o cálculo local (fallback) com o resultado confiável do banco
+          montanteMarca = {};
+          resultadoMontante.forEach(function(r) {
+            montanteMarca[r.marca] = { itens_vinc: Number(r.itens_vinc), itens_arm: Number(r.itens_arm) };
+          });
+          onProgress("✓ Montante por marca recalculado via banco.");
+        } else {
+          console.error("Erro ao ler resultado do montante de reversa:", errLeituraMontante);
+        }
+      }
+    }
+
+    await supabaseClient.rpc("limpar_stg_reversa_itens");
+  }
 
   // KPIs por marca (baseado em nfsMarcaMap)
   nfsImportada.forEach(function(nf) {
