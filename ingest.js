@@ -2139,12 +2139,49 @@ var embalasBarraMap = new Map();
   // Detectar separador (o arquivo usa TAB)
   var primLinha = textoTroca.split('\n')[0];
   var sep = primLinha.includes('\t') ? '\t' : (primLinha.includes(';') ? ';' : ',');
+
+  // Parser CSV real (RFC 4180): respeita campos entre aspas, que podem conter
+  // o próprio separador ou quebras de linha (ex: observações/endereços de entrega).
+  // Um split ingênuo por linha/separador quebra nesses casos, deslocando colunas.
+  function parseCSVCompleto(texto, separador) {
+    var linhas = [];
+    var linhaAtual = [];
+    var campoAtual = "";
+    var dentroAspas = false;
+    var i = 0;
+    while (i < texto.length) {
+      var ch = texto[i];
+      if (dentroAspas) {
+        if (ch === '"') {
+          if (texto[i+1] === '"') { campoAtual += '"'; i += 2; continue; }
+          dentroAspas = false; i++; continue;
+        }
+        campoAtual += ch; i++; continue;
+      } else {
+        if (ch === '"') { dentroAspas = true; i++; continue; }
+        if (ch === separador) { linhaAtual.push(campoAtual); campoAtual = ""; i++; continue; }
+        if (ch === '\r') { i++; continue; }
+        if (ch === '\n') {
+          linhaAtual.push(campoAtual);
+          linhas.push(linhaAtual);
+          linhaAtual = []; campoAtual = ""; i++; continue;
+        }
+        campoAtual += ch; i++; continue;
+      }
+    }
+    if (campoAtual.length > 0 || linhaAtual.length > 0) {
+      linhaAtual.push(campoAtual);
+      linhas.push(linhaAtual);
+    }
+    return linhas;
+  }
+
   // Leitura do Troca E-comm por ÍNDICE FIXO (evita problemas de encoding nos nomes com acento)
   // Col 0=Loja, 1=Reversa, 2=Data de criação, 8=Status, 16=Previsão entrega, 30=Estado, 63=NF Devolução
-  var linhasTrocaRaw = textoTroca.split('\n');
+  var linhasTrocaParseadas = parseCSVCompleto(textoTroca, sep);
   var linhasTroca = [];
-  for (var ti = 1; ti < linhasTrocaRaw.length; ti++) {
-    var cols = linhasTrocaRaw[ti].split(sep);
+  for (var ti = 1; ti < linhasTrocaParseadas.length; ti++) {
+    var cols = linhasTrocaParseadas[ti];
     if (cols.length < 9) continue;
     linhasTroca.push({
       "Loja":            (cols[0]||"").trim(),
@@ -2156,7 +2193,7 @@ var embalasBarraMap = new Map();
       "NF Devolucao":    (cols[63]||"").trim()
     });
   }
-  console.log("Troca E-comm:", linhasTroca.length, "linhas lidas por indice fixo");
+  console.log("Troca E-comm:", linhasTroca.length, "linhas lidas (parser CSV com aspas)");
 
   // Previsão de entrega (próximos 15 dias) — exceto Cancelado
   var prevEntrega = {}; // "dd/mm" → count
