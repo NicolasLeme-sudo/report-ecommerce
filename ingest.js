@@ -1670,12 +1670,13 @@ async function processarBalanco(files, options) {
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
   onProgress("WMS: " + linhasWMS.length + " linhas lidas. Enviando para staging...");
 
-const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms");
+  const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms");
   if (errLimpeza) {
     console.error("Erro ao limpar staging WMS:", errLimpeza);
     onProgress("✗ Erro ao limpar staging: " + errLimpeza.message);
     return;
   }
+
   const registrosStaging = linhasWMS
     .map(function(r) {
       return {
@@ -1706,6 +1707,12 @@ const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms")
     console.error("Erro ao calcular balanço WMS:", errCalculo);
     onProgress("✗ Erro ao calcular balanço: " + errCalculo.message);
     return;
+  }
+
+  // Limpa a staging já usada, para não acumular dados entre execuções
+  const { error: errLimpezaFinal } = await supabaseClient.rpc("limpar_stg_estoque_wms");
+  if (errLimpezaFinal) {
+    console.error("Aviso: staging não foi limpa ao final:", errLimpezaFinal);
   }
 
   var wmsPorClass = {};
