@@ -1717,10 +1717,19 @@ async function processarBalanco(files, options) {
   }
 
   onProgress("Calculando balanço no banco...");
-  const { error: errCalculo } = await supabaseClient.rpc("calcular_balanco_wms_final");
+  var errCalculo = null;
+  for (var tentativaCalculo = 1; tentativaCalculo <= 3; tentativaCalculo++) {
+    var resultadoRpc = await supabaseClient.rpc("calcular_balanco_wms_final");
+    errCalculo = resultadoRpc.error;
+    if (!errCalculo) break;
+    console.error("Erro ao calcular balanço WMS (tentativa " + tentativaCalculo + "):", errCalculo);
+    if (tentativaCalculo < 3) {
+      onProgress("⚠ Timeout no cálculo (tentativa " + tentativaCalculo + "). Tentando novamente em 2s...");
+      await new Promise(function(resolve){ setTimeout(resolve, 2000); });
+    }
+  }
   if (errCalculo) {
-    console.error("Erro ao calcular balanço WMS:", errCalculo);
-    onProgress("✗ Erro ao calcular balanço: " + errCalculo.message);
+    onProgress("✗ Erro ao calcular balanço após 3 tentativas: " + errCalculo.message);
     return;
   }
 
