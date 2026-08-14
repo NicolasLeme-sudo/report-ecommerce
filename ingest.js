@@ -1669,6 +1669,7 @@ const embalasBarraMap = new Map();
     if (data.length < 1000) break;
     off += 1000;
   }
+  console.log("DEBUG embalas carregadas — barraMap:", embalasBarraMap.size, "| skuMap:", embalasSkuMap.size);
 
   // --- dim_custo: sku → custo unitário ---
   const custoMap = new Map();
