@@ -1670,8 +1670,12 @@ async function processarBalanco(files, options) {
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
   onProgress("WMS: " + linhasWMS.length + " linhas lidas. Enviando para staging...");
 
-  await supabaseClient.from("stg_estoque_wms").delete().neq("id", 0);
-
+const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms");
+  if (errLimpeza) {
+    console.error("Erro ao limpar staging WMS:", errLimpeza);
+    onProgress("✗ Erro ao limpar staging: " + errLimpeza.message);
+    return;
+  }
   const registrosStaging = linhasWMS
     .map(function(r) {
       return {
