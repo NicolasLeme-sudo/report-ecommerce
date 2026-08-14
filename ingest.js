@@ -959,32 +959,6 @@ async function computarExpedicaoSemana(pedidos, forecastRows) {
   };
 }
 
-  const expedidoPorDia = {};
-  dias.forEach(function(d){ expedidoPorDia[d] = 0; });
-
-  // Filtra apenas pedidos EXPEDIDOS (vindos do Acompanhamento_Exp) e não cancelados
-  // para não contaminar o total com pedidos ainda em aberto que tenham processado_em preenchido
-  pedidos
-    .filter(function(p){ return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado"; })
-    .forEach(function(p){
-      if (p.processado_em) {
-        const diaISO = paraDataISOLocal(p.processado_em);
-        if (expedidoPorDia[diaISO] !== undefined) {
-          expedidoPorDia[diaISO] += p.qtd_total_produto;
-        }
-      }
-    });
-
-  const forecastPorDia = {};
-  forecastRows.forEach(function(r){ forecastPorDia[r.data] = r.itens_forecast; });
-
-  return {
-    dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
-    expedido: dias.map(function(d){ return expedidoPorDia[d]; }),
-    forecast: dias.map(function(d){ return forecastPorDia[d] || 0; }),
-  };
-}
-
 
 
 function mediaMaxMin(valores, pedidos) {
