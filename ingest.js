@@ -1649,60 +1649,9 @@ async function processarBalanco(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Carregando bases auxiliares do Supabase...");
 
-  // --- dim_embalas: barcode → marca  E  sku → marca ---
-const embalasBarraMap = new Map();
-  const embalasSkuMap   = new Map();
-
-  // Busca o total real esperado, para detectar carregamento incompleto
-  const { count: totalEsperadoEmbalas } = await supabaseClient
-    .from("dim_embalas")
-    .select("*", { count: "exact", head: true });
-
-  var tentativaEmbalas = 0;
-  while (tentativaEmbalas < 3) {
-    tentativaEmbalas++;
-    embalasBarraMap.clear();
-    embalasSkuMap.clear();
-    var off = 0;
-    var falhou = false;
-    while (true) {
-      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
-      if (error) {
-        console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaEmbalas + "):", error);
-        onProgress("✗ Erro ao carregar embalagem (offset " + off + "), tentativa " + tentativaEmbalas + ": " + error.message);
-        falhou = true;
-        break;
-      }
-      if (!data || data.length === 0) break;
-      data.forEach(function(e) {
-        if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
-        if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
-      });
-      onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (tentativa " + tentativaEmbalas + ")...");
-      if (data.length < 1000) break;
-      off += 1000;
-    }
-
-    // Considera completo se carregou pelo menos 99% do total esperado
-    if (!falhou && totalEsperadoEmbalas && embalasSkuMap.size >= totalEsperadoEmbalas * 0.99) {
-      break;
-    }
-    if (tentativaEmbalas < 3) {
-      onProgress("⚠ Carregamento incompleto (" + embalasSkuMap.size + "/" + totalEsperadoEmbalas + "). Tentando novamente em 2s...");
-      await new Promise(function(resolve){ setTimeout(resolve, 2000); });
-    }
-  }
-
-  if (totalEsperadoEmbalas && embalasSkuMap.size < totalEsperadoEmbalas * 0.99) {
-    onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados após 3 tentativas. Os valores de marca podem estar incompletos.");
-    console.error("Carregamento de dim_embalas permaneceu incompleto após 3 tentativas:", embalasSkuMap.size, "/", totalEsperadoEmbalas);
-  } else {
-    onProgress("✓ Embalagem carregada completa: " + embalasSkuMap.size + " SKUs.");
-  }
-
   // --- dim_custo: sku → custo unitário ---
   const custoMap = new Map();
-  off = 0;
+  var off = 0;
   while (true) {
     const { data } = await supabaseClient.from("dim_custo").select("sku,custo_unitario").range(off, off+999);
     if (!data || data.length === 0) break;
@@ -1710,7 +1659,7 @@ const embalasBarraMap = new Map();
     if (data.length < 1000) break;
     off += 1000;
   }
-  onProgress("Embalas: " + embalasBarraMap.size + " barcodes | Custo: " + custoMap.size + " itens.");
+  onProgress("Custo: " + custoMap.size + " itens carregados.");
 
   // ==================== WMS (TSV) ====================
   onProgress("Lendo Estoque WMS (TSV)...");
