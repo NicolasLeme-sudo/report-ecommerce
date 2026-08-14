@@ -1650,16 +1650,22 @@ async function processarBalanco(files, options) {
   onProgress("Carregando bases auxiliares do Supabase...");
 
   // --- dim_embalas: barcode → marca  E  sku → marca ---
-  const embalasBarraMap = new Map();
+const embalasBarraMap = new Map();
   const embalasSkuMap   = new Map();
   var off = 0;
   while (true) {
-    const { data } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+    const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+    if (error) {
+      console.error("Erro ao paginar dim_embalas em off=" + off + ":", error);
+      onProgress("✗ Erro ao carregar embalagem (offset " + off + "): " + error.message);
+      break;
+    }
     if (!data || data.length === 0) break;
     data.forEach(function(e) {
       if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
       if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
     });
+    onProgress("Embalagem: " + embalasSkuMap.size + " SKUs carregados...");
     if (data.length < 1000) break;
     off += 1000;
   }
@@ -1831,17 +1837,23 @@ async function processarRelatoriosReversa(files, options) {
   onProgress("Carregando dim_embalas do Supabase...");
 
   // --- dim_embalas: barcode → marca, sku → marca ---
-  var embalasBarraMap = new Map();
+var embalasBarraMap = new Map();
   var embalasSkuMap   = new Map();
   var off = 0;
   while (true) {
-    var { data: emData } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
-    if (!emData || emData.length === 0) break;
-    emData.forEach(function(e) {
+    const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+    if (error) {
+      console.error("Erro ao paginar dim_embalas em off=" + off + ":", error);
+      onProgress("✗ Erro ao carregar embalagem (offset " + off + "): " + error.message);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    data.forEach(function(e) {
       if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
       if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
     });
-    if (emData.length < 1000) break;
+    onProgress("Embalagem: " + embalasSkuMap.size + " SKUs carregados...");
+    if (data.length < 1000) break;
     off += 1000;
   }
   onProgress("Embalas: " + embalasBarraMap.size + " barcodes carregados.");
