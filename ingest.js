@@ -2075,14 +2075,14 @@ var embalasBarraMap = new Map();
 
   // ---- TROCA E-COMM (CSV/TSV) — encoding Latin-1/CP1252 ----
   // O arquivo exportado pelo Troca E-comm usa Latin-1, não UTF-8
-  var textoTroca = await new Promise(function(resolve) {
+    var textoTroca = await new Promise(function(resolve) {
     var r = new FileReader();
     r.onload = function(e){ resolve(e.target.result); };
-    r.readAsText(files.arquivoTroca, 'latin-1');
+    r.readAsText(files.arquivoTroca, 'utf-8');
   });
   // Detectar separador (o arquivo usa TAB)
   var primLinha = textoTroca.split('\n')[0];
-  var sep = primLinha.includes('\t') ? '\t' : ',';
+  var sep = primLinha.includes('\t') ? '\t' : (primLinha.includes(';') ? ';' : ',');
   // Leitura do Troca E-comm por ÍNDICE FIXO (evita problemas de encoding nos nomes com acento)
   // Col 0=Loja, 1=Reversa, 2=Data de criação, 8=Status, 16=Previsão entrega, 30=Estado, 63=NF Devolução
   var linhasTrocaRaw = textoTroca.split('\n');
