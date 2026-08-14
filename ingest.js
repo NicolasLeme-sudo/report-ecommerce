@@ -1668,49 +1668,73 @@ async function processarBalanco(files, options) {
     "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
   ]);
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
-  onProgress("WMS: " + linhasWMS.length + " linhas lidas. Enviando para staging...");
+  onProgress("WMS: " + linhasWMS.length + " linhas lidas. Agregando...");
 
-  const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms");
+  // Filtra só PICKING/PULMÃO com saldo, e agrega por barra+código+tipo_local no
+  // próprio navegador — assim o banco recebe só ~50-60 mil linhas já prontas,
+  // em vez de 400 mil+ linhas cruas (isso é o que evita o timeout da RPC).
+  const agregadoWMS = new Map();
+  linhasWMS.forEach(function(r) {
+    const tipoLoc = String(r["Tipo do Local"] || "").toUpperCase().trim();
+    const isPicking = tipoLoc.includes("PICKING");
+    const isPulmao = tipoLoc.includes("PULM");
+    if (!isPicking && !isPulmao) return;
+
+    const estoque = Number(r["Estoque (UN)"]) || 0;
+    if (estoque === 0) return;
+
+    const local = String(r["Local"] || "");
+    const barra = String(r["Barra"] || "").trim();
+    const codProd = String(r["Código do Produto"] || "").trim();
+    const chave = barra + "|" + codProd + "|" + tipoLoc;
+
+    if (!agregadoWMS.has(chave)) {
+      agregadoWMS.set(chave, { barra: barra, codigo_produto: codProd, local: local, tipo_local: tipoLoc, estoque_total: 0 });
+    }
+    agregadoWMS.get(chave).estoque_total += estoque;
+  });
+
+  const registrosStaging = Array.from(agregadoWMS.values());
+  onProgress("WMS: " + registrosStaging.length + " combinações agregadas. Enviando para staging...");
+
+  const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms_agg");
   if (errLimpeza) {
     console.error("Erro ao limpar staging WMS:", errLimpeza);
     onProgress("✗ Erro ao limpar staging: " + errLimpeza.message);
     return;
   }
 
-  const registrosStaging = linhasWMS
-    .map(function(r) {
-      return {
-        local: String(r["Local"] || ""),
-        tipo_local: String(r["Tipo do Local"] || ""),
-        barra: String(r["Barra"] || "").trim(),
-        codigo_produto: String(r["Código do Produto"] || "").trim(),
-        estoque_un: Number(r["Estoque (UN)"]) || 0,
-      };
-    })
-    .filter(function(r) { return r.estoque_un !== 0; });
-
   const LOTE_STAGING = 2000;
   for (let i = 0; i < registrosStaging.length; i += LOTE_STAGING) {
     const lote = registrosStaging.slice(i, i + LOTE_STAGING);
-    const { error: errStaging } = await supabaseClient.from("stg_estoque_wms").insert(lote);
+    const { error: errStaging } = await supabaseClient.from("stg_estoque_wms_agg").insert(lote);
     if (errStaging) {
       console.error("Erro ao subir staging WMS:", errStaging);
       onProgress("✗ Erro ao enviar dados do WMS: " + errStaging.message);
       return;
     }
-    onProgress("Staging: " + Math.min(i + LOTE_STAGING, registrosStaging.length) + " de " + registrosStaging.length + " linhas enviadas...");
+    onProgress("Staging: " + Math.min(i + LOTE_STAGING, registrosStaging.length) + " de " + registrosStaging.length + " combinações enviadas...");
   }
 
   onProgress("Calculando balanço no banco...");
-  const { data: resultadoWMS, error: errCalculo } = await supabaseClient.rpc("calcular_balanco_wms");
+  const { error: errCalculo } = await supabaseClient.rpc("calcular_balanco_wms_final");
   if (errCalculo) {
     console.error("Erro ao calcular balanço WMS:", errCalculo);
     onProgress("✗ Erro ao calcular balanço: " + errCalculo.message);
     return;
   }
 
+  const { data: resultadoWMS, error: errLeitura } = await supabaseClient
+    .from("balanco_wms_resultado")
+    .select("classificacao, qtde, valor");
+  if (errLeitura) {
+    console.error("Erro ao ler resultado do balanço WMS:", errLeitura);
+    onProgress("✗ Erro ao ler resultado: " + errLeitura.message);
+    return;
+  }
+
   // Limpa a staging já usada, para não acumular dados entre execuções
-  const { error: errLimpezaFinal } = await supabaseClient.rpc("limpar_stg_estoque_wms");
+  const { error: errLimpezaFinal } = await supabaseClient.rpc("limpar_stg_estoque_wms_agg");
   if (errLimpezaFinal) {
     console.error("Aviso: staging não foi limpa ao final:", errLimpezaFinal);
   }
