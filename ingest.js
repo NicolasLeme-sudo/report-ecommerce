@@ -2127,6 +2127,35 @@ var embalasBarraMap = new Map();
     kpiMarca[marca].itens_arm  = montanteMarca[marca].itens_arm;
   });
 
+  // Integração de NFs por marca (últimos 15 dias) — recalculado agora que
+  // nfsMarcaMap está completo (marca só é conhecida após processar os itens)
+  var integ15diasPorMarca = {}; // marca → {"dd/mm" → {nfs:Set, itens:0}}
+  todasNfsSet.forEach(function(nf) {
+    var dataCad = nfDataMap[nf];
+    if (!dataCad || dataCad < d15 || dataCad > hoje) return;
+    var marca = nfsMarcaMap[nf] || "Outros";
+    var key = fmtDDMM(dataCad);
+    if (!integ15diasPorMarca[marca]) integ15diasPorMarca[marca] = {};
+    if (!integ15diasPorMarca[marca][key]) integ15diasPorMarca[marca][key] = { nfs: new Set(), itens: 0 };
+    integ15diasPorMarca[marca][key].nfs.add(nf);
+  });
+  // Itens por marca/dia: reaproveita a mesma passada de linhasItens já feita acima
+  // (a variável "itens" por dia já soma tudo; para manter simples, repetimos o
+  // filtro de itens vinculados a NFs dessa marca)
+  linhasItens.forEach(function(r) {
+    var nf = (r["Nota Fiscal"] || "").trim();
+    if (!todasNfsSet.has(nf)) return;
+    var dataCad = nfDataMap[nf];
+    if (!dataCad || dataCad < d15 || dataCad > hoje) return;
+    var qtde = Number(r["Quantidade"]) || 0;
+    if (qtde === 0) return;
+    var marca = nfsMarcaMap[nf] || "Outros";
+    var key = fmtDDMM(dataCad);
+    if (integ15diasPorMarca[marca] && integ15diasPorMarca[marca][key]) {
+      integ15diasPorMarca[marca][key].itens += qtde;
+    }
+  });
+
   onProgress("Itens processados. Lendo Troca E-comm...");
 
   // ---- TROCA E-COMM (CSV/TSV) — encoding Latin-1/CP1252 ----
@@ -2197,6 +2226,7 @@ var embalasBarraMap = new Map();
 
   // Previsão de entrega (próximos 15 dias) — exceto Cancelado
   var prevEntrega = {}; // "dd/mm" → count
+  var prevEntregaPorMarca = {}; // marca → {"dd/mm" → count}
   var hoje15 = new Date(hoje); hoje15.setDate(hoje.getDate() + 14);
 
   // Mapa estado → {nfs: Set} para mapa do Brasil
@@ -2241,6 +2271,8 @@ var embalasBarraMap = new Map();
     if (dataPrevisao && dataPrevisao >= hoje && dataPrevisao <= hoje15) {
       var key = fmtDDMM(dataPrevisao);
       prevEntrega[key] = (prevEntrega[key] || 0) + 1;
+      if (!prevEntregaPorMarca[marca]) prevEntregaPorMarca[marca] = {};
+      prevEntregaPorMarca[marca][key] = (prevEntregaPorMarca[marca][key] || 0) + 1;
     }
   });
 
@@ -2255,6 +2287,20 @@ var embalasBarraMap = new Map();
     integSerie.push({ data: key, nfs: bucket.nfs.size, itens: bucket.itens });
   }
 
+  // Integração 15 dias, por marca — mesma estrutura, uma série por marca conhecida
+  var integSeriePorMarca = {};
+  Object.keys(integ15diasPorMarca).forEach(function(marca) {
+    var serieMarca = [];
+    for (var dm = 0; dm < 15; dm++) {
+      var dtm = new Date(d15);
+      dtm.setDate(d15.getDate() + dm);
+      var keym = fmtDDMM(dtm);
+      var bucketm = integ15diasPorMarca[marca][keym] || { nfs: new Set(), itens: 0 };
+      serieMarca.push({ data: keym, nfs: bucketm.nfs.size, itens: bucketm.itens });
+    }
+    integSeriePorMarca[marca] = serieMarca;
+  });
+
   // Previsão 15 dias: gerar array de 15 dias futuros
   var prevSerie = [];
   for (var d2 = 0; d2 < 15; d2++) {
@@ -2263,6 +2309,19 @@ var embalasBarraMap = new Map();
     var key2 = fmtDDMM(dt2);
     prevSerie.push({ data: key2, reversas: prevEntrega[key2] || 0 });
   }
+
+  // Previsão 15 dias, por marca
+  var prevSeriePorMarca = {};
+  Object.keys(prevEntregaPorMarca).forEach(function(marca) {
+    var serieMarca2 = [];
+    for (var dp = 0; dp < 15; dp++) {
+      var dtp = new Date(hoje);
+      dtp.setDate(hoje.getDate() + dp);
+      var keyp = fmtDDMM(dtp);
+      serieMarca2.push({ data: keyp, reversas: (prevEntregaPorMarca[marca] && prevEntregaPorMarca[marca][keyp]) || 0 });
+    }
+    prevSeriePorMarca[marca] = serieMarca2;
+  });
 
   // Acumulado mensal: ordenar por mês
   var acumSerie = Object.keys(acumMensal).sort().map(function(mes) {
@@ -2299,7 +2358,9 @@ var embalasBarraMap = new Map();
       por_marca: kpiMarca,
     },
     integracao_15dias: integSerie,
+    integracao_15dias_por_marca: integSeriePorMarca,
     previsao_15dias:   prevSerie,
+    previsao_15dias_por_marca: prevSeriePorMarca,
     acumulado_mensal:  acumSerie,
     montante_marca:    montanteArr,
     reversas_pendentes: reversasPendArr,
