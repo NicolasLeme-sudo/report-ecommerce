@@ -651,6 +651,9 @@ function alternarTema() {
   html.setAttribute('data-tema', novo);
   document.getElementById('btnTema').textContent = novo === 'escuro' ? '☀ Claro' : '🌙 Escuro';
   localStorage.setItem('tema', novo);
+  // Re-renderiza a Ocupação de Estoque para que as logos das marcas
+  // troquem para a versão preta/branca correta do novo tema
+  if (window._estoquePayload) { renderizarEstoque(window._estoquePayload); }
 }
 
 // Aplica o tema salvo (se houver) ao carregar a página
@@ -1799,6 +1802,7 @@ function renderRosca(containerId, dados) {
   document.getElementById('estoque-conteudo').innerHTML = '<div class="loading-msg">Carregando Estoque...</div>';
   const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','estoque').order('gerado_em',{ascending:false}).limit(1);
   if (error || !data || !data.length) { document.getElementById('estoque-conteudo').innerHTML = '<div class="erro-msg">Sem dados. Use Abastecimento → Atualizar Estoque.</div>'; return; }
+  window._estoquePayload = data[0].payload;
   renderizarEstoque(data[0].payload);
 }
 
