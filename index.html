@@ -1829,7 +1829,7 @@ function renderizarEstoque(p) {
   };
   function logosPiso(pb) {
     var m = MARCA_PISO[pb]; if (!m) return '';
-    return m.map(function(x){ return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:16px;vertical-align:middle;margin-left:6px">'; }).join('');
+    return m.map(function(x){ return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:16px;width:28px;object-fit:contain;vertical-align:middle;margin-left:6px">'; }).join('');
   }
 
   var segCalc = {saldo:0,cap:0}, segVest = {saldo:0,cap:0};
