@@ -148,6 +148,46 @@ const SUPABASE_URL = "https://tawliuofpmfohylqdnix.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__a5cJ6yFJIMgf505C4v7vQ_igDbuv5k";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+// Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
+function pathSuave(pts) {
+  if (!pts || pts.length < 2) return '';
+  if (pts.length === 2) {
+    return 'M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1)+' L'+pts[1][0].toFixed(1)+','+pts[1][1].toFixed(1);
+  }
+  let d = 'M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ' C'+c1x.toFixed(1)+','+c1y.toFixed(1)+' '+c2x.toFixed(1)+','+c2y.toFixed(1)+' '+p2[0].toFixed(1)+','+p2[1].toFixed(1);
+  }
+  return d;
+}
+
+// Rótulo de dado com fundo (chip), para ficar legível mesmo sobre linhas/outros rótulos
+function labelComFundo(svg, x, y, texto, opts) {
+  opts = opts || {};
+  const fs = opts.fontSize || 10, anchor = opts.anchor || 'middle';
+  const corTexto = opts.cor || '#1C2333', corFundo = opts.fundo || 'var(--card)';
+  const peso = opts.peso || '700';
+  const txt = String(texto);
+  const largura = txt.length * fs * 0.62 + 8, altura = fs + 6;
+  const rx = anchor === 'middle' ? x - largura/2 : (anchor === 'end' ? x - largura : x);
+  const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x', rx.toFixed(1)); rect.setAttribute('y', (y - fs - 1).toFixed(1));
+  rect.setAttribute('width', largura.toFixed(1)); rect.setAttribute('height', altura.toFixed(1));
+  rect.setAttribute('rx', '4'); rect.setAttribute('fill', corFundo);
+  svg.appendChild(rect);
+  const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+  t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('text-anchor', anchor);
+  t.setAttribute('font-size', fs); t.setAttribute('font-weight', peso); t.setAttribute('fill', corTexto);
+  t.textContent = txt; svg.appendChild(t);
+  return t;
+}
+
 async function carregarRelatorio() {
   const { data, error } = await supabaseClient
     .from("dashboard_snapshots")
@@ -300,9 +340,8 @@ function renderSparklineIntegracao(dados) {
     const y = plotBottom - ((v - min) / range) * (plotBottom - plotTop);
     return [x, y];
   });
-  const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
   const line = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  line.setAttribute("d", path);
+  line.setAttribute("d", pathSuave(pts));
   line.setAttribute("fill", "none");
   line.setAttribute("stroke", "#3A4F82");
   line.setAttribute("stroke-width", "2.5");
@@ -316,12 +355,7 @@ function renderSparklineIntegracao(dados) {
     c.setAttribute("fill", i === pts.length - 1 ? "#132043" : "#3A4F82");
     svg.appendChild(c);
 
-    const lab = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    lab.setAttribute("x", p[0]); lab.setAttribute("y", p[1] - 7);
-    lab.setAttribute("text-anchor", "middle");
-    lab.setAttribute("class", "spark-label");
-    lab.textContent = dados.pedidos_integrados[i].toLocaleString('pt-BR');
-    svg.appendChild(lab);
+    labelComFundo(svg, p[0], p[1] - 7, dados.pedidos_integrados[i].toLocaleString('pt-BR'), {fontSize:10, cor:'#132043'});
 
     const dat = document.createElementNS("http://www.w3.org/2000/svg", "text");
     dat.setAttribute("x", p[0]); dat.setAttribute("y", h - 3);
@@ -536,33 +570,35 @@ function renderExpedicaoSemana(dados) {
   axis.setAttribute("stroke", "#E1E4EA"); axis.setAttribute("stroke-width", "1");
   svg.appendChild(axis);
 
-  function drawLine(vals, color, rotuloAcima) {
-    const pts = vals.map((v, i) => [xFor(i), yFor(v)]);
-    const path = pts.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
+  function tracarLinha(pts, color) {
     const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    el.setAttribute("d", path); el.setAttribute("fill", "none");
+    el.setAttribute("d", pathSuave(pts)); el.setAttribute("fill", "none");
     el.setAttribute("stroke", color); el.setAttribute("stroke-width", "2.5");
     el.setAttribute("stroke-linecap", "round"); el.setAttribute("stroke-linejoin", "round");
     svg.appendChild(el);
-    pts.forEach((p, i) => {
+    pts.forEach((p) => {
       const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
       c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", 3);
       c.setAttribute("fill", color);
       svg.appendChild(c);
-
-      // Rótulo de dados — quantidade de itens naquele ponto
-      const lab = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      lab.setAttribute("x", p[0]);
-      lab.setAttribute("y", rotuloAcima ? p[1] - 10 : p[1] + 18);
-      lab.setAttribute("text-anchor", "middle");
-      lab.setAttribute("class", "line-label");
-      lab.setAttribute("fill", color);
-      lab.textContent = vals[i].toLocaleString('pt-BR');
-      svg.appendChild(lab);
     });
   }
-  drawLine(dados.forecast, "#3A4F82", true);
-  drawLine(dados.expedido, "#6B7F3A", false);
+  const ptsForecast = dados.forecast.map((v, i) => [xFor(i), yFor(v)]);
+  const ptsExpedido = dados.expedido.map((v, i) => [xFor(i), yFor(v)]);
+  tracarLinha(ptsForecast, "#3A4F82");
+  tracarLinha(ptsExpedido, "#6B7F3A");
+
+  // Rótulos: forecast acima / expedido abaixo, com afastamento dinâmico
+  // quando as duas séries ficam próximas naquele dia (evita sobreposição)
+  const GAP_MIN = 24;
+  ptsForecast.forEach((ptF, i) => {
+    const ptE = ptsExpedido[i];
+    const dist = Math.abs(ptF[1] - ptE[1]);
+    let offF = 10, offE = 18;
+    if (dist < GAP_MIN) { const extra = (GAP_MIN - dist) / 2 + 4; offF += extra; offE += extra; }
+    labelComFundo(svg, ptF[0], ptF[1] - offF, dados.forecast[i].toLocaleString('pt-BR'), {fontSize:10, cor:"#3A4F82"});
+    labelComFundo(svg, ptE[0], ptE[1] + offE, dados.expedido[i].toLocaleString('pt-BR'), {fontSize:10, cor:"#6B7F3A"});
+  });
 
   dados.dias.forEach((lab, i) => {
     const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
