@@ -260,7 +260,7 @@ body {
 .stack  { display: flex; flex-direction: column; gap: 16px; }
 
 /* KPI cards */
-.kpi-row { display: grid; grid-template-columns: repeat(2,1fr) 3fr; gap: 14px; margin-bottom: 16px; }
+.kpi-row { display: grid; grid-template-columns: repeat(3,1fr) 2.1fr; gap: 14px; margin-bottom: 16px; }
 .kpi-card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 14px 15px 12px;
@@ -585,6 +585,46 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 function fmtInt(n) { return Math.round(Number(n) || 0).toLocaleString('pt-BR', {maximumFractionDigits:0}); }
 function fmtPct(n) { return (Number(n) || 0).toFixed(2).replace('.', ',') + '%'; }
 function fmtCur(n) { return 'R$ ' + Math.round(Number(n) || 0).toLocaleString('pt-BR', {maximumFractionDigits:0}); }
+
+// Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
+function pathSuave(pts) {
+  if (!pts || pts.length < 2) return '';
+  if (pts.length === 2) {
+    return 'M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1)+' L'+pts[1][0].toFixed(1)+','+pts[1][1].toFixed(1);
+  }
+  let d = 'M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] || p2;
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6;
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6;
+    d += ' C'+c1x.toFixed(1)+','+c1y.toFixed(1)+' '+c2x.toFixed(1)+','+c2y.toFixed(1)+' '+p2[0].toFixed(1)+','+p2[1].toFixed(1);
+  }
+  return d;
+}
+
+// Rótulo de dado com fundo (chip), para ficar legível mesmo sobre linhas/outros rótulos
+function labelComFundo(svg, x, y, texto, opts) {
+  opts = opts || {};
+  const fs = opts.fontSize || 10, anchor = opts.anchor || 'middle';
+  const corTexto = opts.cor || 'var(--text)', corFundo = opts.fundo || 'var(--bg-card)';
+  const peso = opts.peso || '700';
+  const txt = String(texto);
+  const largura = txt.length * fs * 0.62 + 8, altura = fs + 6;
+  const rx = anchor === 'middle' ? x - largura/2 : (anchor === 'end' ? x - largura : x);
+  const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  rect.setAttribute('x', rx.toFixed(1)); rect.setAttribute('y', (y - fs - 1).toFixed(1));
+  rect.setAttribute('width', largura.toFixed(1)); rect.setAttribute('height', altura.toFixed(1));
+  rect.setAttribute('rx', '4'); rect.setAttribute('fill', corFundo);
+  svg.appendChild(rect);
+  const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+  t.setAttribute('x', x); t.setAttribute('y', y); t.setAttribute('text-anchor', anchor);
+  t.setAttribute('font-size', fs); t.setAttribute('font-weight', peso); t.setAttribute('fill', corTexto);
+  t.textContent = txt; svg.appendChild(t);
+  return t;
+}
 
 /* ============================================================
    NAVEGAÇÃO ENTRE SEÇÕES
@@ -1102,7 +1142,7 @@ function renderSparkline(dados) {
   const mx=Math.max(...vals,1), mn=Math.min(...vals), rng=(mx-mn)||1;
   const pts = vals.map((v,i) => [pL+i*((w-pL-pR)/(vals.length-1)), (h-pB)-((v-mn)/rng)*(h-pT-pB)]);
   const d = document.createElementNS('http://www.w3.org/2000/svg','path');
-  d.setAttribute('d', pts.map((p,i)=>(i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '));
+  d.setAttribute('d', pathSuave(pts));
   d.setAttribute('fill','none'); d.setAttribute('stroke','var(--accent)'); d.setAttribute('stroke-width','2.5');
   d.setAttribute('stroke-linecap','round'); d.setAttribute('stroke-linejoin','round');
   svg.appendChild(d);
@@ -1110,10 +1150,7 @@ function renderSparkline(dados) {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
     c.setAttribute('fill',i===pts.length-1?'var(--text)':'var(--accent)'); svg.appendChild(c);
-    const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
-    lb.setAttribute('x',p[0]); lb.setAttribute('y',p[1]-7); lb.setAttribute('text-anchor','middle');
-    lb.setAttribute('class','spark-label'); lb.setAttribute('fill','var(--text)');
-    lb.textContent=fmtInt(vals[i]); svg.appendChild(lb);
+    labelComFundo(svg, p[0], p[1]-7, fmtInt(vals[i]), {fontSize:10});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-3); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
@@ -1246,23 +1283,32 @@ function renderExpedicao(dados) {
   const ax=document.createElementNS('http://www.w3.org/2000/svg','line');
   ax.setAttribute('x1',pL); ax.setAttribute('x2',w-pR); ax.setAttribute('y1',h-pB); ax.setAttribute('y2',h-pB);
   ax.setAttribute('stroke','var(--border)'); ax.setAttribute('stroke-width','1'); svg.appendChild(ax);
-  function drawL(vals,col,acima) {
-    const pts=vals.map((v,i)=>[xF(i),yF(v)]);
+  function drawL(pts,col) {
     const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('d',pts.map((pt,i)=>(i?'L':'M')+pt[0].toFixed(1)+','+pt[1].toFixed(1)).join(' '));
+    p.setAttribute('d', pathSuave(pts));
     p.setAttribute('fill','none'); p.setAttribute('stroke',col); p.setAttribute('stroke-width','2.5');
     p.setAttribute('stroke-linecap','round'); p.setAttribute('stroke-linejoin','round'); svg.appendChild(p);
-    pts.forEach((pt,i)=>{
+    pts.forEach(pt=>{
       const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
       c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','3'); c.setAttribute('fill',col); svg.appendChild(c);
-      const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
-      lb.setAttribute('x',pt[0]); lb.setAttribute('y',acima?pt[1]-10:pt[1]+18);
-      lb.setAttribute('text-anchor','middle'); lb.setAttribute('class','line-label'); lb.setAttribute('fill',col);
-      lb.textContent=fmtInt(vals[i]); svg.appendChild(lb);
     });
   }
-  drawL(dados.forecast,'var(--accent)',true);
-  drawL(dados.expedido,'var(--olive)',false);
+  const ptsForecast=dados.forecast.map((v,i)=>[xF(i),yF(v)]);
+  const ptsExpedido=dados.expedido.map((v,i)=>[xF(i),yF(v)]);
+  drawL(ptsForecast,'var(--accent)');
+  drawL(ptsExpedido,'var(--olive)');
+
+  // Rótulos: forecast acima / expedido abaixo, com afastamento dinâmico
+  // quando as duas séries ficam próximas naquele dia (evita sobreposição)
+  const GAP_MIN=24;
+  ptsForecast.forEach((ptF,i)=>{
+    const ptE=ptsExpedido[i];
+    const dist=Math.abs(ptF[1]-ptE[1]);
+    let offF=10, offE=18;
+    if (dist<GAP_MIN) { const extra=(GAP_MIN-dist)/2+4; offF+=extra; offE+=extra; }
+    labelComFundo(svg, ptF[0], ptF[1]-offF, fmtInt(dados.forecast[i]), {fontSize:10, cor:'var(--accent)'});
+    labelComFundo(svg, ptE[0], ptE[1]+offE, fmtInt(dados.expedido[i]), {fontSize:10, cor:'var(--olive)'});
+  });
   dados.dias.forEach((lab,i)=>{
     const t=document.createElementNS('http://www.w3.org/2000/svg','text');
     t.setAttribute('x',xF(i)); t.setAttribute('y',h-10); t.setAttribute('text-anchor','middle');
@@ -1544,9 +1590,8 @@ function renderGraficoLinhaInbound(svgId, dados) {
   const xF = function(i){ return pL + i*((w-pL-pR)/(n-1)); };
   const yF = function(v){ return (h-pB) - (v/mx)*(h-pT-pB); };
   const pts = vals.map(function(v,i){ return [xF(i), yF(v)]; });
-  const path = pts.map(function(p,i){ return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1); }).join(' ');
   const line = document.createElementNS('http://www.w3.org/2000/svg','path');
-  line.setAttribute('d',path); line.setAttribute('fill','none');
+  line.setAttribute('d', pathSuave(pts)); line.setAttribute('fill','none');
   line.setAttribute('stroke','var(--accent)'); line.setAttribute('stroke-width','2.5');
   line.setAttribute('stroke-linecap','round'); line.setAttribute('stroke-linejoin','round');
   svg.appendChild(line);
@@ -1554,11 +1599,7 @@ function renderGraficoLinhaInbound(svgId, dados) {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r','3');
     c.setAttribute('fill','var(--accent)'); svg.appendChild(c);
-    const lb=document.createElementNS('http://www.w3.org/2000/svg','text');
-    lb.setAttribute('x',p[0]); lb.setAttribute('y',p[1]-8);
-    lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','10');
-    lb.setAttribute('fill','var(--text)');
-    lb.textContent=fmtInt(vals[i]); svg.appendChild(lb);
+    labelComFundo(svg, p[0], p[1]-8, fmtInt(vals[i]), {fontSize:10});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-6);
     dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','10');
@@ -1742,13 +1783,12 @@ function renderGraficoLinhaReversa(svgId, dados) {
   var mx=Math.max.apply(null,vals.concat([1]))*1.3; var n=dados.length;
   var xF=function(i){return pL+i*((W-pL-pR)/(n-1||1));}; var yF=function(v){return (H-pB)-(v/mx)*(H-pT-pB);};
   var pts=vals.map(function(v,i){return [xF(i),yF(v)];});
-  var pathD=pts.map(function(p,i){return (i?'L':'M')+p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
   var path=document.createElementNS('http://www.w3.org/2000/svg','path');
-  path.setAttribute('d',pathD); path.setAttribute('fill','none'); path.setAttribute('stroke','var(--amber)'); path.setAttribute('stroke-width','2.5'); path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round'); svg.appendChild(path);
+  path.setAttribute('d',pathSuave(pts)); path.setAttribute('fill','none'); path.setAttribute('stroke','var(--amber)'); path.setAttribute('stroke-width','2.5'); path.setAttribute('stroke-linecap','round'); path.setAttribute('stroke-linejoin','round'); svg.appendChild(path);
   pts.forEach(function(pt,i){
     var c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','4'); c.setAttribute('fill','var(--amber)'); svg.appendChild(c);
     // RÓTULO DE DADOS — sempre visível
-    var lb=document.createElementNS('http://www.w3.org/2000/svg','text'); lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-10); lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','11'); lb.setAttribute('font-weight','600'); lb.setAttribute('fill','var(--text)'); lb.textContent=fmtInt(vals[i]); svg.appendChild(lb);
+    labelComFundo(svg, pt[0], pt[1]-10, fmtInt(vals[i]), {fontSize:11, peso:'600'});
     // Data eixo X
     var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=dias[i]; svg.appendChild(dt);
   });
