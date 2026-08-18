@@ -1829,7 +1829,7 @@ function renderizarEstoque(p) {
   };
   function logosPiso(pb) {
     var m = MARCA_PISO[pb]; if (!m) return '';
-    return m.map(function(x){ var w = (x.marca === 'Under Armour') ? 20 : 28; return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:16px;width:'+w+'px;object-fit:contain;vertical-align:middle;margin-left:6px">'; }).join('');
+    return m.map(function(x){ var tema = document.documentElement.getAttribute('data-tema'); var w = 28; if (x.marca === 'Under Armour') w = (tema === 'claro') ? 28 : 20; if (x.marca === 'Olympikus') w = (tema === 'escuro') ? 34 : 28; return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:16px;width:'+w+'px;object-fit:contain;vertical-align:middle;margin-left:6px">'; }).join('');
   }
 
   var segCalc = {saldo:0,cap:0}, segVest = {saldo:0,cap:0};
