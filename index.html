@@ -631,146 +631,48 @@ function fmtInt(n) { return Math.round(Number(n) || 0).toLocaleString('pt-BR', {
 function fmtPct(n) { return (Number(n) || 0).toFixed(2).replace('.', ',') + '%'; }
 function fmtCur(n) { return 'R$ ' + Math.round(Number(n) || 0).toLocaleString('pt-BR', {maximumFractionDigits:0}); }
 
-/* ---------- Exportação CSV ---------- */
-// colunas: [{key, label}] — linhas: array de objetos. Usa ";" como separador
-// (padrão do Excel em pt-BR) e BOM UTF-8 pra acentuação abrir certo.
-function baixarCSV(nomeArquivo, colunas, linhas) {
-  const escapar = v => {
-    // Números com casa decimal precisam virar vírgula (padrão Excel pt-BR) — do
-    // contrário o Excel lê o "." como separador de milhar e o valor vira um
-    // número gigante sem sentido (ex: 16.844444 horas virando "16.844.444...").
-    const s = (v === null || v === undefined) ? ''
-      : (typeof v === 'number') ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
-      : String(v);
-    return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-  };
-  const header = colunas.map(c => escapar(c.label)).join(';');
-  const corpo = (linhas || []).map(l => colunas.map(c => escapar(l[c.key])).join(';')).join('\n');
-  const csv = String.fromCharCode(0xFEFF) + header + '\n' + corpo;
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = nomeArquivo;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+/* ---------- Exportação de arquivos ---------- */
+// Baixa o arquivo original (sem tratamento nenhum) que foi usado para
+// abastecer aquela tela, direto do Supabase Storage.
+async function baixarArquivoOriginal(caminho, btnId) {
+  const btn = btnId ? document.getElementById(btnId) : null;
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Baixando...'; }
+  try {
+    const { data, error } = await supabaseClient.storage.from('arquivos-abastecimento').download(caminho);
+    if (error) throw error;
+    const nomeArquivo = caminho.split('/').pop();
+    const url = URL.createObjectURL(data);
+    const a = document.createElement('a');
+    a.href = url; a.download = nomeArquivo;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Não foi possível baixar o arquivo. Provavelmente essa tela ainda não foi reabastecida desde que esse recurso foi criado.\n\nDetalhe: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
 }
 
 function exportarOutboundCSV() {
-  if (!outboundPayloadAtual) return;
-  const pedidosFiltrados = filtrarPedidosDetalhe(outboundPayloadAtual.pedidos_detalhe, outboundFiltros);
-  const colunas = [
-    { key: 'pedido_venda', label: 'Pedido de Venda' },
-    { key: 'marca', label: 'Marca' },
-    { key: 'marketplace', label: 'Marketplace' },
-    { key: 'status_calculado', label: 'Status' },
-    { key: 'backlog_fifo_bucket', label: 'Backlog FIFO' },
-    { key: 'qtd_total_produto', label: 'Qtde Total Produto' },
-    { key: 'segmento_predominante', label: 'Segmento' },
-    { key: 'otif', label: 'OTIF' },
-    { key: 'leadtime_sap_wms_horas', label: 'Leadtime SAP-WMS (h)' },
-    { key: 'leadtime_nf_horas', label: 'Leadtime NF (h)' },
-    { key: 'leadtime_cd_horas', label: 'Leadtime CD (h)' },
-  ];
-  baixarCSV('outbound_' + new Date().toISOString().slice(0, 10) + '.csv', colunas, pedidosFiltrados);
+  baixarArquivoOriginal('outbound/Acompanhamento_Op.tsv', 'btnExportOutbound');
 }
 
-// Controle de NF Recebs (Inbound): busca ao vivo no Supabase (não o snapshot,
-// que só traz as 10 NFs mais antigas) — só NFs pendentes (Importada/Em Carga-OR),
-// com a soma de itens por NF (equivalente a um SOMASE com Itens de NF de Entrada).
-async function exportarInboundCSV() {
-  const btn = document.getElementById('btnExportInbound');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
-  try {
-    const { data: nfs, error: erroNfs } = await supabaseClient
-      .from('inbound_nfs')
-      .select('id_nota_fiscal, nota_fiscal, status, data_emissao, emitente, ordem_recebimento')
-      .in('status', ['IMPORTADA', 'EM CARGA/OR']);
-    if (erroNfs) throw erroNfs;
-
-    const idsNF = (nfs || []).map(n => n.id_nota_fiscal);
-    let itens = [];
-    if (idsNF.length > 0) {
-      const { data: itensData, error: erroItens } = await supabaseClient
-        .from('inbound_itens')
-        .select('id_nota_fiscal, quantidade, marca, segmento')
-        .in('id_nota_fiscal', idsNF);
-      if (erroItens) throw erroItens;
-      itens = itensData || [];
-    }
-
-    const somaPorNF = {}, marcasPorNF = {}, segsPorNF = {};
-    itens.forEach(it => {
-      somaPorNF[it.id_nota_fiscal] = (somaPorNF[it.id_nota_fiscal] || 0) + (Number(it.quantidade) || 0);
-      (marcasPorNF[it.id_nota_fiscal] || (marcasPorNF[it.id_nota_fiscal] = new Set())).add(it.marca);
-      (segsPorNF[it.id_nota_fiscal] || (segsPorNF[it.id_nota_fiscal] = new Set())).add(it.segmento);
-    });
-
-    const linhas = (nfs || []).map(n => ({
-      nota_fiscal: n.nota_fiscal,
-      status: n.status,
-      data_emissao: n.data_emissao,
-      emitente: n.emitente,
-      ordem_recebimento: n.ordem_recebimento,
-      total_itens: somaPorNF[n.id_nota_fiscal] || 0,
-      marcas: marcasPorNF[n.id_nota_fiscal] ? Array.from(marcasPorNF[n.id_nota_fiscal]).join(', ') : '',
-      segmentos: segsPorNF[n.id_nota_fiscal] ? Array.from(segsPorNF[n.id_nota_fiscal]).join(', ') : '',
-    }));
-
-    const colunas = [
-      { key: 'nota_fiscal', label: 'Nota Fiscal' },
-      { key: 'status', label: 'Status' },
-      { key: 'data_emissao', label: 'Data Emissão' },
-      { key: 'emitente', label: 'Emitente' },
-      { key: 'ordem_recebimento', label: 'Ordem de Recebimento' },
-      { key: 'total_itens', label: 'Total de Itens (soma)' },
-      { key: 'marcas', label: 'Marcas' },
-      { key: 'segmentos', label: 'Segmentos' },
-    ];
-    baixarCSV('controle_nf_recebs_' + new Date().toISOString().slice(0, 10) + '.csv', colunas, linhas);
-  } catch (err) {
-    alert('Erro ao gerar exportação: ' + (err.message || err));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⬇ Exportar CSV'; }
-  }
+function exportarInboundCSV() {
+  baixarArquivoOriginal('inbound/Controle_de_NF_Recebs.tsv', 'btnExportInbound');
 }
 
-// Exporta a base COMPLETA (por SKU/local no WMS, por bin+SKU no SAP) usada
-// pra abastecer o site — não o resumo por classificação que aparece na tela.
-async function exportarBalancoCSV() {
-  const btn = document.getElementById('btnExportBalanco');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
-  try {
-    const [resWMS, resSAP] = await Promise.all([
-      supabaseClient.from('balanco_wms_detalhado').select('barra, codigo_produto, local, tipo_local, estoque_total'),
-      supabaseClient.from('balanco_sap_detalhado').select('bin, sku, classificacao, quantidade, custo_unitario'),
-    ]);
-    if (resWMS.error) throw resWMS.error;
-    if (resSAP.error) throw resSAP.error;
+function exportarReversaCSV() {
+  baixarArquivoOriginal('reversa/Controle_NF_Reversa.tsv', 'btnExportReversa');
+}
 
-    const colunasWMS = [
-      { key: 'barra', label: 'Barra' },
-      { key: 'codigo_produto', label: 'Código do Produto' },
-      { key: 'local', label: 'Local' },
-      { key: 'tipo_local', label: 'Tipo do Local' },
-      { key: 'estoque_total', label: 'Estoque (UN)' },
-    ];
-    baixarCSV('balanco_wms_base_completa_' + new Date().toISOString().slice(0, 10) + '.csv', colunasWMS, resWMS.data || []);
+function exportarEstoqueCSV() {
+  baixarArquivoOriginal('estoque/Estoque_Picking.tsv', 'btnExportEstoque');
+}
 
-    const colunasSAP = [
-      { key: 'bin', label: 'BIN' },
-      { key: 'sku', label: 'SKU' },
-      { key: 'classificacao', label: 'Classificação' },
-      { key: 'quantidade', label: 'Quantidade' },
-      { key: 'custo_unitario', label: 'Custo Unitário (R$)' },
-    ];
-    setTimeout(() => {
-      baixarCSV('balanco_sap_base_completa_' + new Date().toISOString().slice(0, 10) + '.csv', colunasSAP, resSAP.data || []);
-    }, 300);
-  } catch (err) {
-    alert('Erro ao gerar exportação: ' + (err.message || err));
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '⬇ Exportar CSV (WMS + SAP)'; }
-  }
+function exportarBalancoCSV() {
+  baixarArquivoOriginal('balanco/Estoque_completo_WMS.tsv', 'btnExportBalanco');
+  setTimeout(() => baixarArquivoOriginal('balanco/Estoque_SAP.xlsx'), 400);
 }
 
 // Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
@@ -1091,7 +993,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do dia
-      <button class="btn-tema" onclick="exportarOutboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV</button>
+      <button class="btn-tema" id="btnExportOutbound" onclick="exportarOutboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button>
     </div>
     <div class="kpi-row" id="kpiRow"></div>
     
@@ -1614,7 +1516,7 @@ function renderizarInbound(p, estoquePayload) {
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV</button>
+      <button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button>
     </div>
     <div class="grid3" style="margin-bottom:14px;">
       <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.nfs_pend_recebimento)}</div></div>
@@ -1890,7 +1792,8 @@ function renderizarReversa(p, marcaFiltro) {
   html += '<div class="filterbar" style="margin-bottom:16px"><div class="filter-group"><label>Marca</label><div class="filter-chips">'+chipsMarca+'</div></div></div>';
 
   // BLOCO 1 — KPIs 3x2 (nova estrutura conforme rascunho)
-  html += '<div class="section-title">Pendências de Entrada</div>';
+  html += '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Pendências de Entrada'
+    + '<button class="btn-tema" id="btnExportReversa" onclick="exportarReversaCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button></div>';
   html += '<div class="grid3" style="margin-bottom:10px;">'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Ag. Vinculação</div><div class="value">'+fmt(k.nfs_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Ag. Armazenagem</div><div class="value">'+fmt(k.nfs_armazenagem)+'</div></div>'
@@ -2124,7 +2027,8 @@ function renderizarEstoque(p) {
   });
 
   document.getElementById('estoque-conteudo').innerHTML =
-    '<div class="section-title">Ocupa\u00E7\u00E3o de estoque por piso/bloco</div>'
+    '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
+    + '<button class="btn-tema" id="btnExportEstoque" onclick="exportarEstoqueCSV()" style="font-size:11px;padding:4px 10px;">\u2B07 Exportar Arquivo</button></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr style="line-height:1.2;font-weight:700"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
@@ -2210,7 +2114,7 @@ function renderizarBalanco(p) {
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Estoque Geral WMS × SAP
-      <button class="btn-tema" id="btnExportBalanco" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV (WMS + SAP)</button>
+      <button class="btn-tema" id="btnExportBalanco" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo (WMS + SAP)</button>
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
