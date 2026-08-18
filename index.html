@@ -2146,7 +2146,7 @@ function mostrarTelaLogin() {
 // O Supabase Auth exige um "e-mail" como identificador internamente, mas quem usa
 // o sistema só digita um usuário (ex: "admin") — completamos o domínio fixo aqui,
 // sem a pessoa nunca precisar saber que por trás disso existe um e-mail.
-const DOMINIO_LOGIN = '@relatorio.local';
+const DOMINIO_LOGIN = '@vulcabras.com';
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const usuario = document.getElementById('loginEmail').value.trim().toLowerCase();
