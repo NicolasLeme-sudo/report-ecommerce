@@ -631,6 +631,126 @@ function fmtInt(n) { return Math.round(Number(n) || 0).toLocaleString('pt-BR', {
 function fmtPct(n) { return (Number(n) || 0).toFixed(2).replace('.', ',') + '%'; }
 function fmtCur(n) { return 'R$ ' + Math.round(Number(n) || 0).toLocaleString('pt-BR', {maximumFractionDigits:0}); }
 
+/* ---------- Exportação CSV ---------- */
+// colunas: [{key, label}] — linhas: array de objetos. Usa ";" como separador
+// (padrão do Excel em pt-BR) e BOM UTF-8 pra acentuação abrir certo.
+function baixarCSV(nomeArquivo, colunas, linhas) {
+  const escapar = v => {
+    const s = (v === null || v === undefined) ? '' : String(v);
+    return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const header = colunas.map(c => escapar(c.label)).join(';');
+  const corpo = (linhas || []).map(l => colunas.map(c => escapar(l[c.key])).join(';')).join('\n');
+  const csv = String.fromCharCode(0xFEFF) + header + '\n' + corpo;
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomeArquivo;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportarOutboundCSV() {
+  if (!outboundPayloadAtual) return;
+  const pedidosFiltrados = filtrarPedidosDetalhe(outboundPayloadAtual.pedidos_detalhe, outboundFiltros);
+  const colunas = [
+    { key: 'pedido_venda', label: 'Pedido de Venda' },
+    { key: 'marca', label: 'Marca' },
+    { key: 'marketplace', label: 'Marketplace' },
+    { key: 'status_calculado', label: 'Status' },
+    { key: 'backlog_fifo_bucket', label: 'Backlog FIFO' },
+    { key: 'qtd_total_produto', label: 'Qtde Total Produto' },
+    { key: 'segmento_predominante', label: 'Segmento' },
+    { key: 'otif', label: 'OTIF' },
+    { key: 'leadtime_sap_wms_horas', label: 'Leadtime SAP-WMS (h)' },
+    { key: 'leadtime_nf_horas', label: 'Leadtime NF (h)' },
+    { key: 'leadtime_cd_horas', label: 'Leadtime CD (h)' },
+  ];
+  baixarCSV('outbound_' + new Date().toISOString().slice(0, 10) + '.csv', colunas, pedidosFiltrados);
+}
+
+// Controle de NF Recebs (Inbound): busca ao vivo no Supabase (não o snapshot,
+// que só traz as 10 NFs mais antigas) — só NFs pendentes (Importada/Em Carga-OR),
+// com a soma de itens por NF (equivalente a um SOMASE com Itens de NF de Entrada).
+async function exportarInboundCSV() {
+  const btn = document.getElementById('btnExportInbound');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const { data: nfs, error: erroNfs } = await supabaseClient
+      .from('inbound_nfs')
+      .select('id_nota_fiscal, nota_fiscal, status, data_emissao, emitente, ordem_recebimento')
+      .in('status', ['IMPORTADA', 'EM CARGA/OR']);
+    if (erroNfs) throw erroNfs;
+
+    const idsNF = (nfs || []).map(n => n.id_nota_fiscal);
+    let itens = [];
+    if (idsNF.length > 0) {
+      const { data: itensData, error: erroItens } = await supabaseClient
+        .from('inbound_itens')
+        .select('id_nota_fiscal, quantidade, marca, segmento')
+        .in('id_nota_fiscal', idsNF);
+      if (erroItens) throw erroItens;
+      itens = itensData || [];
+    }
+
+    const somaPorNF = {}, marcasPorNF = {}, segsPorNF = {};
+    itens.forEach(it => {
+      somaPorNF[it.id_nota_fiscal] = (somaPorNF[it.id_nota_fiscal] || 0) + (Number(it.quantidade) || 0);
+      (marcasPorNF[it.id_nota_fiscal] || (marcasPorNF[it.id_nota_fiscal] = new Set())).add(it.marca);
+      (segsPorNF[it.id_nota_fiscal] || (segsPorNF[it.id_nota_fiscal] = new Set())).add(it.segmento);
+    });
+
+    const linhas = (nfs || []).map(n => ({
+      nota_fiscal: n.nota_fiscal,
+      status: n.status,
+      data_emissao: n.data_emissao,
+      emitente: n.emitente,
+      ordem_recebimento: n.ordem_recebimento,
+      total_itens: somaPorNF[n.id_nota_fiscal] || 0,
+      marcas: marcasPorNF[n.id_nota_fiscal] ? Array.from(marcasPorNF[n.id_nota_fiscal]).join(', ') : '',
+      segmentos: segsPorNF[n.id_nota_fiscal] ? Array.from(segsPorNF[n.id_nota_fiscal]).join(', ') : '',
+    }));
+
+    const colunas = [
+      { key: 'nota_fiscal', label: 'Nota Fiscal' },
+      { key: 'status', label: 'Status' },
+      { key: 'data_emissao', label: 'Data Emissão' },
+      { key: 'emitente', label: 'Emitente' },
+      { key: 'ordem_recebimento', label: 'Ordem de Recebimento' },
+      { key: 'total_itens', label: 'Total de Itens (soma)' },
+      { key: 'marcas', label: 'Marcas' },
+      { key: 'segmentos', label: 'Segmentos' },
+    ];
+    baixarCSV('controle_nf_recebs_' + new Date().toISOString().slice(0, 10) + '.csv', colunas, linhas);
+  } catch (err) {
+    alert('Erro ao gerar exportação: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Exportar CSV'; }
+  }
+}
+
+function exportarBalancoCSV() {
+  if (!window._balancoPayload) return;
+  const p = window._balancoPayload;
+  const colunasWMS = [
+    { key: 'classificacao', label: 'Classificação' },
+    { key: 'qtde', label: 'Quantidade' },
+    { key: 'valor', label: 'Valor (R$)' },
+    { key: 'pct', label: '% do total' },
+  ];
+  baixarCSV('balanco_wms_' + new Date().toISOString().slice(0, 10) + '.csv', colunasWMS, p.estoque_wms || []);
+  const colunasSAP = [
+    { key: 'bin', label: 'BIN' },
+    { key: 'classificacao', label: 'Classificação' },
+    { key: 'qtde', label: 'Quantidade' },
+    { key: 'valor', label: 'Valor (R$)' },
+    { key: 'pct', label: '% do total' },
+  ];
+  setTimeout(() => {
+    baixarCSV('balanco_sap_' + new Date().toISOString().slice(0, 10) + '.csv', colunasSAP, p.estoque_sap || []);
+  }, 300);
+}
+
 // Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
 function pathSuave(pts) {
   if (!pts || pts.length < 2) return '';
@@ -947,7 +1067,10 @@ function renderizarOutbound(atual, anterior) {
       </div>
     </div>
 
-    <div class="section-title">Indicadores do dia</div>
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+      Indicadores do dia
+      <button class="btn-tema" onclick="exportarOutboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV</button>
+    </div>
     <div class="kpi-row" id="kpiRow"></div>
     
 
@@ -1467,7 +1590,10 @@ function renderizarInbound(p, estoquePayload) {
   var analiseHTML = gerarAnaliseAutomatica(p, estoquePayload);
 
   const html = `
-    <div class="section-title">Indicadores do Inbound</div>
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+      Indicadores do Inbound
+      <button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV</button>
+    </div>
     <div class="grid3" style="margin-bottom:14px;">
       <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.nfs_pend_recebimento)}</div></div>
       <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.itens_pend_recebimento)}</div></div>
@@ -2058,8 +2184,12 @@ function renderizarBalanco(p) {
   });
   linhasSAP += `<tr style="font-weight:700;border-top:2px solid var(--border)"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
 
+  window._balancoPayload = p;
   document.getElementById('balanco-conteudo').innerHTML = `
-    <div class="section-title">Estoque Geral WMS × SAP</div>
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+      Estoque Geral WMS × SAP
+      <button class="btn-tema" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV (WMS + SAP)</button>
+    </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
         <thead><tr><th>Classificação</th><th>BIN SAP</th><th>WMS Qtde</th><th>WMS Valor</th><th>SAP Qtde</th><th>SAP Valor</th><th>Diff Qtde</th><th>Diff Valor</th><th>%</th></tr></thead>
