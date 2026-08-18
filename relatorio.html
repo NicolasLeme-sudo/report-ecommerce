@@ -223,7 +223,7 @@ function renderizar(atual, anterior) {
           <div class="item"><div class="lab">Forecast</div><div class="val" id="totalForecast"></div></div>
         </div>
       </div>
-      <svg id="weekSvg" width="100%" height="180" viewBox="0 0 1200 180" preserveAspectRatio="none"></svg>
+      <svg id="weekSvg" width="100%" viewBox="0 0 1200 180" style="aspect-ratio:1200/180;height:auto"></svg>
       <div class="legend-line">
         <span><i style="background:var(--olive)"></i>Expedido</span>
         <span><i style="background:var(--navy-soft)"></i>Forecast</span>
@@ -454,7 +454,7 @@ function renderBacklog(backlog) {
   centerVal.setAttribute("text-anchor", "middle");
   centerVal.setAttribute("font-size", "22"); centerVal.setAttribute("font-weight", "700");
   centerVal.setAttribute("fill", "#1C2333");
-  centerVal.textContent = total;
+  centerVal.textContent = total.toLocaleString('pt-BR');
   donutSvg.appendChild(centerVal);
 
   const centerLab = document.createElementNS("http://www.w3.org/2000/svg", "text");
@@ -467,7 +467,7 @@ function renderBacklog(backlog) {
   backlog.forEach(seg => {
     const row = document.createElement("div");
     row.className = "row";
-    row.innerHTML = `<span class="dot" style="background:${cores[seg.label] || '#999'}"></span>Dia ${seg.label}<b>${seg.valor}</b>`;
+    row.innerHTML = `<span class="dot" style="background:${cores[seg.label] || '#999'}"></span>Dia ${seg.label}<b>${seg.valor.toLocaleString('pt-BR')}</b>`;
     donutLegend.appendChild(row);
   });
 }
