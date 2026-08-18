@@ -369,6 +369,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   const arquivoExp = files.arquivoExp;
   const arquivoItensNF = files.arquivoItensNF;
   const arquivoPedidosEcomm = files.arquivoPedidosEcomm;
+  await uploadArquivoOriginal("outbound/Acompanhamento_Op.tsv", arquivoOp);
 
   onProgress("Validando e lendo Acompanhamento_Op...");
   const textoOp = await validarArquivoTSV(arquivoOp, "op", "Acompanhamento_Op");
@@ -624,6 +625,17 @@ async function upsertPedidoItens(itensPorPedido) {
     const resultado = await supabaseClient.from("pedido_itens").insert(lote);
     if (resultado.error) console.error("Erro ao gravar pedido_itens:", resultado.error);
   }
+}
+
+// Guarda uma cópia do arquivo original (sem nenhum tratamento) no Supabase
+// Storage, pra alimentar o botão "Exportar Arquivo" de cada tela. Sempre
+// sobrescreve (upsert) — o mesmo caminho fixo é usado a cada reabastecimento.
+async function uploadArquivoOriginal(caminho, file) {
+  if (!file) return;
+  const { error } = await supabaseClient.storage
+    .from("arquivos-abastecimento")
+    .upload(caminho, file, { upsert: true, contentType: file.type || "text/plain" });
+  if (error) console.error("Erro ao guardar arquivo original (" + caminho + "):", error);
 }
 
 async function salvarSnapshot(pagina, tipo, payload) {
@@ -1197,6 +1209,7 @@ async function processarRelatoriosInbound(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
 
   onProgress("Lendo arquivos do Inbound...");
+  await uploadArquivoOriginal("inbound/Controle_de_NF_Recebs.tsv", files.arquivoRecebs);
   const textoRecebs  = await files.arquivoRecebs.text();
   const textoItens   = await files.arquivoItens.text();
   const textoOR      = await files.arquivoOR.text();
@@ -1241,7 +1254,7 @@ async function processarRelatoriosInbound(files, options) {
   // notas de reversa emitidas pela própria Vulcabras acabavam entrando como se fossem recebimento.
   const statusValidos = ["IMPORTADA", "EM CARGA/OR", "PROCESSADA"];
   const nfRegistros = linhasRecebs
-    .filter(function(r){ return statusValidos.includes(r["Status"]) && r["Operação"] === "Recebimento"; })
+    .filter(function(r){ return statusValidos.includes(r["Status"]) && String(r["Operação"] || "").trim().toLowerCase() === "recebimento"; })
     .map(function(r){
       return {
         id_nota_fiscal:     Number(r["idNotaFiscal"]),
@@ -1630,6 +1643,7 @@ var CROSS_MAP = [
 async function processarEstoqueOperacao(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Lendo Estoque Picking...");
+  await uploadArquivoOriginal("estoque/Estoque_Picking.tsv", files.arquivoEstoque);
   const texto = await files.arquivoEstoque.text();
   const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)"]);
 
@@ -1675,6 +1689,9 @@ function gerarPayloadEstoque(registros) {
 async function processarBalanco(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Carregando bases auxiliares do Supabase...");
+
+  await uploadArquivoOriginal("balanco/Estoque_completo_WMS.tsv", files.arquivoWMS);
+  await uploadArquivoOriginal("balanco/Estoque_SAP.xlsx", files.arquivoSAP);
 
   // --- dim_custo: sku → custo unitário ---
   const custoMap = new Map();
@@ -1971,6 +1988,7 @@ var embalasBarraMap = new Map();
 
   // ---- CONTROLE NF REVERSA (1 linha por NF) ----
   onProgress("Lendo Controle NF Reversa...");
+  await uploadArquivoOriginal("reversa/Controle_NF_Reversa.tsv", files.arquivoControle);
   var textoControle = await files.arquivoControle.text();
   var linhasControle = parseTSVSelecionado(textoControle, [
     "Nota Fiscal", "Status", "Data de Cadastro"
