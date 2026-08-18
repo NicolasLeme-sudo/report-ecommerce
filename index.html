@@ -609,7 +609,8 @@ function pathSuave(pts) {
 function labelComFundo(svg, x, y, texto, opts) {
   opts = opts || {};
   const fs = opts.fontSize || 10, anchor = opts.anchor || 'middle';
-  const corTexto = opts.cor || 'var(--text)', corFundo = opts.fundo || 'var(--bg-card)';
+  const corTexto = opts.cor || 'var(--text)';
+  const corFundo = opts.fundo || 'color-mix(in srgb, ' + corTexto + ' 32%, var(--bg-card) 68%)';
   const peso = opts.peso || '700';
   const txt = String(texto);
   const largura = txt.length * fs * 0.62 + 8, altura = fs + 6;
