@@ -107,6 +107,34 @@ body {
   grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
+.layout.oculto { display: none; }
+
+/* ============================================================
+   TELA DE LOGIN
+   ============================================================ */
+.login-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+.login-overlay.oculto { display: none; }
+.login-box {
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 36px 32px; width: 320px; text-align: center; box-shadow: var(--shadow);
+}
+.login-logo { width: 52px; height: 52px; object-fit: contain; margin-bottom: 14px; }
+.login-box h1 { font-size: 18px; margin: 0 0 2px; color: var(--text); }
+.login-sub { font-size: 12px; color: var(--text-muted); margin: 0 0 22px; }
+.login-box input {
+  width: 100%; padding: 10px 12px; margin-bottom: 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-input); color: var(--text);
+  font-size: 13px; box-sizing: border-box;
+}
+.login-box button {
+  width: 100%; padding: 10px 12px; border-radius: 8px; border: none;
+  background: var(--accent); color: #fff; font-weight: 700; font-size: 13px; cursor: pointer;
+}
+.login-erro { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 14px; }
 
 /* ============================================================
    4) SIDEBAR (menu lateral)
@@ -400,7 +428,22 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
 </head>
 
 <body>
-<div class="layout">
+
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <img src="/favicon.png" alt="Logo" class="login-logo">
+    <h1>Report E-commerce</h1>
+    <p class="login-sub">Vulcabras · Extrema</p>
+    <form id="loginForm">
+      <input type="text" id="loginEmail" placeholder="Usuário" required autocomplete="username">
+      <input type="password" id="loginSenha" placeholder="Senha" required autocomplete="current-password">
+      <button type="submit">Entrar</button>
+      <div class="login-erro" id="loginErro"></div>
+    </form>
+  </div>
+</div>
+
+<div class="layout oculto" id="layoutApp">
 
   <!-- ===== SIDEBAR ===== -->
   <aside class="sidebar">
@@ -455,7 +498,9 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
     </div>
     <div class="topbar-right">
       <div class="topbar-data" id="topbarData"></div>
+      <div class="topbar-data" id="topbarPerfil"></div>
       <button class="btn-tema" onclick="alternarTema()" id="btnTema">☀ Claro</button>
+      <button class="btn-tema" onclick="sair()" id="btnSair">🚪 Sair</button>
     </div>
   </header>
 
@@ -2035,8 +2080,90 @@ function renderizarBalanco(p) {
       </div>
     </div>`;
 }
-mostrarSecao('outbound');
-carregarDatasHistorico();
+/* ============================================================
+   AUTENTICAÇÃO E NÍVEIS DE ACESSO
+   Login real via Supabase Auth. O perfil (operador/gestor/admin)
+   vem da tabela perfis_acesso, protegida por RLS no banco — não é
+   só uma cortina visual: quem não tem permissão não recebe o dado
+   nem que tente pela API diretamente.
+   ============================================================ */
+let perfilAtual = null;
+
+async function iniciarApp() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { mostrarTelaLogin(); return; }
+  await aplicarSessao(session);
+}
+
+async function aplicarSessao(session) {
+  const { data: perfilRow, error } = await supabaseClient
+    .from('perfis_acesso')
+    .select('role')
+    .eq('user_id', session.user.id)
+    .single();
+
+  if (error || !perfilRow) {
+    document.getElementById('loginErro').textContent = 'Usuário sem perfil de acesso configurado. Fale com o admin.';
+    await supabaseClient.auth.signOut();
+    mostrarTelaLogin();
+    return;
+  }
+
+  perfilAtual = perfilRow.role;
+  aplicarVisibilidadeMenu();
+
+  document.getElementById('loginOverlay').classList.add('oculto');
+  document.getElementById('layoutApp').classList.remove('oculto');
+  document.getElementById('topbarPerfil').textContent =
+    perfilAtual === 'admin' ? '👑 Admin' : perfilAtual === 'gestor' ? '📊 Gestor' : '🛠️ Operador';
+
+  mostrarSecao('outbound');
+  carregarDatasHistorico();
+}
+
+function aplicarVisibilidadeMenu() {
+  const labels = document.querySelectorAll('.sidebar-section-label');
+  labels.forEach(label => {
+    const nome = label.textContent.trim();
+    let visivel = true;
+    if (nome === 'Gestão') visivel = (perfilAtual === 'gestor' || perfilAtual === 'admin');
+    if (nome === 'Admin')  visivel = (perfilAtual === 'admin');
+    label.style.display = visivel ? '' : 'none';
+    // Esconde também os .menu-item seguintes até o próximo label
+    let irmao = label.nextElementSibling;
+    while (irmao && !irmao.classList.contains('sidebar-section-label') && !irmao.classList.contains('sidebar-historico')) {
+      irmao.style.display = visivel ? '' : 'none';
+      irmao = irmao.nextElementSibling;
+    }
+  });
+}
+
+function mostrarTelaLogin() {
+  document.getElementById('loginOverlay').classList.remove('oculto');
+  document.getElementById('layoutApp').classList.add('oculto');
+}
+
+// O Supabase Auth exige um "e-mail" como identificador internamente, mas quem usa
+// o sistema só digita um usuário (ex: "admin") — completamos o domínio fixo aqui,
+// sem a pessoa nunca precisar saber que por trás disso existe um e-mail.
+const DOMINIO_LOGIN = '@relatorio.local';
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const usuario = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const senha = document.getElementById('loginSenha').value;
+  const erroEl = document.getElementById('loginErro');
+  erroEl.textContent = '';
+  const email = usuario.includes('@') ? usuario : usuario + DOMINIO_LOGIN;
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: senha });
+  if (error) { erroEl.textContent = 'Usuário ou senha inválidos.'; return; }
+  await aplicarSessao(data.session);
+});
+
+function sair() {
+  supabaseClient.auth.signOut().then(() => location.reload());
+}
+
+iniciarApp();
 </script>
 </body>
 </html>
