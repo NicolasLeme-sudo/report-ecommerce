@@ -1076,11 +1076,24 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     .gte("data", anoAtualExped + "-" + String(mesAtualExped + 1).padStart(2, "0") + "-01");
   kpis.acumulado_expedicao_mes = (acumExpedRows || []).reduce(function(s, r){ return s + r.itens_expedidos; }, 0);
 
-  // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP)
+  // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
+  // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de
+  // Dados) em vez do acrônimo cru — fallback pro próprio acrônimo se não houver mapeamento.
   // NÃO usa mais a view vw_marketplace_resumo — permite reaproveitar o mesmo dado no filtro.
+  const { data: acronimosRows } = await supabaseClient.from("dim_acronimos").select("acronimo, razao_social");
+  const acronimoParaRazao = {};
+  (acronimosRows || []).forEach(function(r){
+    const chave = String(r.acronimo || "").trim().toUpperCase();
+    if (chave && !acronimoParaRazao[chave]) acronimoParaRazao[chave] = r.razao_social;
+  });
+  function nomeMarketplace(acronimo) {
+    if (!acronimo) return "Não identificado";
+    return acronimoParaRazao[String(acronimo).trim().toUpperCase()] || acronimo;
+  }
+
   const mktContador = {};
   pedidosOp.forEach(function(p){
-    const nome = p.marketplace_acronimo || "Não identificado";
+    const nome = nomeMarketplace(p.marketplace_acronimo);
     mktContador[nome] = (mktContador[nome] || 0) + (p.qtd_total_produto || 0);
   });
   const marketplaces = Object.keys(mktContador)
@@ -1115,7 +1128,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     return {
       pedido_venda: p.pedido_venda,
       marca: p.marca || "Sem Marca",
-      marketplace: p.marketplace_acronimo || "Não identificado",
+      marketplace: nomeMarketplace(p.marketplace_acronimo),
       backlog_fifo_bucket: p.backlog_fifo_bucket,
       status_calculado: p.status_calculado,
       qtd_total_produto: p.qtd_total_produto || 0,
