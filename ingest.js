@@ -902,13 +902,12 @@ async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
   const itens = doDia.reduce(function(s, p) { return s + (p.qtd_total_produto || 0); }, 0);
   const qtdPedidos = doDia.length;
 
-  // DELETE + INSERT: garante que só esse dia é regravado, sem afetar os outros
-  await supabaseClient.from("expedicao_diaria").delete().eq("data", diaISO);
-  const resultado = await supabaseClient.from("expedicao_diaria").insert({
+  // UPSERT: grava ou atualiza o dia sem risco de conflito de chave (409)
+  const resultado = await supabaseClient.from("expedicao_diaria").upsert({
     data: diaISO,
     itens_expedidos: itens,
     pedidos_expedidos: qtdPedidos,
-  });
+  }, { onConflict: "data" });
   if (resultado.error) console.error("Erro ao gravar expedicao_diaria:", resultado.error);
 
   return { data: diaISO, itens: itens, pedidos: qtdPedidos };
@@ -930,6 +929,7 @@ async function computarExpedicaoSemana(pedidos, forecastRows) {
     .gte("data", dias[0])
     .lte("data", dias[dias.length - 1]);
   if (error) console.error("Erro ao buscar expedicao_diaria:", error);
+  console.log("DEBUG expedicao_diaria — janela buscada:", dias[0], "a", dias[dias.length-1], "| registros encontrados:", (fechados||[]).length, fechados);
 
   const expedidoPorDia = {};
   dias.forEach(function(d){ expedidoPorDia[d] = 0; });
