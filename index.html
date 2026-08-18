@@ -636,7 +636,12 @@ function fmtCur(n) { return 'R$ ' + Math.round(Number(n) || 0).toLocaleString('p
 // (padrão do Excel em pt-BR) e BOM UTF-8 pra acentuação abrir certo.
 function baixarCSV(nomeArquivo, colunas, linhas) {
   const escapar = v => {
-    const s = (v === null || v === undefined) ? '' : String(v);
+    // Números com casa decimal precisam virar vírgula (padrão Excel pt-BR) — do
+    // contrário o Excel lê o "." como separador de milhar e o valor vira um
+    // número gigante sem sentido (ex: 16.844444 horas virando "16.844.444...").
+    const s = (v === null || v === undefined) ? ''
+      : (typeof v === 'number') ? v.toLocaleString('pt-BR', { maximumFractionDigits: 2 })
+      : String(v);
     return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
   const header = colunas.map(c => escapar(c.label)).join(';');
@@ -729,26 +734,43 @@ async function exportarInboundCSV() {
   }
 }
 
-function exportarBalancoCSV() {
-  if (!window._balancoPayload) return;
-  const p = window._balancoPayload;
-  const colunasWMS = [
-    { key: 'classificacao', label: 'Classificação' },
-    { key: 'qtde', label: 'Quantidade' },
-    { key: 'valor', label: 'Valor (R$)' },
-    { key: 'pct', label: '% do total' },
-  ];
-  baixarCSV('balanco_wms_' + new Date().toISOString().slice(0, 10) + '.csv', colunasWMS, p.estoque_wms || []);
-  const colunasSAP = [
-    { key: 'bin', label: 'BIN' },
-    { key: 'classificacao', label: 'Classificação' },
-    { key: 'qtde', label: 'Quantidade' },
-    { key: 'valor', label: 'Valor (R$)' },
-    { key: 'pct', label: '% do total' },
-  ];
-  setTimeout(() => {
-    baixarCSV('balanco_sap_' + new Date().toISOString().slice(0, 10) + '.csv', colunasSAP, p.estoque_sap || []);
-  }, 300);
+// Exporta a base COMPLETA (por SKU/local no WMS, por bin+SKU no SAP) usada
+// pra abastecer o site — não o resumo por classificação que aparece na tela.
+async function exportarBalancoCSV() {
+  const btn = document.getElementById('btnExportBalanco');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const [resWMS, resSAP] = await Promise.all([
+      supabaseClient.from('balanco_wms_detalhado').select('barra, codigo_produto, local, tipo_local, estoque_total'),
+      supabaseClient.from('balanco_sap_detalhado').select('bin, sku, classificacao, quantidade, custo_unitario'),
+    ]);
+    if (resWMS.error) throw resWMS.error;
+    if (resSAP.error) throw resSAP.error;
+
+    const colunasWMS = [
+      { key: 'barra', label: 'Barra' },
+      { key: 'codigo_produto', label: 'Código do Produto' },
+      { key: 'local', label: 'Local' },
+      { key: 'tipo_local', label: 'Tipo do Local' },
+      { key: 'estoque_total', label: 'Estoque (UN)' },
+    ];
+    baixarCSV('balanco_wms_base_completa_' + new Date().toISOString().slice(0, 10) + '.csv', colunasWMS, resWMS.data || []);
+
+    const colunasSAP = [
+      { key: 'bin', label: 'BIN' },
+      { key: 'sku', label: 'SKU' },
+      { key: 'classificacao', label: 'Classificação' },
+      { key: 'quantidade', label: 'Quantidade' },
+      { key: 'custo_unitario', label: 'Custo Unitário (R$)' },
+    ];
+    setTimeout(() => {
+      baixarCSV('balanco_sap_base_completa_' + new Date().toISOString().slice(0, 10) + '.csv', colunasSAP, resSAP.data || []);
+    }, 300);
+  } catch (err) {
+    alert('Erro ao gerar exportação: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Exportar CSV (WMS + SAP)'; }
+  }
 }
 
 // Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
@@ -2188,7 +2210,7 @@ function renderizarBalanco(p) {
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Estoque Geral WMS × SAP
-      <button class="btn-tema" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV (WMS + SAP)</button>
+      <button class="btn-tema" id="btnExportBalanco" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar CSV (WMS + SAP)</button>
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
