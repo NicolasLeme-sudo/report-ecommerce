@@ -1973,7 +1973,7 @@ function renderizarEstoque(p) {
   };
   function logosPiso(pb) {
     var m = MARCA_PISO[pb]; if (!m) return '';
-    return m.map(function(x){ return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:34px;width:34px;object-fit:contain;vertical-align:middle;margin-left:6px">'; }).join('');
+    return m.map(function(x){ return '<img src="'+logoMarca(x.logo)+'" alt="'+x.marca+'" title="'+x.marca+(x.pct?' ('+x.pct+'%)':'')+'" style="height:50px;width:50px;object-fit:contain;vertical-align:middle;margin-left:6px">'; }).join('');
   }
 
   var segCalc = {saldo:0,cap:0}, segVest = {saldo:0,cap:0};
@@ -2015,7 +2015,7 @@ function renderizarEstoque(p) {
   function barMarca(pct, nome, logo, saldo, cap) {
     var livre=cap-saldo;
     var cor = pct >= 95 ? 'var(--red)' : pct >= 85 ? 'var(--amber)' : 'var(--olive)';
-    return '<div style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="display:inline-flex;align-items:center;justify-content:center;width:44px;height:34px"><img src="'+logoMarca(logo)+'" alt="'+nome+'" style="height:34px;width:34px;object-fit:contain"></span><span style="font-size:13px;font-weight:500;min-width:100px;color:var(--text)">'+nome+'</span><div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+Math.min(pct,100)+'%;background:'+cor+';border-radius:4px"></div></div><span style="font-size:12px;font-weight:700;min-width:50px;text-align:right;color:'+cor+'">'+fmtPct(pct)+'</span></div><div style="font-size:11px;color:var(--text-muted);margin-left:152px">'+fmtInt(saldo)+' / '+fmtInt(cap)+' \u00B7 Livre: '+fmtInt(livre)+'</div></div>';
+    return '<div style="margin-bottom:12px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><span style="display:inline-flex;align-items:center;justify-content:center;width:70px;height:50px"><img src="'+logoMarca(logo)+'" alt="'+nome+'" style="height:50px;width:50px;object-fit:contain"></span><span style="font-size:13px;font-weight:500;min-width:100px;color:var(--text)">'+nome+'</span><div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div style="height:100%;width:'+Math.min(pct,100)+'%;background:'+cor+';border-radius:4px"></div></div><span style="font-size:12px;font-weight:700;min-width:50px;text-align:right;color:'+cor+'">'+fmtPct(pct)+'</span></div><div style="font-size:11px;color:var(--text-muted);margin-left:152px">'+fmtInt(saldo)+' / '+fmtInt(cap)+' \u00B7 Livre: '+fmtInt(livre)+'</div></div>';
   }
 
   var pctCalc = segCalc.cap > 0 ? (segCalc.saldo/segCalc.cap)*100 : 0;
