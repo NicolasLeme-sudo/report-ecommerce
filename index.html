@@ -891,7 +891,7 @@ function renderizarOutbound(atual, anterior) {
           <div class="item"><div class="lab">Forecast</div><div class="val" id="totalForecast"></div></div>
         </div>
       </div>
-      <svg id="weekSvg" width="100%" height="190" viewBox="0 0 1100 190" preserveAspectRatio="none"></svg>
+      <svg id="weekSvg" width="100%" viewBox="0 0 1100 190" style="aspect-ratio:1100/190;height:auto"></svg>
       <div class="legend-line">
         <span><i style="background:var(--olive)"></i>Expedido</span>
         <span><i style="background:var(--accent)"></i>Forecast</span>
@@ -935,7 +935,7 @@ function renderizarOutbound(atual, anterior) {
     aplicarFiltrosOutbound(anterior);
   });
 
-  renderKpis(atual, anterior);
+  renderKpis(atual, anterior, atual.kpis.acumulado_expedicao_mes);
   renderSparkline(atual.integracao_7dias);
   renderMatriz(atual.status_por_etapa_itens, 'matrixItens');
   renderMatriz(atual.status_por_etapa_pedidos, 'matrixPedidos');
@@ -1057,7 +1057,7 @@ function aplicarFiltrosOutbound(anterior) {
   const recalculado = recalcularOutboundFiltrado(pedidosFiltrados);
 
   document.getElementById('kpiRow').innerHTML = '';
-  renderKpis(recalculado, anterior);
+  renderKpis(recalculado, anterior, outboundPayloadAtual.kpis.acumulado_expedicao_mes);
   renderSparkline(outboundPayloadAtual.integracao_7dias);
   renderMatriz(recalculado.status_por_etapa_itens, 'matrixItens');
   renderMatriz(recalculado.status_por_etapa_pedidos, 'matrixPedidos');
@@ -1067,10 +1067,11 @@ function aplicarFiltrosOutbound(anterior) {
 }
 
 /* ---------- KPIs ---------- */
-function renderKpis(atual, anterior) {
+function renderKpis(atual, anterior, acumuladoMes) {
   const kpis = [
     { tag: 'Pedidos em fluxo', val: fmtInt(atual.kpis.pedidos_em_fluxo), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: fmtInt(atual.kpis.itens_em_fluxo),   delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
+    { tag: 'Expedição acumulada do Mês', val: fmtInt(acumuladoMes), delta: '—', bar: 'bar-ok', dc: 'delta-flat' },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
@@ -1218,13 +1219,13 @@ function renderBacklog(backlog) {
     }
     ang=ae;
     const row=document.createElement('div'); row.className='row';
-    row.innerHTML=`<span class="dot" style="background:${cores[seg.label]||'#999'}"></span>Dia ${seg.label}<b style="margin-left:auto">${seg.valor}</b>`;
+    row.innerHTML=`<span class="dot" style="background:${cores[seg.label]||'#999'}"></span>Dia ${seg.label}<b style="margin-left:auto">${fmtInt(seg.valor)}</b>`;
     leg.appendChild(row);
   });
   const cv=document.createElementNS('http://www.w3.org/2000/svg','text');
   cv.setAttribute('x',cx); cv.setAttribute('y',cy-2); cv.setAttribute('text-anchor','middle');
   cv.setAttribute('font-size','22'); cv.setAttribute('font-weight','700'); cv.setAttribute('fill','var(--text)');
-  cv.textContent=total; svg.appendChild(cv);
+  cv.textContent=fmtInt(total); svg.appendChild(cv);
   const cl=document.createElementNS('http://www.w3.org/2000/svg','text');
   cl.setAttribute('x',cx); cl.setAttribute('y',cy+16); cl.setAttribute('text-anchor','middle');
   cl.setAttribute('font-size','11'); cl.setAttribute('fill','var(--text-muted)');
@@ -1389,11 +1390,11 @@ function renderizarInbound(p, estoquePayload) {
     <div class="grid2">
       <div class="card">
         <div class="section-title">Recebimento — últimos 7 dias (itens)</div>
-        <svg id="svgReceb" width="100%" height="160" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
+        <svg id="svgReceb" width="100%" viewBox="0 0 560 160" style="aspect-ratio:560/160;height:auto"></svg>
       </div>
       <div class="card">
         <div class="section-title">Armazenagem — últimos 7 dias (itens)</div>
-        <svg id="svgArm" width="100%" height="160" viewBox="0 0 560 160" preserveAspectRatio="none"></svg>
+        <svg id="svgArm" width="100%" viewBox="0 0 560 160" style="aspect-ratio:560/160;height:auto"></svg>
       </div>
     </div>
 
@@ -1669,14 +1670,14 @@ function renderizarReversa(p, marcaFiltro) {
   // BLOCO 2a — Integração NFs (largura total)
   html += '<div class="card" style="margin-bottom:16px;">'
     + '<div class="section-title">Integração de NFs de Reversa — Últimos 15 dias</div>'
-    + '<svg id="svgInteg" width="100%" height="220" viewBox="0 0 900 220" preserveAspectRatio="none"></svg>'
+    + '<svg id="svgInteg" width="100%" viewBox="0 0 900 220" style="aspect-ratio:900/220;height:auto"></svg>'
     + '<div style="font-size:10px;color:var(--text-muted);margin-top:4px">'
     + '<span style="color:var(--accent)">■</span> NFs &nbsp; <span style="color:var(--olive)">■</span> Itens</div></div>';
 
   // BLOCO 2b — Previsão Entrega (largura total, com rótulos)
   html += '<div class="card" style="margin-bottom:16px;">'
     + '<div class="section-title">Previsão de Entrega — Próximos 15 dias</div>'
-    + '<svg id="svgPrevisao" width="100%" height="220" viewBox="0 0 900 220" preserveAspectRatio="none"></svg></div>';
+    + '<svg id="svgPrevisao" width="100%" viewBox="0 0 900 220" style="aspect-ratio:900/220;height:auto"></svg></div>';
 
   // BLOCO 3 — Mapa (esq, altura dupla) + Rosca Montante (dir cima) + Rosca Pendentes (dir baixo)
   html += '<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:16px;margin-bottom:16px">'
@@ -1720,13 +1721,13 @@ function renderGraficoColunasReversa(svgId, dados) {
     var r1 = document.createElementNS('http://www.w3.org/2000/svg','rect');
     r1.setAttribute('x',xC-bW-1); r1.setAttribute('y',yNF); r1.setAttribute('width',bW); r1.setAttribute('height',Math.max(hNF,1));
     r1.setAttribute('fill','var(--accent)'); r1.setAttribute('rx','2'); svg.appendChild(r1);
-    if (d.nfs > 0) { var t1=document.createElementNS('http://www.w3.org/2000/svg','text'); t1.setAttribute('x',xC-bW/2-1); t1.setAttribute('y',yNF-4); t1.setAttribute('text-anchor','middle'); t1.setAttribute('font-size','9.5'); t1.setAttribute('fill','var(--text)'); t1.textContent=d.nfs; svg.appendChild(t1); }
+    if (d.nfs > 0) { var t1=document.createElementNS('http://www.w3.org/2000/svg','text'); t1.setAttribute('x',xC-bW/2-1); t1.setAttribute('y',yNF-4); t1.setAttribute('text-anchor','middle'); t1.setAttribute('font-size','9.5'); t1.setAttribute('fill','var(--text)'); t1.textContent=fmtInt(d.nfs); svg.appendChild(t1); }
 
     // Barra Itens
     var r2 = document.createElementNS('http://www.w3.org/2000/svg','rect');
     r2.setAttribute('x',xC+1); r2.setAttribute('y',yIt); r2.setAttribute('width',bW); r2.setAttribute('height',Math.max(hIt,1));
     r2.setAttribute('fill','var(--olive)'); r2.setAttribute('rx','2'); svg.appendChild(r2);
-    if (d.itens > 0) { var t2=document.createElementNS('http://www.w3.org/2000/svg','text'); t2.setAttribute('x',xC+bW/2+1); t2.setAttribute('y',yIt-4); t2.setAttribute('text-anchor','middle'); t2.setAttribute('font-size','9.5'); t2.setAttribute('fill','var(--text)'); t2.textContent=d.itens; svg.appendChild(t2); }
+    if (d.itens > 0) { var t2=document.createElementNS('http://www.w3.org/2000/svg','text'); t2.setAttribute('x',xC+bW/2+1); t2.setAttribute('y',yIt-4); t2.setAttribute('text-anchor','middle'); t2.setAttribute('font-size','9.5'); t2.setAttribute('fill','var(--text)'); t2.textContent=fmtInt(d.itens); svg.appendChild(t2); }
 
     // Data eixo X
     var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',xC); dt.setAttribute('y',H-8); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=d.data; svg.appendChild(dt);
@@ -1747,7 +1748,7 @@ function renderGraficoLinhaReversa(svgId, dados) {
   pts.forEach(function(pt,i){
     var c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','4'); c.setAttribute('fill','var(--amber)'); svg.appendChild(c);
     // RÓTULO DE DADOS — sempre visível
-    var lb=document.createElementNS('http://www.w3.org/2000/svg','text'); lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-10); lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','11'); lb.setAttribute('font-weight','600'); lb.setAttribute('fill','var(--text)'); lb.textContent=vals[i]; svg.appendChild(lb);
+    var lb=document.createElementNS('http://www.w3.org/2000/svg','text'); lb.setAttribute('x',pt[0]); lb.setAttribute('y',pt[1]-10); lb.setAttribute('text-anchor','middle'); lb.setAttribute('font-size','11'); lb.setAttribute('font-weight','600'); lb.setAttribute('fill','var(--text)'); lb.textContent=fmtInt(vals[i]); svg.appendChild(lb);
     // Data eixo X
     var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=dias[i]; svg.appendChild(dt);
   });
