@@ -1520,12 +1520,12 @@ function renderizarInbound(p, estoquePayload) {
     </div>
     <div class="grid3" style="margin-bottom:14px;">
       <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Recebimento (Status - Importada)</div><div class="value">${fmtInt(p.kpis.nfs_pend_recebimento)}</div></div>
-      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.itens_pend_recebimento)}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento (Status - Importada)</div><div class="value">${fmtInt(p.kpis.itens_pend_recebimento)}</div></div>
       <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Recebimento Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_recebimento_mes)}</div></div>
     </div>
     <div class="grid3" style="margin-bottom:16px;">
-      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.nfs_pend_armazenagem)}</div></div>
-      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.itens_pend_armazenagem)}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Pendentes Armazenagem (Status - Em Carga/OR)</div><div class="value">${fmtInt(p.kpis.nfs_pend_armazenagem)}</div></div>
+      <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Armazenagem (Status - Em Carga/OR)</div><div class="value">${fmtInt(p.kpis.itens_pend_armazenagem)}</div></div>
       <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Armazenagem Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_armazenagem_mes)}</div></div>
     </div>
 
@@ -1551,7 +1551,7 @@ function renderizarInbound(p, estoquePayload) {
         <table class="matrix" id="tabelaFifo"></table>
       </div>
       <div class="card">
-        <div class="section-title">Pendente de Entrada — Marca × Segmento</div>
+        <div class="section-title">Material Pendente de Entrada — Marca × Segmento</div>
         <table class="matrix" id="tabelaPendente"></table>
       </div>
     </div>`;
