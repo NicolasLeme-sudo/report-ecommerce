@@ -1162,7 +1162,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
 
 // Colunas obrigatórias por arquivo do Inbound
 const COLUNAS_INBOUND = {
-  nf_recebs:    ["idNotaFiscal", "Nota Fiscal", "Status", "Data de Emissão"],
+  nf_recebs:    ["idNotaFiscal", "Nota Fiscal", "Status", "Data de Emissão", "Operação"],
   itens_entrada:["idNotaFiscal", "Código do Produto", "Barra", "Quantidade"],
   gerenciador:  ["Nota Fiscal", "Data da Conferência", "Qtde. de Volumes"],
   kardex:       ["Data", "Local", "Estoque Antes", "Estoque Após"],
@@ -1204,7 +1204,7 @@ async function processarRelatoriosInbound(files, options) {
   const textoStage   = await files.arquivoStage.text();
 
   // Parsear cada arquivo
-  const linhasRecebs  = parseTSVSelecionado(textoRecebs,  ["idNotaFiscal","Nota Fiscal","Status","Data de Emissão","Data de Cadastro","Data de Processamento","Emitente","Ordem de Recebimento"]);
+  const linhasRecebs  = parseTSVSelecionado(textoRecebs,  ["idNotaFiscal","Nota Fiscal","Status","Data de Emissão","Data de Cadastro","Data de Processamento","Emitente","Ordem de Recebimento","Operação"]);
   const linhasItens   = parseTSVSelecionado(textoItens,   ["idNotaFiscal","Código do Produto","Produto","Barra","Quantidade"]);
   const linhasOR      = parseTSVSelecionado(textoOR,      ["Nota Fiscal","Data da Conferência","Qtde. de Volumes"]);
   const linhasKardex  = parseTSVSelecionado(textoKardex,  ["Data","Local","Estoque Antes","Estoque Após"]);
@@ -1236,9 +1236,12 @@ async function processarRelatoriosInbound(files, options) {
   onProgress(embalasMap.size + " SKUs carregados.");
 
   // ---- 1) NFs de recebimento ----
+  // O arquivo Controle_de_NF_Recebs.tsv compartilha o mesmo layout do Controle_NF_Reversa.tsv —
+  // a coluna "Operação" é o que distingue as duas ("Recebimento" vs "Reversa"). Sem esse filtro,
+  // notas de reversa emitidas pela própria Vulcabras acabavam entrando como se fossem recebimento.
   const statusValidos = ["IMPORTADA", "EM CARGA/OR", "PROCESSADA"];
   const nfRegistros = linhasRecebs
-    .filter(function(r){ return statusValidos.includes(r["Status"]); })
+    .filter(function(r){ return statusValidos.includes(r["Status"]) && r["Operação"] === "Recebimento"; })
     .map(function(r){
       return {
         id_nota_fiscal:     Number(r["idNotaFiscal"]),
@@ -1721,6 +1724,15 @@ async function processarBalanco(files, options) {
   const registrosStaging = Array.from(agregadoWMS.values());
   onProgress("WMS: " + registrosStaging.length + " combinações agregadas. Enviando para staging...");
 
+  // Guarda o detalhe completo (por SKU/local) pra exportação — a tabela
+  // balanco_wms só fica com o resumo por classificação, isso aqui é a base cheia.
+  await supabaseClient.from("balanco_wms_detalhado").delete().neq("id", 0);
+  for (let iDet = 0; iDet < registrosStaging.length; iDet += 1000) {
+    const loteDet = registrosStaging.slice(iDet, iDet + 1000);
+    const { error: errDet } = await supabaseClient.from("balanco_wms_detalhado").insert(loteDet);
+    if (errDet) console.error("Erro balanco_wms_detalhado:", errDet);
+  }
+
   const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms_agg");
   if (errLimpeza) {
     console.error("Erro ao limpar staging WMS:", errLimpeza);
@@ -1794,6 +1806,7 @@ async function processarBalanco(files, options) {
   const sapLinhas = await parseXLSX(files.arquivoSAP);
   var kmSap = montarKeyMap(sapLinhas);
   var sapPorBin = {};
+  var sapPorBinSku = {}; // detalhe por bin+sku, pra exportação da base completa
 
   sapLinhas.forEach(function(r) {
     var bin  = String(coluna(r, kmSap, "Posição no depósito") || "").trim();
@@ -1806,6 +1819,10 @@ async function processarBalanco(files, options) {
     if (!sapPorBin[bin]) sapPorBin[bin] = { classificacao: classif, qtde: 0, valor: 0 };
     sapPorBin[bin].qtde  += qtde;
     sapPorBin[bin].valor += qtde * custo;
+
+    var chaveDet = bin + "|" + sku;
+    if (!sapPorBinSku[chaveDet]) sapPorBinSku[chaveDet] = { bin: bin, sku: sku, classificacao: classif, quantidade: 0, custo_unitario: custo };
+    sapPorBinSku[chaveDet].quantidade += qtde;
   });
 
   var totalSAPQtde  = Object.values(sapPorBin).reduce(function(s,v){ return s + v.qtde; }, 0);
@@ -1830,6 +1847,15 @@ async function processarBalanco(files, options) {
   for (var j = 0; j < sapRegistros.length; j += 200) {
     var r2 = await supabaseClient.from("balanco_sap").insert(sapRegistros.slice(j, j + 200));
     if (r2.error) console.error("Erro balanco_sap:", r2.error);
+  }
+
+  // Guarda o detalhe completo (por bin+SKU) pra exportação — balanco_sap
+  // só fica com o resumo por BIN, isso aqui é a base cheia.
+  var sapDetalhado = Object.values(sapPorBinSku);
+  await supabaseClient.from("balanco_sap_detalhado").delete().neq("id", 0);
+  for (var k = 0; k < sapDetalhado.length; k += 500) {
+    var r3 = await supabaseClient.from("balanco_sap_detalhado").insert(sapDetalhado.slice(k, k + 500));
+    if (r3.error) console.error("Erro balanco_sap_detalhado:", r3.error);
   }
 
   // ==================== Snapshot ====================
