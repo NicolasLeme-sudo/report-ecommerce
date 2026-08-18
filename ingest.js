@@ -1065,6 +1065,17 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   await fecharExpedicaoDoDia(pedidos); const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = computarIntegracao7Dias(pedidos);
 
+  // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria;
+  // fecharExpedicaoDoDia já gravou o dia de hoje, então a soma abaixo já inclui hoje)
+  const hojeExped = new Date();
+  const anoAtualExped = hojeExped.getFullYear();
+  const mesAtualExped = hojeExped.getMonth();
+  const { data: acumExpedRows } = await supabaseClient
+    .from("expedicao_diaria")
+    .select("itens_expedidos, data")
+    .gte("data", anoAtualExped + "-" + String(mesAtualExped + 1).padStart(2, "0") + "-01");
+  kpis.acumulado_expedicao_mes = (acumExpedRows || []).reduce(function(s, r){ return s + r.itens_expedidos; }, 0);
+
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP)
   // NÃO usa mais a view vw_marketplace_resumo — permite reaproveitar o mesmo dado no filtro.
   const mktContador = {};
