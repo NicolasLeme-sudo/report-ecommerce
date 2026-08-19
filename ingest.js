@@ -171,7 +171,18 @@ async function parseXLSX(file) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { defval: "" });
 }
-
+async function parseCSVSimples(file) {
+  const texto = await file.text();
+  const linhas = texto.split(/\r?\n/).filter(l => l.trim().length > 0);
+  const sep = linhas[0].includes(';') ? ';' : ',';
+  const header = linhas[0].split(sep).map(h => h.trim());
+  return linhas.slice(1).map(linha => {
+    const campos = linha.split(sep);
+    const obj = {};
+    header.forEach((h, i) => { obj[h] = (campos[i] || '').trim(); });
+    return obj;
+  });
+}
 
 // -------------------------------------------------------------------------
 // 3) CAMPOS QUE PRECISAMOS DE CADA TSV (Acompanhamento_Op / Acompanhamento_Exp)
@@ -384,8 +395,10 @@ async function processarRelatoriosDaOperacao(files, options) {
   const linhasItens = parseTSVSelecionado(textoItens, CAMPOS_ITENS_NF);
 
   onProgress("Validando e lendo Pedidos E-comm Geral...");
-  const linhasSap = await validarArquivoXLSX(arquivoPedidosEcomm, "ecomm", "Pedidos E-comm Geral");
-
+  const ehCSV = arquivoPedidosEcomm.name.toLowerCase().endsWith('.csv');
+  const linhasSap = ehCSV
+  ? await parseCSVSimples(arquivoPedidosEcomm)
+  : await validarArquivoXLSX(arquivoPedidosEcomm, "ecomm", "Pedidos E-comm Geral");
   // ---- Índice do SAP por "Pedido de Venda" (campo "Primário") ----
   const sapPorPedido = new Map();
   for (const r of linhasSap) {
