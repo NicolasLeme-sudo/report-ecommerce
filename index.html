@@ -543,10 +543,10 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios da Operação</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
-          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
-          <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
-          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
+          <div class="file-field"><label>Acompanhamento Saída por NotaFiscal</label><input type="file" id="fileOp"></div>
+          <div class="file-field"><label>Acompanhamento Saída NF Expedida e Cancelada</label><input type="file" id="fileExp"></div>
+          <div class="file-field"><label>Itens de NF de Saída</label><input type="file" id="fileItensNF"></div>
+          <div class="file-field"><label>Ecommerce - Pedidos (Geral) - SAP</label><input type="file" id="filePedidosEcomm"></div>
         </div>
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
@@ -555,11 +555,11 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios do Inbound</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Controle_de_NF_Recebs.tsv</label><input type="file" id="fileRecebs"></div>
-          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensEntrada"></div>
-          <div class="file-field"><label>Gerenciador_de_OR.tsv</label><input type="file" id="fileOR"></div>
-          <div class="file-field"><label>Kardex_de_End.tsv</label><input type="file" id="fileKardex"></div>
-          <div class="file-field"><label>Recebimento_Stage.tsv</label><input type="file" id="fileStage"></div>
+          <div class="file-field"><label>Controle Nota Fiscal (Recebimento)</label><input type="file" id="fileRecebs"></div>
+          <div class="file-field"><label>Itens de NF</label><input type="file" id="fileItensEntrada"></div>
+          <div class="file-field"><label>Gerenciar Ordem de Recebimento</label><input type="file" id="fileOR"></div>
+          <div class="file-field"><label>Kardex de Endereço</label><input type="file" id="fileKardex"></div>
+          <div class="file-field"><label>Estoque Local por Lote (RECEBIMENTO - STAGE)</label><input type="file" id="fileStage"></div>
         </div>
         <button class="btn-upload" id="btnInbound">Atualizar Relatórios do Inbound</button>
         <div class="progress-box" id="progressInbound"></div>
@@ -568,9 +568,9 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios da Reversa</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Controle_NF_Reversa.tsv</label><input type="file" id="fileControleReversa"></div>
-          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensReversa"></div>
-          <div class="file-field"><label>Troca_Ecomm.csv</label><input type="file" id="fileTrocaEcomm"></div>
+          <div class="file-field"><label>Controle Nota Fiscal (Reversa)</label><input type="file" id="fileControleReversa"></div>
+          <div class="file-field"><label>Itens de NF</label><input type="file" id="fileItensReversa"></div>
+          <div class="file-field"><label>Troca E-commerce</label><input type="file" id="fileTrocaEcomm"></div>
         </div>
         <button class="btn-upload" id="btnReversa">Atualizar Relatórios da Reversa</button>
         <div class="progress-box" id="progressReversa"></div>
@@ -579,7 +579,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Estoque (Operação)</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Estoque_Picking.tsv</label><input type="file" id="fileEstoquePicking"></div>
+          <div class="file-field"><label>Estoque Local por Lote (PICKING)</label><input type="file" id="fileEstoquePicking"></div>
         </div>
         <button class="btn-upload" id="btnEstoque">Atualizar Estoque</button>
         <div class="progress-box" id="progressEstoque"></div>
@@ -589,8 +589,8 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Balanço de Estoque</h2>
         <div class="freq">Frequência: semanal / sob demanda</div>
         <div class="file-row">
-          <div class="file-field"><label>Estoque_completo_WMS.tsv</label><input type="file" id="fileWMS"></div>
-          <div class="file-field"><label>Estoque_SAP.xlsx</label><input type="file" id="fileSAP"></div>
+          <div class="file-field"><label>Estoque Local por Lote (Geral)</label><input type="file" id="fileWMS"></div>
+          <div class="file-field"><label>Estoque Completo SAP</label><input type="file" id="fileSAP"></div>
         </div>
         <button class="btn-upload" id="btnBalanco">Atualizar Balanço</button>
         <div class="progress-box" id="progressBalanco"></div>
@@ -601,9 +601,9 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Bases Gerais</h2>
         <div class="freq">Frequência: Embalas toda terça | Custo e Acrônimos raramente</div>
         <div class="file-row">
-          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
-          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
-          <div class="file-field"><label>Base_Custo.xlsx</label><input type="file" id="fileCusto"></div>
+          <div class="file-field"><label>Base de Embalagem</label><input type="file" id="fileEmbalas"></div>
+          <div class="file-field"><label>Base de Acrônimos</label><input type="file" id="fileAcronimos"></div>
+          <div class="file-field"><label>Base de Custo</label><input type="file" id="fileCusto"></div>
         </div>
         <button class="btn-upload" id="btnBasesGerais">Atualizar Bases Gerais</button>
         <div class="progress-box" id="progressBasesGerais"></div>
@@ -612,7 +612,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Forecast Mensal</h2>
         <div class="freq">Frequência: mensal</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
+          <div class="file-field"><label>Curva de Faturamento - Mensal</label><input type="file" id="fileForecast"></div>
         </div>
         <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
         <div class="progress-box" id="progressForecast"></div>
