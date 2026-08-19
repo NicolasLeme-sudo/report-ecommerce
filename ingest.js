@@ -171,18 +171,7 @@ async function parseXLSX(file) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   return XLSX.utils.sheet_to_json(ws, { defval: "" });
 }
-async function parseCSVSimples(file) {
-  const texto = await file.text();
-  const linhas = texto.split(/\r?\n/).filter(l => l.trim().length > 0);
-  const sep = linhas[0].includes(';') ? ';' : ',';
-  const header = linhas[0].split(sep).map(h => h.trim());
-  return linhas.slice(1).map(linha => {
-    const campos = linha.split(sep);
-    const obj = {};
-    header.forEach((h, i) => { obj[h] = (campos[i] || '').trim(); });
-    return obj;
-  });
-}
+
 
 // -------------------------------------------------------------------------
 // 3) CAMPOS QUE PRECISAMOS DE CADA TSV (Acompanhamento_Op / Acompanhamento_Exp)
@@ -395,10 +384,8 @@ async function processarRelatoriosDaOperacao(files, options) {
   const linhasItens = parseTSVSelecionado(textoItens, CAMPOS_ITENS_NF);
 
   onProgress("Validando e lendo Pedidos E-comm Geral...");
-  const ehCSV = arquivoPedidosEcomm.name.toLowerCase().endsWith('.csv');
-  const linhasSap = ehCSV
-  ? await parseCSVSimples(arquivoPedidosEcomm)
-  : await validarArquivoXLSX(arquivoPedidosEcomm, "ecomm", "Pedidos E-comm Geral");
+  const linhasSap = await validarArquivoXLSX(arquivoPedidosEcomm, "ecomm", "Pedidos E-comm Geral");
+
   // ---- Índice do SAP por "Pedido de Venda" (campo "Primário") ----
   const sapPorPedido = new Map();
   for (const r of linhasSap) {
@@ -1596,7 +1583,7 @@ const CLASS_SAP = {
 // Mapa completo de prefixo de endereço → classificação (Gabarito_Endereços_E-comm)
 var GABARITO_PREFIX = {
   "K01":"Não Comercializável",
-  "L05":"DExPARA (Aguardando ação fiscal)","L04":"Aguardando ação fiscal (Emissão NF-D)","L03":"Aguardando ação fiscal (Emissão NF-D)",
+  "L05":"DExPARA (Aguardando ação fiscal)",
   "T02":"Avaria (Incineração)","T07":"Avaria (Incineração)","T08":"Avaria (Incineração)",
   "T03":"Faltas de Recebimento","V03":"Faltas de Recebimento","V04":"Faltas de Recebimento",
   "S01":"Integração de NFs Reversa","S02":"Integração de NFs Reversa","S03":"Integração de NFs Reversa",
@@ -1948,7 +1935,7 @@ async function processarRelatoriosReversa(files, options) {
   onProgress("Carregando dim_embalas do Supabase...");
 
   // --- dim_embalas: barcode → marca, sku → marca ---
-  var embalasBarraMap = new Map();
+var embalasBarraMap = new Map();
   var embalasSkuMap   = new Map();
 
   // Busca o total real esperado, para detectar carregamento incompleto
@@ -1956,35 +1943,44 @@ async function processarRelatoriosReversa(files, options) {
     .from("dim_embalas")
     .select("*", { count: "exact", head: true });
 
-  var off = 0;
-  var TAMANHO_PAGINA_EMBALAS = 2000;
-  while (true) {
-    var pagina = null, erroPagina = null;
-    for (var tentativaPagina = 1; tentativaPagina <= 4; tentativaPagina++) {
-      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + TAMANHO_PAGINA_EMBALAS - 1);
-      if (!error) { pagina = data; erroPagina = null; break; }
-      erroPagina = error;
-      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + "):", error);
-      onProgress("⚠ Falha na página offset " + off + ", tentativa " + tentativaPagina + "/4. Tentando de novo em 1.5s...");
-      await new Promise(function(resolve){ setTimeout(resolve, 1500); });
+  var tentativaEmbalas = 0;
+  while (tentativaEmbalas < 3) {
+    tentativaEmbalas++;
+    embalasBarraMap.clear();
+    embalasSkuMap.clear();
+    var off = 0;
+    var falhou = false;
+    while (true) {
+      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+      if (error) {
+        console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaEmbalas + "):", error);
+        onProgress("✗ Erro ao carregar embalagem (offset " + off + "), tentativa " + tentativaEmbalas + ": " + error.message);
+        falhou = true;
+        break;
+      }
+      if (!data || data.length === 0) break;
+      data.forEach(function(e) {
+        if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
+        if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
+      });
+      onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (tentativa " + tentativaEmbalas + ")...");
+      if (data.length < 1000) break;
+      off += 1000;
     }
-    if (erroPagina) {
-      onProgress("✗ Erro ao carregar embalagem (offset " + off + ") após 4 tentativas: " + erroPagina.message);
+
+    // Considera completo se carregou pelo menos 99% do total esperado
+    if (!falhou && totalEsperadoEmbalas && embalasSkuMap.size >= totalEsperadoEmbalas * 0.99) {
       break;
     }
-    if (!pagina || pagina.length === 0) break;
-    pagina.forEach(function(e) {
-      if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
-      if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
-    });
-    onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados...");
-    if (pagina.length < TAMANHO_PAGINA_EMBALAS) break;
-    off += TAMANHO_PAGINA_EMBALAS;
+    if (tentativaEmbalas < 3) {
+      onProgress("⚠ Carregamento incompleto (" + embalasSkuMap.size + "/" + totalEsperadoEmbalas + "). Tentando novamente em 2s...");
+      await new Promise(function(resolve){ setTimeout(resolve, 2000); });
+    }
   }
 
   if (totalEsperadoEmbalas && embalasSkuMap.size < totalEsperadoEmbalas * 0.99) {
-    onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados. Os valores de marca podem estar incompletos.");
-    console.error("Carregamento de dim_embalas permaneceu incompleto:", embalasSkuMap.size, "/", totalEsperadoEmbalas);
+    onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados após 3 tentativas. Os valores de marca podem estar incompletos.");
+    console.error("Carregamento de dim_embalas permaneceu incompleto após 3 tentativas:", embalasSkuMap.size, "/", totalEsperadoEmbalas);
   } else {
     onProgress("✓ Embalagem carregada completa: " + embalasSkuMap.size + " SKUs.");
   }
@@ -2307,6 +2303,9 @@ async function processarRelatoriosReversa(files, options) {
   // Reversas pendentes por marca (Bloco 3c)
   var reversasPend = {}; // marca → count
 
+  // Pendente Troca-Ecommerce (Status = "Entrega Realizada")
+  var trocaEcommTotal = 0;
+
   linhasTroca.forEach(function(r) {
     var status = (r["Status"] || "").trim();
     if (status === "Cancelado") return;
@@ -2323,6 +2322,13 @@ async function processarRelatoriosReversa(files, options) {
     // Reversas pendentes de chegada
     if (!reversasPend[marca]) reversasPend[marca] = 0;
     reversasPend[marca]++;
+
+    // Pendente Troca-Ecommerce
+    if (status === "Entrega Realizada") {
+      trocaEcommTotal++;
+      if (!kpiMarca[marca]) kpiMarca[marca] = {nfs_vinc:0,itens_vinc:0,nfs_arm:0,itens_arm:0};
+      kpiMarca[marca].troca_ecomm_realizada = (kpiMarca[marca].troca_ecomm_realizada || 0) + 1;
+    }
 
     // Mapa estados (acumulado)
     if (estado) {
@@ -2426,6 +2432,7 @@ async function processarRelatoriosReversa(files, options) {
         itens_armazenagem: itensArm,
         nfs_total:   nfsPendentes.size,
         itens_total: itensVinc + itensArm,
+        troca_ecomm_realizada: trocaEcommTotal,
       },
       por_marca: kpiMarca,
     },
