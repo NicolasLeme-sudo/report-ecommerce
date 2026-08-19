@@ -300,6 +300,7 @@ body {
 .bar-warn { background: var(--amber); }
 .bar-bad  { background: var(--red); }
 .bar-flat { background: var(--border); }
+.bar-info { background: var(--accent); }
 .kpi-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
 .kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
 .kpi-card .delta { font-size: 11.5px; margin-top: 5px; font-weight: 600; }
@@ -1838,13 +1839,13 @@ function renderizarReversa(p, marcaFiltro, qualidadePendente) {
   html += '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Pendências de Entrada'
     + '<button class="btn-tema" id="btnExportReversa" onclick="exportarReversaCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button></div>';
   html += '<div class="grid4-compact" style="margin-bottom:10px;">'
-    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Pendente Troca-Ecommerce</div><div class="value">'+fmt(k.troca_ecomm_realizada)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-info"></div><div class="tag">Pendente Troca-Ecommerce</div><div class="value">'+fmt(k.troca_ecomm_realizada)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Ag. Vinculação</div><div class="value">'+fmt(k.nfs_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Ag. Armazenagem</div><div class="value">'+fmt(k.nfs_armazenagem)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total NFs Pendentes</div><div class="value">'+fmt(k.nfs_total)+'</div></div>'
     + '</div>';
   html += '<div class="grid4-compact" style="margin-bottom:20px;">'
-    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Pendente de Análise de Qualidade</div><div class="value">'+fmt(qualidadePendente)+'</div></div>'
+    + '<div class="kpi-card"><div class="bar bar-info"></div><div class="tag">Pendente de Análise de Qualidade</div><div class="value">'+fmt(qualidadePendente)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Ag. Vinculação</div><div class="value">'+fmt(k.itens_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Itens Ag. Armazenagem</div><div class="value">'+fmt(k.itens_armazenagem)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total Itens Pendentes</div><div class="value">'+fmt(k.itens_total)+'</div></div>'
