@@ -285,6 +285,7 @@ body {
 }
 .grid2  { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .grid3  { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin-bottom: 16px; }
+.grid4-compact { display: grid; grid-template-columns: 0.65fr repeat(3,1fr); gap: 16px; margin-bottom: 16px; }
 .stack  { display: flex; flex-direction: column; gap: 16px; }
 
 /* KPI cards */
@@ -543,10 +544,10 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios da Operação</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento Saída por NotaFiscal</label><input type="file" id="fileOp"></div>
-          <div class="file-field"><label>Acompanhamento Saída NF Expedida e Cancelada</label><input type="file" id="fileExp"></div>
-          <div class="file-field"><label>Itens de NF de Saída</label><input type="file" id="fileItensNF"></div>
-          <div class="file-field"><label>Ecommerce - Pedidos (Geral) - SAP</label><input type="file" id="filePedidosEcomm"></div>
+          <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
+          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
+          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
         </div>
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
@@ -555,11 +556,11 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios do Inbound</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Controle Nota Fiscal (Recebimento)</label><input type="file" id="fileRecebs"></div>
-          <div class="file-field"><label>Itens de NF</label><input type="file" id="fileItensEntrada"></div>
-          <div class="file-field"><label>Gerenciar Ordem de Recebimento</label><input type="file" id="fileOR"></div>
-          <div class="file-field"><label>Kardex de Endereço</label><input type="file" id="fileKardex"></div>
-          <div class="file-field"><label>Estoque Local por Lote (RECEBIMENTO - STAGE)</label><input type="file" id="fileStage"></div>
+          <div class="file-field"><label>Controle_de_NF_Recebs.tsv</label><input type="file" id="fileRecebs"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensEntrada"></div>
+          <div class="file-field"><label>Gerenciador_de_OR.tsv</label><input type="file" id="fileOR"></div>
+          <div class="file-field"><label>Kardex_de_End.tsv</label><input type="file" id="fileKardex"></div>
+          <div class="file-field"><label>Recebimento_Stage.tsv</label><input type="file" id="fileStage"></div>
         </div>
         <button class="btn-upload" id="btnInbound">Atualizar Relatórios do Inbound</button>
         <div class="progress-box" id="progressInbound"></div>
@@ -568,18 +569,26 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Relatórios da Reversa</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Controle Nota Fiscal (Reversa)</label><input type="file" id="fileControleReversa"></div>
-          <div class="file-field"><label>Itens de NF</label><input type="file" id="fileItensReversa"></div>
-          <div class="file-field"><label>Troca E-commerce</label><input type="file" id="fileTrocaEcomm"></div>
+          <div class="file-field"><label>Controle_NF_Reversa.tsv</label><input type="file" id="fileControleReversa"></div>
+          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensReversa"></div>
+          <div class="file-field"><label>Troca_Ecomm.csv</label><input type="file" id="fileTrocaEcomm"></div>
         </div>
         <button class="btn-upload" id="btnReversa">Atualizar Relatórios da Reversa</button>
         <div class="progress-box" id="progressReversa"></div>
+        <div class="file-row" style="margin-top:12px;align-items:flex-end;">
+          <div class="file-field" style="max-width:220px;">
+            <label>Pendente de Análise de Qualidade (qtde do dia)</label>
+            <input type="number" min="0" step="1" id="inputQualidadePendente" placeholder="0">
+          </div>
+          <button class="btn-upload" id="btnSalvarQualidade" onclick="salvarAnaliseQualidade()" style="width:auto;padding:8px 16px;">Salvar</button>
+        </div>
+        <div class="progress-box" id="progressQualidade"></div>
       </div>
       <div class="upload-card">
         <h2>Atualizar Estoque (Operação)</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Estoque Local por Lote (PICKING)</label><input type="file" id="fileEstoquePicking"></div>
+          <div class="file-field"><label>Estoque_Picking.tsv</label><input type="file" id="fileEstoquePicking"></div>
         </div>
         <button class="btn-upload" id="btnEstoque">Atualizar Estoque</button>
         <div class="progress-box" id="progressEstoque"></div>
@@ -589,8 +598,8 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Balanço de Estoque</h2>
         <div class="freq">Frequência: semanal / sob demanda</div>
         <div class="file-row">
-          <div class="file-field"><label>Estoque Local por Lote (Geral)</label><input type="file" id="fileWMS"></div>
-          <div class="file-field"><label>Estoque Completo SAP</label><input type="file" id="fileSAP"></div>
+          <div class="file-field"><label>Estoque_completo_WMS.tsv</label><input type="file" id="fileWMS"></div>
+          <div class="file-field"><label>Estoque_SAP.xlsx</label><input type="file" id="fileSAP"></div>
         </div>
         <button class="btn-upload" id="btnBalanco">Atualizar Balanço</button>
         <div class="progress-box" id="progressBalanco"></div>
@@ -601,9 +610,9 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Bases Gerais</h2>
         <div class="freq">Frequência: Embalas toda terça | Custo e Acrônimos raramente</div>
         <div class="file-row">
-          <div class="file-field"><label>Base de Embalagem</label><input type="file" id="fileEmbalas"></div>
-          <div class="file-field"><label>Base de Acrônimos</label><input type="file" id="fileAcronimos"></div>
-          <div class="file-field"><label>Base de Custo</label><input type="file" id="fileCusto"></div>
+          <div class="file-field"><label>Embalas.xlsx</label><input type="file" id="fileEmbalas"></div>
+          <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
+          <div class="file-field"><label>Base_Custo.xlsx</label><input type="file" id="fileCusto"></div>
         </div>
         <button class="btn-upload" id="btnBasesGerais">Atualizar Bases Gerais</button>
         <div class="progress-box" id="progressBasesGerais"></div>
@@ -612,7 +621,7 @@ table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); backg
         <h2>Atualizar Forecast Mensal</h2>
         <div class="freq">Frequência: mensal</div>
         <div class="file-row">
-          <div class="file-field"><label>Curva de Faturamento - Mensal</label><input type="file" id="fileForecast"></div>
+          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
         </div>
         <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
         <div class="progress-box" id="progressForecast"></div>
@@ -1464,6 +1473,25 @@ ligarBotao('btnReversa', 'progressReversa', processarRelatoriosReversa, () => {
   return (c&&i&&t) ? { arquivoControle: c, arquivoItens: i, arquivoTroca: t } : null;
 });
 
+async function salvarAnaliseQualidade() {
+  const input = document.getElementById('inputQualidadePendente');
+  const valor = parseInt(input.value, 10);
+  if (isNaN(valor) || valor < 0) { mostrar('progressQualidade', 'Digite uma quantidade válida (inteiro ≥ 0).', 'erro'); return; }
+  const btn = document.getElementById('btnSalvarQualidade');
+  btn.disabled = true;
+  try {
+    const { error } = await supabaseClient.from('reversa_qualidade_manual').insert({ quantidade: valor });
+    if (error) throw error;
+    mostrar('progressQualidade', '✓ Salvo com sucesso.', 'ok');
+    input.value = '';
+  } catch(e) {
+    console.error(e);
+    mostrar('progressQualidade', '✗ Erro: ' + e.message, 'erro');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
   const f = document.getElementById('fileEstoquePicking').files[0];
   return f ? { arquivoEstoque: f } : null;
@@ -1749,22 +1777,32 @@ function renderMatrizPendente(matriz) {
 async function carregarReversa() {
   document.getElementById('reversa-conteudo').innerHTML =
     '<div class="loading-msg">Carregando dados da Reversa...</div>';
-  const { data, error } = await supabaseClient
-    .from('dashboard_snapshots')
-    .select('*')
-    .eq('pagina', 'reversa')
-    .order('gerado_em', { ascending: false })
-    .limit(1);
+  const [{ data, error }, qualidadeRes] = await Promise.all([
+    supabaseClient
+      .from('dashboard_snapshots')
+      .select('*')
+      .eq('pagina', 'reversa')
+      .order('gerado_em', { ascending: false })
+      .limit(1),
+    supabaseClient
+      .from('reversa_qualidade_manual')
+      .select('quantidade')
+      .order('criado_em', { ascending: false })
+      .limit(1)
+  ]);
   if (error || !data || data.length === 0) {
     document.getElementById('reversa-conteudo').innerHTML =
       '<div class="erro-msg">Nenhum dado encontrado. Use Abastecimento → Atualizar Relatórios da Reversa.</div>';
     return;
   }
-  renderizarReversa(data[0].payload);
+  var qualidadePendente = (qualidadeRes.data && qualidadeRes.data[0] && qualidadeRes.data[0].quantidade) || 0;
+  renderizarReversa(data[0].payload, null, qualidadePendente);
 }
 
-function renderizarReversa(p, marcaFiltro) {
+function renderizarReversa(p, marcaFiltro, qualidadePendente) {
   marcaFiltro = marcaFiltro || 'Todas';
+  qualidadePendente = (typeof qualidadePendente === 'number') ? qualidadePendente : (window._reversaQualidadePendente || 0);
+  window._reversaQualidadePendente = qualidadePendente;
   var kTotal = p.kpis.total || {};
   var kMarca = (p.kpis.por_marca || {})[marcaFiltro] || {};
   var k = marcaFiltro === 'Todas' ? kTotal : {
@@ -1774,6 +1812,7 @@ function renderizarReversa(p, marcaFiltro) {
     itens_armazenagem: kMarca.itens_arm   || 0,
     nfs_total:   (kMarca.nfs_vinc||0)   + (kMarca.nfs_arm||0),
     itens_total: (kMarca.itens_vinc||0) + (kMarca.itens_arm||0),
+    troca_ecomm_realizada: kMarca.troca_ecomm_realizada || 0,
   };
   function fmt(v){ return fmtInt(v); }
 
@@ -1798,12 +1837,14 @@ function renderizarReversa(p, marcaFiltro) {
   // BLOCO 1 — KPIs 3x2 (nova estrutura conforme rascunho)
   html += '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Pendências de Entrada'
     + '<button class="btn-tema" id="btnExportReversa" onclick="exportarReversaCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button></div>';
-  html += '<div class="grid3" style="margin-bottom:10px;">'
+  html += '<div class="grid4-compact" style="margin-bottom:10px;">'
+    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Pendente Troca-Ecommerce</div><div class="value">'+fmt(k.troca_ecomm_realizada)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">NFs Ag. Vinculação</div><div class="value">'+fmt(k.nfs_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">NFs Ag. Armazenagem</div><div class="value">'+fmt(k.nfs_armazenagem)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total NFs Pendentes</div><div class="value">'+fmt(k.nfs_total)+'</div></div>'
     + '</div>';
-  html += '<div class="grid3" style="margin-bottom:20px;">'
+  html += '<div class="grid4-compact" style="margin-bottom:20px;">'
+    + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Pendente de Análise de Qualidade</div><div class="value">'+fmt(qualidadePendente)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Ag. Vinculação</div><div class="value">'+fmt(k.itens_vinculacao)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Itens Ag. Armazenagem</div><div class="value">'+fmt(k.itens_armazenagem)+'</div></div>'
     + '<div class="kpi-card"><div class="bar bar-flat"></div><div class="tag">Total Itens Pendentes</div><div class="value">'+fmt(k.itens_total)+'</div></div>'
