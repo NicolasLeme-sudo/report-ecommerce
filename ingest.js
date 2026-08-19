@@ -1596,7 +1596,7 @@ const CLASS_SAP = {
 // Mapa completo de prefixo de endereço → classificação (Gabarito_Endereços_E-comm)
 var GABARITO_PREFIX = {
   "K01":"Não Comercializável",
-  "L05":"DExPARA (Aguardando ação fiscal)",
+  "L05":"DExPARA (Aguardando ação fiscal)","L04":"Aguardando ação fiscal (Emissão NF-D)","L03":"Aguardando ação fiscal (Emissão NF-D)",
   "T02":"Avaria (Incineração)","T07":"Avaria (Incineração)","T08":"Avaria (Incineração)",
   "T03":"Faltas de Recebimento","V03":"Faltas de Recebimento","V04":"Faltas de Recebimento",
   "S01":"Integração de NFs Reversa","S02":"Integração de NFs Reversa","S03":"Integração de NFs Reversa",
