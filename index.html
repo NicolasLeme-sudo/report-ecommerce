@@ -49,14 +49,15 @@
   --text-label:  #9BAAC4;
   --navy-deep:   #0F1623;
   --navy-mid:    #1E2A3D;
-  --olive:       #6B7F3A;
-  --olive-soft:  #2A3320;
-  --amber:       #C98F1D;
-  --amber-soft:  #332510;
-  --red:         #B23A2E;
-  --red-soft:    #331510;
-  --accent:      #3B82F6;
-  --accent-soft: #1a3a6b;
+  --olive:       #45C645;
+  --olive-soft:  #1B3320;
+  --amber:       #F6BD00;
+  --amber-soft:  #332B10;
+  --red:         #C8102E;
+  --red-soft:    #331015;
+  --accent:      #297ADF;
+  --accent-soft: #16283F;
+  --gelo:        #93A5B8;
   --shadow:      0 2px 12px rgba(0,0,0,.4);
 }
 
@@ -72,14 +73,15 @@
   --text-label:  #4B5563;
   --navy-deep:   #132043;
   --navy-mid:    #1F3363;
-  --olive:       #6B7F3A;
-  --olive-soft:  #E4E9D6;
-  --amber:       #C98F1D;
-  --amber-soft:  #F7ECD4;
-  --red:         #B23A2E;
-  --red-soft:    #F5DEDA;
-  --accent:      #3B82F6;
+  --olive:       #2E9E2E;
+  --olive-soft:  #E4F3E4;
+  --amber:       #C9960A;
+  --amber-soft:  #FBF0D9;
+  --red:         #C0392B;
+  --red-soft:    #FBE4E1;
+  --accent:      #1A6FC4;
   --accent-soft: #EFF6FF;
+  --gelo:        #8FA3B8;
   --shadow:      0 2px 8px rgba(0,0,0,.08);
 }
 
@@ -299,7 +301,7 @@ body {
 .bar-ok   { background: var(--olive); }
 .bar-warn { background: var(--amber); }
 .bar-bad  { background: var(--red); }
-.bar-flat { background: var(--border); }
+.bar-flat { background: var(--gelo); }
 .bar-info { background: var(--accent); }
 .kpi-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
 .kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
@@ -336,8 +338,8 @@ table.matrix thead th:first-child { text-align: left; border-radius: 6px 0 0 0; 
 table.matrix thead th:last-child  { border-radius: 0 6px 0 0; }
 table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent); background: var(--bg-input); }
 table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
-table.matrix tbody tr:last-child td,
-table.matrix tbody tr:last-child th { border-top: 2px solid var(--accent); background: var(--bg-input); font-weight: 700; }
+table.matrix tbody tr.total td,
+table.matrix tbody tr.total th { border-top: 2px solid var(--accent); background: var(--bg-input); font-weight: 700; }
 .cell-0  { color: var(--text-muted) !important; }
 .cell-hi { color: var(--red) !important; }
 
@@ -655,8 +657,20 @@ async function baixarArquivoOriginal(caminho, btnId) {
   try {
     const { data, error } = await supabaseClient.storage.from('arquivos-abastecimento').download(caminho);
     if (error) throw error;
+    // Desde o Ajuste 4, o backup é salvo comprimido em gzip pra caber no limite
+    // do bucket. Se a descompactação falhar (arquivo antigo, salvo antes dessa
+    // mudança, ou navegador sem suporte), usa o conteúdo original sem alterar nada.
+    let dataFinal = data;
+    if (typeof DecompressionStream !== 'undefined') {
+      try {
+        const ds = data.stream().pipeThrough(new DecompressionStream('gzip'));
+        dataFinal = await new Response(ds).blob();
+      } catch (e) {
+        dataFinal = data;
+      }
+    }
     const nomeArquivo = caminho.split('/').pop();
-    const url = URL.createObjectURL(data);
+    const url = URL.createObjectURL(dataFinal);
     const a = document.createElement('a');
     a.href = url; a.download = nomeArquivo;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
@@ -826,13 +840,29 @@ function alternarTema() {
    A lista vem do Supabase ordenada do mais novo pro mais velho,
    então invertemos para numerar do mais antigo (01) para o mais novo.
    ============================================================ */
-// Formata timestamp do Supabase (UTC) para horário de Brasília (UTC-3)
+// Formata timestamp do Supabase para horário de Brasília.
+// ingest.js sempre grava com new Date().toISOString(), ou seja, o instante
+// salvo é sempre UTC. Em vez de subtrair 3h na mão (quebra com horário de
+// verão e depende de como a string chega, com ou sem sufixo de fuso), lemos
+// como UTC explícito e formatamos direto no fuso oficial via Intl — assim
+// funciona certo independente da máquina de quem está vendo a tela.
+function paraDataBR(isoStr) {
+  let s = String(isoStr).replace(' ', 'T');
+  if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z'; // sem fuso na string -> assume UTC
+  return new Date(s);
+}
+function componentesDataBR(isoStr) {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(paraDataBR(isoStr));
+  const m = {};
+  partes.forEach(p => { m[p.type] = p.value; });
+  return m;
+}
 function formatarDataBR(isoStr) {
-  const utc = new Date(isoStr).getTime();
-  const dBR = new Date(utc - 3 * 60 * 60 * 1000);
-  const dia  = String(dBR.getUTCDate()).padStart(2,'0') + '/' + String(dBR.getUTCMonth()+1).padStart(2,'0') + '/' + dBR.getUTCFullYear();
-  const hora = String(dBR.getUTCHours()).padStart(2,'0') + ':' + String(dBR.getUTCMinutes()).padStart(2,'0');
-  return dia + ' ' + hora;
+  const c = componentesDataBR(isoStr);
+  return c.day + '/' + c.month + '/' + c.year + ' ' + c.hour + ':' + c.minute;
 }
   async function carregarDatasHistorico() {
   const { data, error } = await supabaseClient
@@ -863,9 +893,9 @@ function formatarDataBR(isoStr) {
   dataInvertida.forEach(function(row, i) {
     const numero = totalVersoes - i; // mais recente = número maior
     const numStr = String(numero).padStart(2, '0');
-    const dBR = new Date(row.gerado_em.replace(' ', 'T'));
-    const dia = String(dBR.getDate()).padStart(2,'0') + '/' + String(dBR.getMonth()+1).padStart(2,'0');
-    const hora = String(dBR.getHours()).padStart(2,'0') + 'h' + String(dBR.getMinutes()).padStart(2,'0');
+    const c = componentesDataBR(row.gerado_em);
+    const dia = c.day + '/' + c.month;
+    const hora = c.hour + 'h' + c.minute;
     const estrela = row.tipo_snapshot === 'manual' ? ' ★' : '';
     const label = `Versão ${numStr} — ${dia} ${hora}${estrela}`;
 
@@ -1307,7 +1337,7 @@ function renderMatriz(tabela, elId) {
     });
     h += `<td style="font-weight:700">${fmtInt(e.total)}</td></tr>`;
   });
-  h += `<tr><th>Total</th>`;
+  h += `<tr class="total"><th>Total</th>`;
   totMarca.forEach(t => h += `<td>${fmtInt(t)}</td>`);
   h += `<td>${fmtInt(totGeral)}</td></tr></tbody>`;
   el.innerHTML = h;
@@ -1770,7 +1800,7 @@ function renderMatrizPendente(matriz) {
     r.valores.forEach(function(v){ h += `<td>${fmtInt(v)}</td>`; });
     h += `<td style="font-weight:700">${fmtInt(r.total)}</td></tr>`;
   });
-  h += '<tr><th>Total</th>';
+  h += '<tr class="total"><th>Total</th>';
   totMarca.forEach(function(t){ h += `<td>${fmtInt(t)}</td>`; });
   h += `<td>${fmtInt(totGeral)}</td></tr></tbody>`;
   el.innerHTML = h;
@@ -2077,12 +2107,12 @@ function renderizarEstoque(p) {
     + '<button class="btn-tema" id="btnExportEstoque" onclick="exportarEstoqueCSV()" style="font-size:11px;padding:4px 10px;">\u2B07 Exportar Arquivo</button></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
-    + '<tr style="line-height:1.2;font-weight:700"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
+    + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
     + '</tbody></table></div>'
     + '<div class="section-title" style="margin-top:20px">Capacidade x ocupa\u00E7\u00E3o por segmento</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
-    + '<div class="card" style="padding:16px"><div style="font-size:14px;font-weight:500;margin-bottom:14px">\u{1F45F} Cal\u00E7ados</div><div style="display:flex;align-items:center;gap:20px;margin-bottom:16px">'+donutSVG(pctCalc,100)+'<div style="font-size:13px;color:var(--text-muted)"><div style="margin-bottom:6px">Ocupado: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segCalc.saldo)+'</span></div><div>Livre: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segCalc.cap-segCalc.saldo)+'</span></div></div></div><div style="border-top:1px solid var(--border);padding-top:14px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Quebra por marca</div>'+barras+'</div></div>'
-    + '<div class="card" style="padding:16px"><div style="font-size:14px;font-weight:500;margin-bottom:14px">\u{1F455} Vestu\u00E1rio</div><div style="display:flex;align-items:center;gap:20px">'+donutSVG(pctVest,100)+'<div style="font-size:13px;color:var(--text-muted)"><div style="margin-bottom:6px">Ocupado: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segVest.saldo)+'</span></div><div>Livre: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segVest.cap-segVest.saldo)+'</span></div></div></div></div>'
+    + '<div class="card" style="padding:16px"><div style="font-size:14px;font-weight:500;margin-bottom:14px">\u{1F45F} Cal\u00E7ados</div><div style="display:flex;align-items:center;gap:20px;margin-bottom:16px">'+donutSVG(pctCalc,100)+'<div style="font-size:13px;color:var(--text-muted)"><div style="margin-bottom:6px">Ocupado: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segCalc.saldo)+'</span></div><div style="margin-bottom:6px">Livre: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segCalc.cap-segCalc.saldo)+'</span></div><div style="padding-top:7px;border-top:1px solid var(--border)">Total Geral: <span style="font-size:15px;font-weight:700;color:var(--text)">'+fmtInt(segCalc.cap)+'</span></div></div></div><div style="border-top:1px solid var(--border);padding-top:14px"><div style="font-size:11px;color:var(--text-muted);margin-bottom:12px">Quebra por marca</div>'+barras+'</div></div>'
+    + '<div class="card" style="padding:16px"><div style="font-size:14px;font-weight:500;margin-bottom:14px">\u{1F455} Vestu\u00E1rio</div><div style="display:flex;align-items:center;gap:20px">'+donutSVG(pctVest,100)+'<div style="font-size:13px;color:var(--text-muted)"><div style="margin-bottom:6px">Ocupado: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segVest.saldo)+'</span></div><div style="margin-bottom:6px">Livre: <span style="font-size:15px;font-weight:500;color:var(--text)">'+fmtInt(segVest.cap-segVest.saldo)+'</span></div><div style="padding-top:7px;border-top:1px solid var(--border)">Total Geral: <span style="font-size:15px;font-weight:700;color:var(--text)">'+fmtInt(segVest.cap)+'</span></div></div></div></div>'
     + '</div>';
 }
 
@@ -2132,7 +2162,7 @@ function renderizarBalanco(p) {
     </tr>`;
   });
   var totPct = totSapQ > 0 ? (totDiffQ / totSapQ * 100) : 0;
-  linhasCruz += `<tr style="font-weight:700;border-top:2px solid var(--border)">
+  linhasCruz += `<tr class="total">
     <th>Total Geral</th><th>—</th>
     <td>${fmtQ(totWmsQ)}</td><td>${fmtV(totWmsV)}</td>
     <td>${fmtQ(totSapQ)}</td><td>${fmtV(totSapV)}</td>
@@ -2146,7 +2176,7 @@ function renderizarBalanco(p) {
   (p.estoque_wms||[]).forEach(function(r){
     linhasWMS += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${fmtPct(r.pct)}</td></tr>`;
   });
-  linhasWMS += `<tr style="font-weight:700;border-top:2px solid var(--border)"><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
+  linhasWMS += `<tr class="total"><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
 
   // Bloco 3: Estoque SAP Detalhado — com BIN do lado da classificação
   let linhasSAP = '';
@@ -2154,7 +2184,7 @@ function renderizarBalanco(p) {
     var desc = r.bin ? r.bin + ' — ' + r.classificacao : r.classificacao;
     linhasSAP += `<tr><th>${desc}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${fmtPct(r.pct)}</td></tr>`;
   });
-  linhasSAP += `<tr style="font-weight:700;border-top:2px solid var(--border)"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
+  linhasSAP += `<tr class="total"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
 
   window._balancoPayload = p;
   document.getElementById('balanco-conteudo').innerHTML = `

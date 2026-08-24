@@ -399,7 +399,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   onProgress("Carregando base de embalagem do Supabase...");
   const embalasMap = new Map();
   let embalasOffset = 0;
-  const LOTE_EMBALAS = 1000;
+  const LOTE_EMBALAS = 5000;
   while (true) {
     const { data: loteEmbalas, error: erroEmbalas } = await supabaseClient
       .from("dim_embalas")
@@ -632,9 +632,27 @@ async function upsertPedidoItens(itensPorPedido) {
 // sobrescreve (upsert) — o mesmo caminho fixo é usado a cada reabastecimento.
 async function uploadArquivoOriginal(caminho, file) {
   if (!file) return;
+  // Comprime em gzip antes de subir — os relatórios maiores (Estoque_Picking,
+  // Controle_NF_Reversa) passavam do limite de tamanho do bucket. O texto de
+  // um TSV comprime bem, então isso resolve a maior parte dos casos sem
+  // depender de mudar configuração do Supabase. O botão "Exportar Arquivo"
+  // (baixarArquivoOriginal, em index.html) descompacta na hora do download.
+  let corpo = file;
+  let tipo = file.type || "text/plain";
+  try {
+    if (typeof CompressionStream !== "undefined") {
+      const cs = file.stream().pipeThrough(new CompressionStream("gzip"));
+      corpo = await new Response(cs).blob();
+      tipo = "application/gzip";
+    }
+  } catch (e) {
+    console.error("Erro ao comprimir " + caminho + ", enviando sem compressão:", e);
+    corpo = file;
+    tipo = file.type || "text/plain";
+  }
   const { error } = await supabaseClient.storage
     .from("arquivos-abastecimento")
-    .upload(caminho, file, { upsert: true, contentType: file.type || "text/plain" });
+    .upload(caminho, corpo, { upsert: true, contentType: tipo });
   if (error) console.error("Erro ao guardar arquivo original (" + caminho + "):", error);
 }
 
@@ -1074,7 +1092,19 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
 
   // Forecast e Integração — permanecem como séries de 7 dias, fora do escopo dos filtros
   const forecastRows = await buscarForecastUltimos7Dias();
-  await fecharExpedicaoDoDia(pedidos); const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
+  // Refecha os últimos 7 dias corridos a cada reprocessamento, não só "ontem".
+  // fecharExpedicaoDoDia faz upsert (onConflict: "data"), então refechar um
+  // dia que já estava certo não tem custo. Isso autocorrige qualquer dia que
+  // tenha ficado sem registro em expedicao_diaria — por exemplo, um dia que
+  // caiu num fim de semana em que ninguém rodou o abastecimento, e que por
+  // isso nunca foi fechado como "ontem" de nenhuma execução.
+  const hojeExpedFechamento = new Date();
+  for (let diasAtras = 1; diasAtras <= 7; diasAtras++) {
+    const dAlvo = new Date(hojeExpedFechamento);
+    dAlvo.setDate(hojeExpedFechamento.getDate() - diasAtras);
+    await fecharExpedicaoDoDia(pedidos, paraDataISOLocal(dAlvo));
+  }
+  const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = computarIntegracao7Dias(pedidos);
 
   // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria;
@@ -1253,10 +1283,19 @@ async function processarRelatoriosInbound(files, options) {
   // a coluna "Operação" é o que distingue as duas ("Recebimento" vs "Reversa"). Sem esse filtro,
   // notas de reversa emitidas pela própria Vulcabras acabavam entrando como se fossem recebimento.
   const statusValidos = ["IMPORTADA", "EM CARGA/OR", "PROCESSADA"];
-  const nfRegistros = linhasRecebs
+  // Ordem de avanço da NF, do início do fluxo pro fim.
+  const prioridadeStatusNF = { "IMPORTADA": 0, "EM CARGA/OR": 1, "PROCESSADA": 2 };
+  // DEDUPLICAÇÃO: a mesma NF pode aparecer mais de uma vez no relatório — uma
+  // linha por mudança de status ao longo do tempo (vinculada a uma OR,
+  // depois processada). Sem agrupar por id_nota_fiscal antes do insert, o
+  // lote de 500 que contém a NF duplicada é rejeitado inteiro pelo Supabase
+  // (409, chave duplicada) — e a NF some do banco, derrubando junto os itens
+  // que dependem dela. Mantemos sempre a linha do status mais avançado.
+  const nfPorId = new Map();
+  linhasRecebs
     .filter(function(r){ return statusValidos.includes(r["Status"]) && String(r["Operação"] || "").trim().toLowerCase() === "recebimento"; })
-    .map(function(r){
-      return {
+    .forEach(function(r){
+      const reg = {
         id_nota_fiscal:     Number(r["idNotaFiscal"]),
         nota_fiscal:        r["Nota Fiscal"],
         status:             r["Status"],
@@ -1266,7 +1305,12 @@ async function processarRelatoriosInbound(files, options) {
         emitente:           r["Emitente"],
         ordem_recebimento:  r["Ordem de Recebimento"],
       };
+      const existente = nfPorId.get(reg.id_nota_fiscal);
+      if (!existente || prioridadeStatusNF[reg.status] > prioridadeStatusNF[existente.status]) {
+        nfPorId.set(reg.id_nota_fiscal, reg);
+      }
     });
+  const nfRegistros = Array.from(nfPorId.values());
 
   onProgress("Gravando " + nfRegistros.length + " NFs...");
   // Limpa e reinsere (base mensal — sempre substitui)
@@ -1950,8 +1994,12 @@ var embalasBarraMap = new Map();
     embalasSkuMap.clear();
     var off = 0;
     var falhou = false;
+    // Lote maior (era 1000) reduz o número de requisições sequenciais — com
+    // ~263 mil linhas isso significava ~264 idas e voltas ao banco, e a
+    // paginação vinha parando no meio do caminho sem erro explícito.
+    var LOTE_EMBALAS_2 = 5000;
     while (true) {
-      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off+999);
+      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
       if (error) {
         console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaEmbalas + "):", error);
         onProgress("✗ Erro ao carregar embalagem (offset " + off + "), tentativa " + tentativaEmbalas + ": " + error.message);
@@ -1964,8 +2012,8 @@ var embalasBarraMap = new Map();
         if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
       });
       onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (tentativa " + tentativaEmbalas + ")...");
-      if (data.length < 1000) break;
-      off += 1000;
+      if (data.length < LOTE_EMBALAS_2) break;
+      off += LOTE_EMBALAS_2;
     }
 
     // Considera completo se carregou pelo menos 99% do total esperado
