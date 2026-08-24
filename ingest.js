@@ -399,6 +399,14 @@ async function processarRelatoriosDaOperacao(files, options) {
   onProgress("Carregando base de embalagem do Supabase...");
   const embalasMap = new Map();
   let embalasOffset = 0;
+  // Pede em lotes "grandes" (5000) pra reduzir o número de requisições, mas o
+  // Supabase/PostgREST costuma ter um teto próprio por requisição (comumente
+  // 1000 linhas) independente do que a gente pede no range — pedir 5000 e
+  // considerar "chegou ao fim" só quando devolve MENOS que 5000 é um bug: se
+  // o teto do servidor for 1000, toda página real também devolve só 1000,
+  // e o loop para na primeira página, achando que só existem 1000 linhas.
+  // Por isso aqui o corte de "acabou" é sempre por página vazia, e o
+  // avanço do offset usa o tamanho REAL devolvido, não o tamanho pedido.
   const LOTE_EMBALAS = 5000;
   while (true) {
     const { data: loteEmbalas, error: erroEmbalas } = await supabaseClient
@@ -409,8 +417,7 @@ async function processarRelatoriosDaOperacao(files, options) {
     loteEmbalas.forEach(function(e) {
       embalasMap.set(String(e.codigo_barra).trim(), { segmento: e.segmento, marca: e.marca });
     });
-    if (loteEmbalas.length < LOTE_EMBALAS) break;
-    embalasOffset += LOTE_EMBALAS;
+    embalasOffset += loteEmbalas.length;
   }
   onProgress("Base de embalagem: " + embalasMap.size + " SKUs carregados.");
 
@@ -1994,9 +2001,14 @@ var embalasBarraMap = new Map();
     embalasSkuMap.clear();
     var off = 0;
     var falhou = false;
-    // Lote maior (era 1000) reduz o número de requisições sequenciais — com
-    // ~263 mil linhas isso significava ~264 idas e voltas ao banco, e a
-    // paginação vinha parando no meio do caminho sem erro explícito.
+    // Lote "pedido" maior (5000) reduz o número de requisições — mas o
+    // Supabase/PostgREST costuma limitar cada requisição a um teto próprio
+    // (comumente 1000 linhas) independente do range pedido. Por isso o fim
+    // da paginação é decidido só por página vazia, nunca por "devolveu menos
+    // que o pedido" — senão, se o teto do servidor for menor que o lote
+    // pedido, a paginação para na primeira página achando que acabou (foi
+    // exatamente essa a causa do carregamento incompleto original). O
+    // avanço do offset usa o tamanho REAL devolvido, não o tamanho pedido.
     var LOTE_EMBALAS_2 = 5000;
     while (true) {
       const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
@@ -2012,8 +2024,7 @@ var embalasBarraMap = new Map();
         if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
       });
       onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (tentativa " + tentativaEmbalas + ")...");
-      if (data.length < LOTE_EMBALAS_2) break;
-      off += LOTE_EMBALAS_2;
+      off += data.length;
     }
 
     // Considera completo se carregou pelo menos 99% do total esperado

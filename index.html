@@ -471,8 +471,9 @@ table.matrix tbody tr.total th { border-top: 2px solid var(--accent); background
     <div class="menu-item" onclick="mostrarSecao('estoque')">
       <span class="icone">🏪</span> Estoque
     </div>
-    <div class="menu-item" onclick="mostrarSecao('reversa')">
+    <div class="menu-item" id="menuReversa" onclick="mostrarSecao('reversa')">
       <span class="icone">↩️</span> Reversa
+      <span class="badge-admin">Admin</span>
     </div>
 
     <div class="sidebar-section-label">Gestão</div>
@@ -761,6 +762,13 @@ const titulos = {
 };
 
 function mostrarSecao(secao) {
+  // Bloqueio de defesa em profundidade: Reversa é restrita ao perfil Admin.
+  // A visibilidade do item no menu já esconde essa opção pra quem não é
+  // admin (ver aplicarVisibilidadeMenu) — isto aqui cobre o caso de alguém
+  // forçar a chamada manualmente (ex: console do navegador). A proteção
+  // definitiva do dado continua sendo a RLS no Supabase.
+  if (secao === 'reversa' && perfilAtual !== 'admin') return;
+
   document.querySelectorAll('.secao').forEach(el => el.classList.remove('ativa'));
   document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('ativo'));
 
@@ -2274,6 +2282,13 @@ function aplicarVisibilidadeMenu() {
       irmao = irmao.nextElementSibling;
     }
   });
+
+  // Reversa é um caso à parte: mora dentro do grupo "Operação" (visível pra
+  // todo mundo), mas o acesso a ela é restrito só ao Admin — nem Gestão vê.
+  // Por isso é tratado fora do loop acima, sobrescrevendo o que o grupo
+  // "Operação" definiu pra esse item específico.
+  const menuReversa = document.getElementById('menuReversa');
+  if (menuReversa) menuReversa.style.display = (perfilAtual === 'admin') ? '' : 'none';
 }
 
 function mostrarTelaLogin() {
