@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="escuro">
+<!--
+  REPORT DISTRIBUIDORA — Balanço e Detalhamento de Estoque
+  =========================================================
+  ESTE ARQUIVO SÓ LÊ E DESENHA.
+
+  Ele busca em `dashboard_snapshots` o registro mais recente da página
+  'estoque' e renderiza o JSON que já veio pronto do ingest.js. Nenhuma regra
+  de negócio é recalculada aqui. Se um número estiver errado na tela, o lugar
+  de investigar é o ingest.js (como o número foi calculado), não este arquivo
+  (como ele é exibido) — regra herdada do Report E-commerce, README seção 1.
+
+  A única aritmética que existe aqui é somar baldes de status já calculados
+  (payload.st) quando o usuário liga/desliga um filtro — isso é agregação de
+  exibição, não regra de negócio.
+
+  ESTRUTURA:
+    1. <head>  — tokens de tema + CSS
+    2. <body>  — tela de login, sidebar, topbar, seções
+    3. <script src="ingest.js">  — processamento (só usado na tela de Admin)
+    4. <script> inline — navegação, renderização, filtros
+-->
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Report Distribuidora — Estoque</title>
+<link rel="icon" href="favicon.png" type="image/png">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+/* ============================================================
+   1) TOKENS DE TEMA
+   Trocar o atributo data-tema no <html> troca todas as cores.
+   Nenhuma cor é hard-coded fora deste bloco — regra da skill
+   vulcabras-visual-identity e do README seção 2.1.
+   ============================================================ */
+[data-tema="escuro"] {
+  --bg:          #0F1623;
+  --bg-card:     #192032;
+  --bg-sidebar:  #111827;
+  --bg-input:    #1E2A3D;
+  --border:      #253048;
+  --text:        #E8EBF2;
+  --text-muted:  #7C8BA8;
+  --text-label:  #9BAAC4;
+  --olive:       #45C645;
+  --olive-soft:  #1B3320;
+  --amber:       #F6BD00;
+  --amber-soft:  #332B10;
+  --red:         #C8102E;
+  --red-soft:    #331015;
+  --accent:      #297ADF;
+  --accent-soft: #16283F;
+  --gelo:        #93A5B8;
+  --laranja:     #E8830D;
+  --brand-miz:   #DFBD41;
+  --brand-oly:   #297ADF;
+  --brand-ua:    #C8102E;
+  --shadow:      0 2px 12px rgba(0,0,0,.4);
+  --row-hover:   rgba(41,122,223,.10);
+}
+[data-tema="claro"] {
+  --bg:          #F3F4F7;
+  --bg-card:     #FFFFFF;
+  --bg-sidebar:  #132043;
+  --bg-input:    #F8F9FB;
+  --border:      #E1E4EA;
+  --text:        #1C2333;
+  --text-muted:  #6B7280;
+  --text-label:  #4B5563;
+  --olive:       #2E9E2E;
+  --olive-soft:  #E4F3E4;
+  --amber:       #C9960A;
+  --amber-soft:  #FBF0D9;
+  --red:         #C0392B;
+  --red-soft:    #FBE4E1;
+  --accent:      #1A6FC4;
+  --accent-soft: #EFF6FF;
+  --gelo:        #8FA3B8;
+  --laranja:     #C26A00;
+  --brand-miz:   #B8940A;
+  --brand-oly:   #1A6FC4;
+  --brand-ua:    #C0392B;
+  --shadow:      0 2px 8px rgba(0,0,0,.08);
+  --row-hover:   rgba(26,111,196,.07);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: "Segoe UI", "Segoe UI Semibold", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg); color: var(--text);
+  font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================================
+   2) LOGIN
+   ============================================================ */
+#telaLogin {
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+#telaLogin.ativo { display: flex; }
+.login-box {
+  width: 340px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 28px; box-shadow: var(--shadow);
+}
+.login-box h1 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+.login-box .kicker {
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--amber); font-weight: 600;
+}
+.login-box .linha-ouro { height: 1px; background: var(--amber); margin: 12px 0 20px; opacity: .7; }
+.campo { margin-bottom: 12px; }
+.campo label {
+  display: block; font-size: 11px; color: var(--text-label);
+  margin-bottom: 4px; text-transform: uppercase; letter-spacing: .06em;
+}
+.campo input {
+  width: 100%; padding: 9px 10px; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px; font-size: 13px;
+  font-family: inherit;
+}
+.campo input:focus { outline: none; border-color: var(--accent); }
+.btn {
+  width: 100%; padding: 10px; background: var(--accent); color: #fff;
+  border: none; border-radius: 5px; font-size: 13px; font-weight: 600;
+  cursor: pointer; font-family: inherit;
+}
+.btn:hover { filter: brightness(1.1); }
+.btn:disabled { opacity: .5; cursor: default; }
+.erro { color: var(--red); font-size: 12px; margin-top: 10px; min-height: 16px; }
+
+/* ============================================================
+   3) LAYOUT: SIDEBAR + TOPBAR + CONTEÚDO
+   ============================================================ */
+#app { display: none; }
+#app.ativo { display: block; }
+
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 210px;
+  background: var(--bg-sidebar); border-right: 1px solid var(--border);
+  padding: 18px 0; overflow-y: auto; z-index: 20;
+}
+.sidebar-logo { padding: 0 18px 16px; }
+.sidebar-logo img { height: 26px; display: block; }
+.sidebar-section-label {
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+  color: #7C8BA8; padding: 14px 18px 6px; font-weight: 600;
+}
+.sidebar-item {
+  display: block; padding: 8px 18px; color: #C3CEDD; font-size: 13px;
+  cursor: pointer; border-left: 3px solid transparent; user-select: none;
+}
+.sidebar-item:hover { background: rgba(255,255,255,.05); }
+.sidebar-item.ativo {
+  background: rgba(41,122,223,.15); border-left-color: var(--accent); color: #fff;
+  font-weight: 600;
+}
+
+.topbar {
+  position: fixed; left: 210px; right: 0; top: 0; height: 52px;
+  background: var(--bg-card); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 22px; z-index: 15;
+}
+.topbar-titulo { font-size: 14px; font-weight: 700; }
+.topbar-dir { display: flex; align-items: center; gap: 14px; }
+.topbar-meta { font-size: 11px; color: var(--text-muted); text-align: right; }
+.btn-mini {
+  padding: 5px 11px; background: var(--bg-input); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px; font-size: 11px;
+  cursor: pointer; font-family: inherit;
+}
+.btn-mini:hover { border-color: var(--accent); }
+
+.conteudo { margin-left: 210px; padding: 70px 22px 40px; }
+.secao { display: none; }
+.secao.ativa { display: block; }
+
+/* ============================================================
+   4) COMPONENTES — cards, títulos, KPIs
+   Padrão da skill: card neutro sem sombra pesada; kicker em caixa
+   alta + linha fina dourada sob o título de seção. Nada de barras
+   decorativas coloridas nas bordas dos cards.
+   ============================================================ */
+.section-title {
+  font-size: 14px; font-weight: 700; margin-bottom: 12px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--amber);
+}
+.kicker {
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--amber); font-weight: 600; margin-bottom: 3px;
+}
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-bottom: 16px;
+}
+
+.kpi-row {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px; margin-bottom: 16px;
+}
+.kpi {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 13px 15px;
+}
+.kpi .rot {
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-label); margin-bottom: 5px;
+}
+.kpi .val { font-size: 21px; font-weight: 300; letter-spacing: -.01em; }
+.kpi .val.forte { font-weight: 700; font-size: 19px; }
+.kpi .sub { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+/* ============================================================
+   5) FILTRO DE STATUS
+   ============================================================ */
+.filtros { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.filtros .rot-filtro {
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--text-label); margin-right: 2px;
+}
+.chip {
+  padding: 5px 11px; border-radius: 14px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-muted); user-select: none; font-weight: 600;
+}
+.chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+
+/* ============================================================
+   6) BARRA DE COMPOSIÇÃO (gráfico)
+   Barra empilhada horizontal — mostra a participação de cada
+   armazém/marca no valor total sem ocupar espaço de um gráfico
+   inteiro. Cor tem significado: cada marca tem sua cor
+   institucional; os armazéns usam o semáforo de disponibilidade.
+   ============================================================ */
+.barra-comp { display: flex; height: 26px; border-radius: 5px; overflow: hidden; margin-bottom: 10px; }
+.barra-comp > div {
+  /* min-width para que um armazém de participação ínfima não desapareça da
+     barra — a leitura "esse armazém existe e é pequeno" é diferente de
+     "esse armazém não aparece". */
+  min-width: 3px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: #fff; overflow: hidden;
+  white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.45);
+}
+.legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; color: var(--text-muted); }
+.legenda span { display: flex; align-items: center; gap: 6px; }
+.legenda i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* Barras horizontais comparativas (por marca) */
+.bar-list { display: flex; flex-direction: column; gap: 9px; }
+.bar-item { display: grid; grid-template-columns: 110px 1fr 120px; align-items: center; gap: 10px; }
+.bar-item .nome { font-size: 11px; font-weight: 600; }
+.bar-item .trilho { background: var(--bg-input); border-radius: 3px; height: 16px; overflow: hidden; }
+.bar-item .preench { height: 100%; border-radius: 3px; }
+.bar-item .num { font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   7) ÁRVORE ABRE/FECHA (Armazém › Marca › Família)
+   Estrutura visual espelhada do dash financeiro: uma listagem
+   hierárquica com botão −/+ na frente da descrição, tudo na mesma
+   tabela, para que as colunas numéricas fiquem alinhadas entre
+   todos os níveis.
+   ============================================================ */
+table.arvore { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.arvore thead th {
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-label); font-weight: 600; padding: 7px 10px;
+  border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap;
+}
+table.arvore thead th.grupo {
+  text-align: center; color: var(--text); border-bottom: 1px solid var(--amber);
+  font-size: 11px; letter-spacing: .1em;
+}
+table.arvore thead th.esq { text-align: left; }
+table.arvore tbody td, table.arvore tbody th {
+  padding: 7px 10px; text-align: right; font-size: 12px;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+table.arvore tbody th { text-align: left; font-weight: 400; }
+table.arvore tbody tr:hover { background: var(--row-hover); }
+
+/* Nível 1 — Armazém */
+tr.n1 > * { background: var(--bg-input); font-weight: 700; }
+tr.n1 th { font-weight: 700; }
+/* Nível 2 — Marca */
+tr.n2 th { font-weight: 600; }
+tr.n2 > * { font-size: 12px; }
+/* Nível 3 — Família */
+tr.n3 th, tr.n3 td { color: var(--text-muted); font-size: 11.5px; }
+
+/* Linha de total: marcada por CLASSE, nunca por :last-child.
+   Estilizar "a última linha" por posição foi um bug real no report do
+   e-commerce (README 2.4) — a 10ª linha de um Top 10 aparecia como
+   se fosse o total geral. Aqui a classe é aplicada explicitamente
+   só na linha que É de fato o total. */
+tr.total > th, tr.total > td {
+  border-top: 2px solid var(--accent); background: var(--bg-input);
+  font-weight: 700; font-size: 12.5px; color: var(--text);
+}
+
+.toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-right: 8px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  font-size: 12px; line-height: 1; cursor: pointer; user-select: none;
+  color: var(--text-muted); flex: none;
+}
+.toggle:hover { border-color: var(--accent); color: var(--text); }
+.toggle.vazio { visibility: hidden; }
+.desc { display: flex; align-items: center; }
+.ind-2 { padding-left: 22px; }
+.ind-3 { padding-left: 44px; }
+
+.badge {
+  display: inline-block; padding: 1px 7px; border-radius: 9px;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em; margin-left: 8px;
+  vertical-align: middle;
+}
+.badge.disp  { background: var(--olive-soft); color: var(--olive); }
+.badge.bloq  { background: var(--red-soft);   color: var(--red); }
+.badge.anal  { background: var(--amber-soft); color: var(--amber); }
+.badge.namap { background: var(--amber-soft); color: var(--laranja); }
+.cod { color: var(--text-muted); font-size: 10.5px; margin-right: 6px; font-weight: 400; }
+
+/* Coluna KPI — a bandeira sinaliza estoque que NÃO está disponível
+   para venda (bloqueado ou em análise). Vermelho e âmbar aqui são
+   indicadores, não decoração. */
+.flag { font-size: 11px; }
+.flag.bloq { color: var(--red); }
+.flag.anal { color: var(--amber); }
+
+.aviso {
+  border-radius: 6px; padding: 10px 13px; font-size: 12px; margin-bottom: 14px;
+  border: 1px solid var(--amber); background: var(--amber-soft); color: var(--text);
+}
+.aviso.ok { border-color: var(--olive); background: var(--olive-soft); }
+.aviso.erro { border-color: var(--red); background: var(--red-soft); }
+.loading-msg { color: var(--text-muted); font-size: 12px; padding: 20px 0; }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .sidebar { display: none; }
+  .topbar { left: 0; }
+  .conteudo { margin-left: 0; }
+}
+
+/* Área de upload (Admin) */
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 8px; padding: 28px;
+  text-align: center; color: var(--text-muted); cursor: pointer;
+}
+.dropzone:hover { border-color: var(--accent); color: var(--text); }
+.log {
+  margin-top: 14px; font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px; color: var(--text-muted); white-space: pre-wrap;
+  max-height: 220px; overflow-y: auto;
+}
+</style>
+</head>
+
+<body>
+
+<!-- ======================= LOGIN ======================= -->
+<div id="telaLogin">
+  <div class="login-box">
+    <div class="kicker">Vulcabras · Distribuidora</div>
+    <h1>Report de Estoque</h1>
+    <div class="linha-ouro"></div>
+    <form id="formLogin">
+      <div class="campo">
+        <label for="inEmail">E-mail</label>
+        <input id="inEmail" type="email" autocomplete="username" required>
+      </div>
+      <div class="campo">
+        <label for="inSenha">Senha</label>
+        <input id="inSenha" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn" id="btnEntrar" type="submit">Entrar</button>
+      <div class="erro" id="loginErro"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ======================= APP ======================= -->
+<div id="app">
+  <nav class="sidebar">
+    <div class="sidebar-logo"><img src="favicon.png" alt="Vulcabras"></div>
+
+    <div class="sidebar-section-label">Operação</div>
+    <div class="sidebar-item ativo" id="menuEstoque" onclick="mostrarSecao('estoque')">Estoque</div>
+
+    <div class="sidebar-section-label">Admin</div>
+    <div class="sidebar-item" id="menuAtualizar" onclick="mostrarSecao('atualizar')">Atualizar dados</div>
+  </nav>
+
+  <header class="topbar">
+    <div class="topbar-titulo" id="tituloSecao">Balanço e Detalhamento de Estoque</div>
+    <div class="topbar-dir">
+      <div class="topbar-meta" id="metaAtualizacao">—</div>
+      <button class="btn-mini" onclick="alternarTema()">Tema</button>
+      <button class="btn-mini" onclick="sair()">Sair</button>
+    </div>
+  </header>
+
+  <main class="conteudo">
+    <section class="secao ativa" id="secao-estoque">
+      <div id="estoque-conteudo"><div class="loading-msg">Carregando snapshot…</div></div>
+    </section>
+
+    <section class="secao" id="secao-atualizar">
+      <div class="kicker">Admin</div>
+      <div class="section-title">Atualizar posição de estoque</div>
+      <div class="card">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">
+          Envie o TXT da extração <strong>EX000914 — POSIÇÃO DO STOCK / LOCAIS STOCKAGEM</strong>,
+          exatamente como sai do sistema (sem abrir e salvar no Excel: o arquivo é de largura fixa
+          e qualquer reformatação quebra a leitura das colunas).
+        </p>
+        <div class="dropzone" id="dropzone">
+          Clique para selecionar o arquivo .txt
+          <input type="file" id="inputArquivo" accept=".txt,text/plain" style="display:none">
+        </div>
+        <div class="log" id="logIngest"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="ingest.js"></script>
+<script>
+/* ============================================================
+   CONFIGURAÇÃO DO SUPABASE
+   ------------------------------------------------------------
+   A anon key é PÚBLICA por design — quem protege o dado é a RLS
+   no Postgres (esquema.sql, seção 7), não o fato de a chave estar
+   "escondida" no front. Substitua os dois valores abaixo pelos do
+   seu projeto: Supabase → Project Settings → API.
+   ============================================================ */
+const SUPABASE_URL = 'https://SEU-PROJETO.supabase.co';
+const SUPABASE_ANON_KEY = 'COLE-SUA-ANON-KEY-AQUI';
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============================================================
+   FORMATAÇÃO
+   ------------------------------------------------------------
+   Data: o banco grava SEMPRE em UTC (new Date().toISOString()).
+   A conversão para o horário de Brasília acontece só aqui, na
+   exibição, via Intl.DateTimeFormat com timeZone fixo — nunca
+   somando/subtraindo horas na mão, que quebra em horário de verão
+   (README seção 3.3).
+   ============================================================ */
+function paraData(isoStr) {
+  let s = String(isoStr).replace(' ', 'T');
+  if (!/[Zz]|[+-]\d{2}:?\d{2}$/.test(s)) s += 'Z';  // sem timezone = assume UTC
+  return new Date(s);
+}
+function formatarDataHora(isoStr) {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(paraData(isoStr));
+  const m = {};
+  partes.forEach(function (p) { m[p.type] = p.value; });
+  return m.day + '/' + m.month + '/' + m.year + ' ' + m.hour + ':' + m.minute;
+}
+function formatarDataSimples(yyyymmdd) {
+  if (!yyyymmdd) return '—';
+  const p = String(yyyymmdd).split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+function fmtInt(v) {
+  return Math.round(Number(v) || 0).toLocaleString('pt-BR');
+}
+function fmtMoeda(v) {
+  return 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtMoedaCurta(v) {
+  const n = Number(v) || 0;
+  if (Math.abs(n) >= 1e6) return 'R$ ' + (n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mi';
+  if (Math.abs(n) >= 1e3) return 'R$ ' + (n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' mil';
+  return fmtMoeda(n);
+}
+function fmtPct(v) {
+  const n = Number(v) || 0;
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+}
+function escapar(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+/* ============================================================
+   TEMA
+   ============================================================ */
+function alternarTema() {
+  const html = document.documentElement;
+  const novo = html.getAttribute('data-tema') === 'escuro' ? 'claro' : 'escuro';
+  html.setAttribute('data-tema', novo);
+  try { localStorage.setItem('tema', novo); } catch (e) { /* modo privado */ }
+  if (window._snapshot) renderizarEstoque(window._snapshot);  // redesenha as cores dos gráficos
+}
+(function () {
+  try {
+    const salvo = localStorage.getItem('tema');
+    if (salvo) document.documentElement.setAttribute('data-tema', salvo);
+  } catch (e) { /* ignora */ }
+})();
+
+function corDoTema(nome) {
+  return getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+}
+
+/* ============================================================
+   NAVEGAÇÃO
+   ============================================================ */
+const TITULOS = {
+  estoque: 'Balanço e Detalhamento de Estoque',
+  atualizar: 'Atualizar dados',
+};
+
+function mostrarSecao(secao) {
+  // Trava de rota: esconder o item do menu não basta, porque a navegação
+  // pode ser forçada pelo console. Quem não é admin não entra na tela de
+  // ingestão nem manualmente. (A proteção do DADO é a RLS, no banco.)
+  if (secao === 'atualizar' && perfilAtual !== 'admin') return;
+
+  document.querySelectorAll('.secao').forEach(function (s) { s.classList.remove('ativa'); });
+  document.getElementById('secao-' + secao).classList.add('ativa');
+  document.querySelectorAll('.sidebar-item').forEach(function (i) { i.classList.remove('ativo'); });
+  const item = { estoque: 'menuEstoque', atualizar: 'menuAtualizar' }[secao];
+  if (item) document.getElementById(item).classList.add('ativo');
+  document.getElementById('tituloSecao').textContent = TITULOS[secao] || '';
+}
+
+function aplicarVisibilidadeMenu() {
+  document.querySelectorAll('.sidebar-section-label').forEach(function (label) {
+    const nome = label.textContent.trim();
+    let visivel = true;
+    if (nome === 'Admin') visivel = (perfilAtual === 'admin');
+    label.style.display = visivel ? '' : 'none';
+    let irmao = label.nextElementSibling;
+    while (irmao && !irmao.classList.contains('sidebar-section-label')) {
+      irmao.style.display = visivel ? '' : 'none';
+      irmao = irmao.nextElementSibling;
+    }
+  });
+}
+
+/* ============================================================
+   AUTENTICAÇÃO
+   ============================================================ */
+let perfilAtual = null;
+
+async function iniciarApp() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { mostrarTelaLogin(); return; }
+  await aplicarSessao(session);
+}
+
+function mostrarTelaLogin() {
+  document.getElementById('telaLogin').classList.add('ativo');
+  document.getElementById('app').classList.remove('ativo');
+}
+
+async function aplicarSessao(session) {
+  const { data: perfil, error } = await supabaseClient
+    .from('perfis_acesso').select('role').eq('user_id', session.user.id).single();
+
+  if (error || !perfil) {
+    document.getElementById('loginErro').textContent =
+      'Usuário sem perfil de acesso configurado. Fale com o admin.';
+    await supabaseClient.auth.signOut();
+    mostrarTelaLogin();
+    return;
+  }
+
+  perfilAtual = perfil.role;
+  document.getElementById('telaLogin').classList.remove('ativo');
+  document.getElementById('app').classList.add('ativo');
+  aplicarVisibilidadeMenu();
+  await carregarEstoque();
+}
+
+document.getElementById('formLogin').addEventListener('submit', async function (ev) {
+  ev.preventDefault();
+  const btn = document.getElementById('btnEntrar');
+  const err = document.getElementById('loginErro');
+  btn.disabled = true; err.textContent = '';
+  const { data, error } = await supabaseClient.auth.signInWithPassword({
+    email: document.getElementById('inEmail').value.trim(),
+    password: document.getElementById('inSenha').value,
+  });
+  btn.disabled = false;
+  if (error) { err.textContent = 'E-mail ou senha inválidos.'; return; }
+  await aplicarSessao(data.session);
+});
+
+async function sair() {
+  await supabaseClient.auth.signOut();
+  perfilAtual = null;
+  location.reload();
+}
+
+/* ============================================================
+   CARGA DO SNAPSHOT
+   ------------------------------------------------------------
+   Busca o registro mais recente da página 'estoque'. Não há
+   nenhum cálculo aqui: o JSON já vem agregado do ingest.js.
+   ============================================================ */
+async function carregarEstoque() {
+  const alvo = document.getElementById('estoque-conteudo');
+  const { data, error } = await supabaseClient
+    .from('dashboard_snapshots')
+    .select('payload, gerado_em')
+    .eq('pagina', 'estoque')
+    .order('gerado_em', { ascending: false })
+    .limit(1);
+
+  if (error) {
+    alvo.innerHTML = '<div class="aviso erro">Erro ao carregar o snapshot: ' +
+      escapar(error.message) + '</div>';
+    return;
+  }
+  if (!data || data.length === 0) {
+    alvo.innerHTML = '<div class="aviso">Nenhum snapshot de estoque publicado ainda. ' +
+      'Envie a extração pela tela <strong>Admin › Atualizar dados</strong>.</div>';
+    return;
+  }
+
+  document.getElementById('metaAtualizacao').innerHTML =
+    'Atualizado em<br><strong>' + formatarDataHora(data[0].gerado_em) + '</strong>';
+  window._snapshot = data[0].payload;
+  renderizarEstoque(data[0].payload);
+}
+
+/* ============================================================
+   FILTRO DE STATUS
+   ------------------------------------------------------------
+   Cada nó da árvore já vem com o total quebrado por status
+   (campo `st`, calculado no ingest). Ligar/desligar um chip é
+   apenas somar os baldes selecionados — nenhuma regra de negócio
+   é reprocessada no navegador.
+   ============================================================ */
+const ROTULO_STATUS = { VS: 'VS', VN: 'VN', IN: 'IN', IS: 'IS' };
+let statusAtivos = null;   // null = todos
+
+function valoresDoNo(no) {
+  if (!statusAtivos) return { qtd: no.qtd, valor: no.valor, skus: no.skus };
+  let q = 0, v = 0, s = 0;
+  Object.keys(no.st || {}).forEach(function (k) {
+    if (statusAtivos.has(k)) { q += no.st[k].qtd; v += no.st[k].valor; s += no.st[k].skus; }
+  });
+  return { qtd: q, valor: v, skus: s };
+}
+
+function alternarStatus(cod) {
+  const todos = (window._snapshot.por_status || []).map(function (s) { return s.codigo; });
+  if (!statusAtivos) statusAtivos = new Set(todos);
+  if (statusAtivos.has(cod)) statusAtivos.delete(cod); else statusAtivos.add(cod);
+  if (statusAtivos.size === 0 || statusAtivos.size === todos.length) statusAtivos = null;
+  renderizarEstoque(window._snapshot);
+}
+function limparStatus() { statusAtivos = null; renderizarEstoque(window._snapshot); }
+
+/* ============================================================
+   RENDERIZAÇÃO
+   ============================================================ */
+const COR_MARCA = {
+  'MIZUNO': '--brand-miz',
+  'OLYMPIKUS': '--brand-oly',
+  'UNDER ARMOUR': '--brand-ua',
+  'NAO MAPEADA': '--laranja',
+};
+const COR_CATEGORIA = {
+  'DISPONIVEL': '--olive',
+  'ANALISE': '--amber',
+  'BLOQUEADO': '--red',
+  'NAO_MAPEADO': '--laranja',
+};
+const BADGE_CATEGORIA = {
+  'DISPONIVEL': ['disp', 'DISPONÍVEL'],
+  'ANALISE': ['anal', 'EM ANÁLISE'],
+  'BLOQUEADO': ['bloq', 'BLOQUEADO'],
+  'NAO_MAPEADO': ['namap', 'NÃO MAPEADO'],
+};
+
+/* Estado de abertura da árvore. Guardado fora da renderização para
+   que trocar de tema ou mexer no filtro não feche o que o usuário
+   já tinha aberto no meio da apresentação. */
+const abertos = new Set();
+function alternarNo(chave) {
+  if (abertos.has(chave)) abertos.delete(chave); else abertos.add(chave);
+  renderizarEstoque(window._snapshot);
+}
+function expandirTudo() {
+  (window._snapshot.armazens || []).forEach(function (a) {
+    abertos.add('A|' + a.codigo);
+    (a.marcas || []).forEach(function (m) { abertos.add('A|' + a.codigo + '|M|' + m.codigo); });
+  });
+  renderizarEstoque(window._snapshot);
+}
+function recolherTudo() { abertos.clear(); renderizarEstoque(window._snapshot); }
+
+function linhaArvore(opts) {
+  const aberto = opts.temFilhos && abertos.has(opts.chave);
+  const btn = opts.temFilhos
+    ? '<span class="toggle" onclick="alternarNo(\'' + opts.chave + '\')">' + (aberto ? '−' : '+') + '</span>'
+    : '<span class="toggle vazio">·</span>';
+  return '<tr class="' + opts.classe + '">' +
+    '<th class="' + (opts.indent || '') + '"><span class="desc">' + btn +
+      '<span>' + opts.rotulo + '</span></span></th>' +
+    '<td>' + (opts.kpi || '') + '</td>' +
+    '<td>' + fmtInt(opts.qtd) + '</td>' +
+    '<td>' + fmtPct(opts.pctQtd) + '</td>' +
+    '<td>' + fmtInt(opts.skus) + '</td>' +
+    '<td>' + fmtMoeda(opts.valor) + '</td>' +
+    '<td>' + fmtPct(opts.pctValor) + '</td>' +
+  '</tr>';
+}
+
+function renderizarEstoque(p) {
+  const totais = (p.armazens || []).reduce(function (acc, a) {
+    const v = valoresDoNo(a);
+    acc.qtd += v.qtd; acc.valor += v.valor; acc.skus += v.skus;
+    return acc;
+  }, { qtd: 0, valor: 0, skus: 0 });
+
+  /* ---------- Bloco de conferência ----------
+     O TXT traz o "** TOTAL GERAL" impresso pelo próprio sistema. O ingest
+     compara o que ele parseou com esse total. Diferença de centavos é
+     esperada (o sistema soma valores já arredondados linha a linha);
+     diferença de QUANTIDADE significaria linha perdida na leitura. */
+  const c = p.conferencia || {};
+  let blocoConf = '';
+  if (c.ok === true) {
+    blocoConf = '<div class="aviso ok">✔ Conferência com o sistema: quantidade confere exatamente ' +
+      '(' + fmtInt(c.qtd_sistema) + ' un). Diferença de valor: ' +
+      fmtMoeda(Math.abs(c.diff_valor || 0)) + ' — arredondamento linha a linha do próprio relatório.</div>';
+  } else if (c.ok === false) {
+    blocoConf = '<div class="aviso erro">⚠ Conferência com o sistema NÃO bateu. ' +
+      'Lido: ' + fmtInt(c.qtd_parseada) + ' un · Relatório: ' + fmtInt(c.qtd_sistema) + ' un · ' +
+      'Diferença: ' + fmtInt(c.diff_qtd) + ' un. Investigar o parse antes de apresentar este número.</div>';
+  }
+  if ((p.familias_nao_mapeadas || []).length) {
+    blocoConf += '<div class="aviso">Famílias sem marca cadastrada em <code>dim_familias</code>: ' +
+      escapar(p.familias_nao_mapeadas.join(', ')) +
+      '. Elas aparecem agrupadas como <strong>NÃO MAPEADA</strong> até serem cadastradas.</div>';
+  }
+
+  /* ---------- KPIs ---------- */
+  const disponivel = (p.armazens || [])
+    .filter(function (a) { return a.categoria === 'DISPONIVEL'; })
+    .reduce(function (s, a) { return s + valoresDoNo(a).valor; }, 0);
+  const restrito = totais.valor - disponivel;
+  const precoMedio = totais.qtd > 0 ? totais.valor / totais.qtd : 0;
+
+  const kpis =
+    '<div class="kpi-row">' +
+      '<div class="kpi"><div class="rot">Valor total do estoque</div>' +
+        '<div class="val forte">' + fmtMoedaCurta(totais.valor) + '</div>' +
+        '<div class="sub">' + fmtMoeda(totais.valor) + '</div></div>' +
+      '<div class="kpi"><div class="rot">Quantidade total</div>' +
+        '<div class="val">' + fmtInt(totais.qtd) + '</div>' +
+        '<div class="sub">peças / pares · ' + (p.armazens || []).length + ' armazéns</div></div>' +
+      '<div class="kpi"><div class="rot">Disponível para venda</div>' +
+        '<div class="val" style="color:var(--olive)">' + fmtMoedaCurta(disponivel) + '</div>' +
+        '<div class="sub">' + fmtPct(totais.valor ? disponivel / totais.valor * 100 : 0) + ' do valor · AC190</div></div>' +
+      '<div class="kpi"><div class="rot">Bloqueado / em análise</div>' +
+        '<div class="val" style="color:' + (restrito > 0 ? 'var(--red)' : 'var(--text)') + '">' +
+          fmtMoedaCurta(restrito) + '</div>' +
+        '<div class="sub">' + fmtPct(totais.valor ? restrito / totais.valor * 100 : 0) + ' do valor</div></div>' +
+      '<div class="kpi"><div class="rot">SKUs posicionados</div>' +
+        '<div class="val">' + fmtInt(totais.skus) + '</div>' +
+        '<div class="sub">' + fmtInt(p.total ? p.total.artigos : 0) + ' artigos distintos</div></div>' +
+      '<div class="kpi"><div class="rot">Custo médio unitário</div>' +
+        '<div class="val">' + fmtMoeda(precoMedio) + '</div>' +
+        '<div class="sub">valor ÷ quantidade</div></div>' +
+    '</div>';
+
+  /* ---------- Filtro de status ---------- */
+  let chips = '<div class="filtros"><span class="rot-filtro">Status do artigo</span>';
+  (p.por_status || []).forEach(function (s) {
+    const on = !statusAtivos || statusAtivos.has(s.codigo);
+    chips += '<span class="chip' + (on ? ' on' : '') + '" onclick="alternarStatus(\'' + s.codigo + '\')">' +
+      escapar(ROTULO_STATUS[s.codigo] || s.codigo) + ' · ' + fmtInt(s.qtd) + '</span>';
+  });
+  chips += '<span class="chip' + (statusAtivos ? '' : ' on') + '" onclick="limparStatus()">Todos</span>';
+  chips += '</div>';
+
+  /* ---------- Gráfico 1: composição do valor por armazém ---------- */
+  let barra = '', legenda = '';
+  (p.armazens || []).forEach(function (a) {
+    const v = valoresDoNo(a);
+    const perc = totais.valor > 0 ? v.valor / totais.valor * 100 : 0;
+    if (perc <= 0) return;
+    const cor = 'var(' + (COR_CATEGORIA[a.categoria] || '--gelo') + ')';
+    barra += '<div style="width:' + perc + '%;background:' + cor + '" title="' +
+      escapar(a.codigo) + ' — ' + fmtMoeda(v.valor) + '">' +
+      (perc > 6 ? escapar(a.codigo) + ' ' + fmtPct(perc) : '') + '</div>';
+    legenda += '<span><i style="background:' + cor + '"></i>' + escapar(a.codigo) +
+      ' · ' + fmtMoedaCurta(v.valor) + ' (' + fmtPct(perc) + ')</span>';
+  });
+
+  /* ---------- Gráfico 2: valor por marca ---------- */
+  const marcasFiltradas = (p.por_marca || []).map(function (m) {
+    const v = valoresDoNo(m);
+    return { codigo: m.codigo, qtd: v.qtd, valor: v.valor };
+  }).filter(function (m) { return m.valor > 0; }).sort(function (a, b) { return b.valor - a.valor; });
+  const maxMarca = marcasFiltradas.reduce(function (mx, m) { return Math.max(mx, m.valor); }, 0);
+
+  let barrasMarca = '';
+  marcasFiltradas.forEach(function (m) {
+    const cor = 'var(' + (COR_MARCA[m.codigo] || '--gelo') + ')';
+    const larg = maxMarca > 0 ? m.valor / maxMarca * 100 : 0;
+    barrasMarca += '<div class="bar-item">' +
+      '<div class="nome">' + escapar(m.codigo) + '</div>' +
+      '<div class="trilho"><div class="preench" style="width:' + larg + '%;background:' + cor + '"></div></div>' +
+      '<div class="num">' + fmtMoedaCurta(m.valor) + ' · ' +
+        fmtPct(totais.valor ? m.valor / totais.valor * 100 : 0) + '</div>' +
+    '</div>';
+  });
+
+  /* ---------- Árvore Armazém › Marca › Família ---------- */
+  let linhas = '';
+  (p.armazens || []).forEach(function (a) {
+    const vA = valoresDoNo(a);
+    if (vA.qtd === 0 && vA.valor === 0) return;   // some do filtro, não some do dado
+
+    const bc = BADGE_CATEGORIA[a.categoria] || BADGE_CATEGORIA['NAO_MAPEADO'];
+    const flag = a.categoria === 'BLOQUEADO' ? '<span class="flag bloq" title="Estoque bloqueado">&#9873;</span>'
+               : a.categoria === 'ANALISE' || a.categoria === 'NAO_MAPEADO'
+                 ? '<span class="flag anal" title="Estoque não disponível para venda">&#9873;</span>' : '';
+
+    const chaveA = 'A|' + a.codigo;
+    linhas += linhaArvore({
+      classe: 'n1', chave: chaveA, temFilhos: (a.marcas || []).length > 0,
+      rotulo: '<strong>' + escapar(a.codigo) + '</strong>' +
+              '<span class="badge ' + bc[0] + '">' + bc[1] + '</span>' +
+              '<span class="cod" style="margin-left:10px">' + escapar(a.nome) + '</span>',
+      kpi: flag, qtd: vA.qtd, pctQtd: totais.qtd ? vA.qtd / totais.qtd * 100 : 0,
+      skus: vA.skus, valor: vA.valor, pctValor: totais.valor ? vA.valor / totais.valor * 100 : 0,
+    });
+
+    if (!abertos.has(chaveA)) return;
+
+    (a.marcas || []).forEach(function (m) {
+      const vM = valoresDoNo(m);
+      if (vM.qtd === 0 && vM.valor === 0) return;
+      const chaveM = chaveA + '|M|' + m.codigo;
+      const corM = 'var(' + (COR_MARCA[m.codigo] || '--gelo') + ')';
+      linhas += linhaArvore({
+        classe: 'n2', chave: chaveM, temFilhos: (m.familias || []).length > 0, indent: 'ind-2',
+        rotulo: '<i style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' +
+                corM + ';margin-right:7px"></i>' + escapar(m.codigo),
+        qtd: vM.qtd, pctQtd: vA.qtd ? vM.qtd / vA.qtd * 100 : 0,
+        skus: vM.skus, valor: vM.valor, pctValor: vA.valor ? vM.valor / vA.valor * 100 : 0,
+      });
+
+      if (!abertos.has(chaveM)) return;
+
+      (m.familias || []).forEach(function (f) {
+        const vF = valoresDoNo(f);
+        if (vF.qtd === 0 && vF.valor === 0) return;
+        linhas += linhaArvore({
+          classe: 'n3', chave: chaveM + '|F|' + f.codigo, temFilhos: false, indent: 'ind-3',
+          rotulo: '<span class="cod">' + escapar(f.codigo) + '</span>' + escapar(f.nome),
+          qtd: vF.qtd, pctQtd: vM.qtd ? vF.qtd / vM.qtd * 100 : 0,
+          skus: vF.skus, valor: vF.valor, pctValor: vM.valor ? vF.valor / vM.valor * 100 : 0,
+        });
+      });
+    });
+  });
+
+  // Linha de Total Geral: classe explícita "total", nunca :last-child.
+  linhas += '<tr class="total">' +
+    '<th><span class="desc"><span class="toggle vazio">·</span><span>TOTAL GERAL</span></span></th>' +
+    '<td></td>' +
+    '<td>' + fmtInt(totais.qtd) + '</td><td>100,0%</td>' +
+    '<td>' + fmtInt(totais.skus) + '</td>' +
+    '<td>' + fmtMoeda(totais.valor) + '</td><td>100,0%</td>' +
+  '</tr>';
+
+  const rodape = 'Extração ' + escapar(p.arquivo || '—') +
+    ' · data do relatório ' + formatarDataSimples(p.data_extracao) +
+    ' · estabelecimento ' + escapar(p.estabelecimento || '—') +
+    (statusAtivos ? ' · <strong>filtro ativo: ' + Array.from(statusAtivos).join(', ') + '</strong>' : '');
+
+  document.getElementById('estoque-conteudo').innerHTML =
+    blocoConf +
+    '<div class="kicker">Posição de stock · locais de stockagem</div>' +
+    kpis +
+    chips +
+    '<div class="grid2">' +
+      '<div class="card">' +
+        '<div class="section-title">Composição do valor por armazém</div>' +
+        '<div class="barra-comp">' + barra + '</div>' +
+        '<div class="legenda">' + legenda + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<div class="section-title">Valor de estoque por marca</div>' +
+        '<div class="bar-list">' + barrasMarca + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="card">' +
+      '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between">' +
+        '<span>Detalhamento — Armazém › Marca › Família</span>' +
+        '<span>' +
+          '<button class="btn-mini" onclick="expandirTudo()">Expandir tudo</button> ' +
+          '<button class="btn-mini" onclick="recolherTudo()">Recolher tudo</button> ' +
+          '<button class="btn-mini" onclick="exportarCSV()">⬇ CSV</button>' +
+        '</span>' +
+      '</div>' +
+      '<div style="overflow-x:auto">' +
+        '<table class="arvore">' +
+          '<thead>' +
+            '<tr>' +
+              '<th class="esq" rowspan="2">Descrição</th>' +
+              '<th rowspan="2">KPI</th>' +
+              '<th class="grupo" colspan="3">Quantidade</th>' +
+              '<th class="grupo" colspan="2">Valor de estoque</th>' +
+            '</tr>' +
+            '<tr><th>Qtd</th><th>% do nível</th><th>SKUs</th><th>R$</th><th>% do nível</th></tr>' +
+          '</thead>' +
+          '<tbody>' + linhas + '</tbody>' +
+        '</table>' +
+      '</div>' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-top:12px">' + rodape + '</div>' +
+    '</div>';
+}
+
+/* ============================================================
+   EXPORTAÇÃO
+   ------------------------------------------------------------
+   Exporta a árvore inteira (não só o que está aberto na tela),
+   respeitando o filtro de status ativo.
+   ============================================================ */
+function exportarCSV() {
+  const p = window._snapshot;
+  if (!p) return;
+  const linhas = [['Nivel', 'Armazem', 'Armazem_Descricao', 'Categoria', 'Marca',
+                   'Familia_Codigo', 'Familia_Nome', 'Qtd', 'SKUs', 'Valor']];
+  (p.armazens || []).forEach(function (a) {
+    const vA = valoresDoNo(a);
+    linhas.push(['1', a.codigo, a.nome, a.categoria, '', '', '', vA.qtd, vA.skus, vA.valor]);
+    (a.marcas || []).forEach(function (m) {
+      const vM = valoresDoNo(m);
+      linhas.push(['2', a.codigo, a.nome, a.categoria, m.codigo, '', '', vM.qtd, vM.skus, vM.valor]);
+      (m.familias || []).forEach(function (f) {
+        const vF = valoresDoNo(f);
+        linhas.push(['3', a.codigo, a.nome, a.categoria, m.codigo, f.codigo, f.nome,
+                     vF.qtd, vF.skus, vF.valor]);
+      });
+    });
+  });
+  const csv = linhas.map(function (l) {
+    return l.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(';');
+  }).join('\n');
+  // BOM para o Excel em pt-BR abrir com acentuação correta
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'estoque-distribuidora-' + (p.data_extracao || 'export') + '.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ============================================================
+   TELA DE INGESTÃO (Admin)
+   ============================================================ */
+document.getElementById('dropzone').addEventListener('click', function () {
+  document.getElementById('inputArquivo').click();
+});
+document.getElementById('inputArquivo').addEventListener('change', async function (ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  const log = document.getElementById('logIngest');
+  log.textContent = '';
+  const escrever = function (msg) { log.textContent += msg + '\n'; log.scrollTop = log.scrollHeight; };
+  try {
+    await window.processarEstoque(supabaseClient, file, escrever);
+    escrever('Recarregando o dashboard…');
+    await carregarEstoque();
+    mostrarSecao('estoque');
+  } catch (e) {
+    escrever('ERRO: ' + (e && e.message ? e.message : String(e)));
+    console.error(e);
+  } finally {
+    ev.target.value = '';   // permite reenviar o mesmo arquivo
+  }
+});
+
+iniciarApp();
+</script>
+</body>
+</html>
