@@ -7,23 +7,29 @@ description: Consolida em uma única base as informações de colunas específic
 
 ## Quando usar
 
-O time de cadastro manda, toda semana, um export da base HANA em `.xlsx` com 3
-abas: **Mizuno**, **Olympikus** e **Under Armour**. Esta skill lê essas 3
-abas, extrai um conjunto fixo de colunas de cada uma, calcula MARCA e
-SEGMENTO, e devolve um único arquivo com uma aba "Base Final" pronta para
-uso — sem precisar remapear nada manualmente toda vez, mesmo que os dados
-mudem.
+O time de cadastro manda, toda semana, um export da base HANA com dados de
+**Mizuno**, **Olympikus** e **Under Armour**. Normalmente isso chega como um
+único `.xlsx` com 3 abas — mas já aconteceu de chegar como **3 arquivos
+separados** (um por marca, em `.xlsb`, quando o workbook único ficou pesado
+demais para enviar). Esta skill lê essas 3 fontes, extrai um conjunto fixo de
+colunas de cada uma, calcula MARCA e SEGMENTO, e devolve um único arquivo com
+uma aba "Base Final" pronta para uso — sem precisar remapear nada manualmente
+toda vez, mesmo que os dados mudem.
 
-Use sempre que o usuário anexar um Excel com essas abas (ou nomes parecidos)
-e pedir para consolidar, juntar, gerar a base final, ou "rodar a planilha da
-semana".
+Use sempre que o usuário anexar um Excel (ou um conjunto de Excels, um por
+marca) com esses dados e pedir para consolidar, juntar, gerar a base final,
+ou "rodar a planilha da semana".
 
 ## Como funciona
 
 Todo o trabalho pesado está em `scripts/consolidate.py`. Ele:
 
-1. Localiza as 3 abas de origem pelo nome (tolera variações como
-   "under armour", "UnderArmour", maiúsculas/minúsculas).
+1. Localiza as 3 marcas de origem pelo nome — primeiro tentando casar o nome
+   da **aba** (tolera variações como "under armour", "UnderArmour",
+   maiúsculas/minúsculas); se nenhuma aba bater em nenhum arquivo, cai para
+   casar o nome do **arquivo** (necessário quando cada marca chega em um
+   arquivo separado, com aba genérica tipo "Plan1" — foi assim que a Olympikus
+   e a Under Armour vieram na prática). Lê tanto `.xlsx` quanto `.xlsb`.
 2. Em cada aba, localiza as colunas necessárias **pelo nome do cabeçalho da
    linha 1**, não pela letra da coluna — isso é essencial porque a Under
    Armour vem deslocada 1 coluna para a direita em relação a Mizuno/Olympikus
@@ -84,7 +90,7 @@ O script decide em três camadas, nesta ordem:
    |---|---|
    | "Chinelos", "Chinelo", "Sandals", "Slides" | CHINELOS |
    | "Meias", "Meia", "Socks" | MEIAS |
-   | "Calçados", "Footwear" | CALÇADOS |
+   | "Chuteiras", "Chuteira", "Calçados", "Footwear" | CALÇADOS |
    | "Acessórios", "Accessories" | ACESSÓRIOS |
    | "Apparel", "Vestuário" | VESTUÁRIOS |
 
@@ -102,21 +108,30 @@ como o FUTEBOL MIZUNO).
 ## Como executar
 
 ```bash
-python .claude/skills/consolidar-base-hana/scripts/consolidate.py <arquivo_entrada.xlsx> [<arquivo_saida.xlsx>]
+# Um único arquivo com as 3 abas:
+python .claude/skills/consolidar-base-hana/scripts/consolidate.py <arquivo.xlsx> [--output <arquivo_saida.xlsx>]
+
+# Ou até 3 arquivos separados, um por marca (.xlsx ou .xlsb):
+python .claude/skills/consolidar-base-hana/scripts/consolidate.py <mizuno.xlsb> <olympikus.xlsb> <under_armour.xlsb> --output <arquivo_saida.xlsx>
 ```
 
-Se o caminho de saída não for passado, o script gera
-`<nome_original>_Final.xlsx` na mesma pasta do arquivo de entrada.
+Se `--output` não for passado, o script gera `<nome_do_primeiro_arquivo>_Final.xlsx`
+na mesma pasta do primeiro arquivo de entrada.
+
+Ler `.xlsb` depende da biblioteca `pyxlsb` (`pip install pyxlsb`) — se ela não
+estiver instalada e o usuário mandar um `.xlsb`, instale antes de rodar.
 
 Passos ao usar esta skill numa conversa:
 
-1. Salve o arquivo enviado pelo usuário em disco (ex.: no diretório de
-   scratchpad da sessão).
-2. Rode o script apontando para esse arquivo.
+1. Salve o(s) arquivo(s) enviado(s) pelo usuário em disco (ex.: no diretório
+   de scratchpad da sessão).
+2. Rode o script apontando para eles.
 3. Leia a saída do script no terminal — ela traz quantas linhas foram
-   consolidadas por aba e um resumo de qualquer inconsistência (segmento não
+   consolidadas por marca e um resumo de qualquer inconsistência (segmento não
    mapeado, campo ausente). Reporte esse resumo ao usuário em texto, não só
-   o arquivo.
+   o arquivo. Campo ausente não é necessariamente erro — "Colorway Description"
+   legitimamente vem vazia em parte dos produtos; olhe QUAL coluna está
+   faltando antes de tratar como problema.
 4. Entregue o `.xlsx` gerado ao usuário (via `SendUserFile` ou equivalente).
 
 ## Se a estrutura mudar

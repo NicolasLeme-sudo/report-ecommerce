@@ -4,10 +4,14 @@ Consolida as abas Mizuno / Olympikus / Under Armour de um export da base HANA
 em uma única aba "Base Final", seguindo o mapeamento fixo descrito no SKILL.md.
 
 Uso:
-    python consolidate.py <arquivo_entrada.xlsx> [<arquivo_saida.xlsx>]
+    python consolidate.py <arquivo1> [<arquivo2> <arquivo3> ...] [--output <arquivo_saida.xlsx>]
 
-Se o arquivo de saída não for informado, é gerado como
-"<nome_original>_Final.xlsx" na mesma pasta do arquivo de entrada.
+Aceita tanto UM arquivo com as 3 abas (Mizuno/Olympikus/Under Armour) quanto
+até 3 arquivos separados, um por marca (nesse caso a aba pode ter qualquer
+nome — a marca é inferida pelo nome do arquivo). Lê .xlsx e .xlsb.
+
+Se --output não for informado, é gerado "<nome_do_primeiro_arquivo>_Final.xlsx"
+na mesma pasta do primeiro arquivo de entrada.
 """
 
 import sys
@@ -18,12 +22,19 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+try:
+    import pyxlsb
+except ImportError:
+    pyxlsb = None
+
 # ---------------------------------------------------------------------------
 # Configuração do mapeamento (edite aqui se a estrutura da base HANA mudar)
 # ---------------------------------------------------------------------------
 
-# Nome esperado de cada aba de origem -> chaves usadas para localizá-la mesmo
-# com variações de grafia/maiúsculas (comparação normalizada, ver _norm()).
+# Nome de cada marca de origem -> aliases usados para localizá-la, tanto pelo
+# nome da ABA (workbook único com 3 abas) quanto pelo nome do ARQUIVO (quando
+# cada marca chega em um arquivo separado, o que aconteceu na prática quando
+# o export ficou pesado demais para mandar em um workbook só).
 SOURCE_SHEETS = {
     "Mizuno": ["mizuno"],
     "Olympikus": ["olympikus", "olympicus"],
@@ -60,7 +71,7 @@ FINAL_COLUMNS = [
     ("Nome do grupo", "nome_grupo"),
     ("Códigodebarras", "codigo_barras"),
     ("Colorway Description", "colorway"),
-    ("MARCA", None),      # calculada: nome da aba de origem
+    ("MARCA", None),      # calculada: nome da aba/arquivo de origem
     ("SEGMENTO", None),   # calculada: a partir de "nome do grupo"
 ]
 
@@ -75,7 +86,7 @@ MARCA_EMBUTIDA_RULES = [
 
 # Regras que dependem do texto exato de "Nome do grupo" e têm precedência
 # sobre as regras genéricas de segmento abaixo. Ex.: a linha de roupas do
-# Botafogo da Mizuno vem marcada como "FUTEBOL MIZUNO", mas é vestuário —
+# Botafogo da Mizuno vem marcada como "Futebol Mizuno", mas é vestuário —
 # a palavra "futebol" sozinha não diria isso.
 SEGMENTO_OVERRIDES = [
     ("futebol mizuno", "VESTUÁRIOS"),
@@ -94,6 +105,8 @@ SEGMENTO_RULES = [
     ("meias", "MEIAS"),
     ("meia", "MEIAS"),
     ("socks", "MEIAS"),
+    ("chuteiras", "CALÇADOS"),
+    ("chuteira", "CALÇADOS"),
     ("calcados", "CALÇADOS"),
     ("footwear", "CALÇADOS"),
     ("acessorios", "ACESSÓRIOS"),
@@ -104,6 +117,71 @@ SEGMENTO_RULES = [
 ]
 
 FINAL_SHEET_NAME = "Base Final"
+
+
+# ---------------------------------------------------------------------------
+# Camada de leitura: unifica .xlsx (openpyxl) e .xlsb (pyxlsb) atrás da mesma
+# interface simples (nome das abas, linha de cabeçalho, linhas de dados).
+# ---------------------------------------------------------------------------
+
+class _XlsxSource:
+    def __init__(self, path):
+        self._wb = load_workbook(path, data_only=True, read_only=True)
+
+    @property
+    def sheetnames(self):
+        return self._wb.sheetnames
+
+    def header_row(self, sheet_name):
+        ws = self._wb[sheet_name]
+        return [c.value for c in next(ws.iter_rows(max_row=1))]
+
+    def data_rows(self, sheet_name):
+        ws = self._wb[sheet_name]
+        yield from ws.iter_rows(min_row=2, values_only=True)
+
+
+class _XlsbSource:
+    """Lê .xlsb via pyxlsb. Linhas vêm como listas esparsas de células
+    (r, c, v); reconstruímos uma lista densa por índice de coluna."""
+
+    def __init__(self, path):
+        if pyxlsb is None:
+            raise RuntimeError(
+                "Este arquivo é .xlsb, mas a biblioteca 'pyxlsb' não está instalada. "
+                "Rode: pip install pyxlsb"
+            )
+        self._wb = pyxlsb.open_workbook(str(path))
+
+    @property
+    def sheetnames(self):
+        return list(self._wb.sheets)
+
+    def _dense_rows(self, sheet_name):
+        with self._wb.get_sheet(sheet_name) as ws:
+            for row in ws.rows():
+                if not row:
+                    yield []
+                    continue
+                width = max(cell.c for cell in row) + 1
+                dense = [None] * width
+                for cell in row:
+                    dense[cell.c] = cell.v
+                yield dense
+
+    def header_row(self, sheet_name):
+        return next(self._dense_rows(sheet_name))
+
+    def data_rows(self, sheet_name):
+        rows = self._dense_rows(sheet_name)
+        next(rows)  # pula cabeçalho
+        yield from rows
+
+
+def open_source(path: Path):
+    if path.suffix.lower() == ".xlsb":
+        return _XlsbSource(path)
+    return _XlsxSource(path)
 
 
 # ---------------------------------------------------------------------------
@@ -120,14 +198,38 @@ def _norm(text) -> str:
     return " ".join(text.split())
 
 
-def find_sheet(wb, aliases):
-    """Encontra a primeira aba do workbook cujo nome normalizado bate com um dos aliases."""
-    for sheet_name in wb.sheetnames:
-        norm_name = _norm(sheet_name)
-        for alias in aliases:
-            if _norm(alias) in norm_name or norm_name in _norm(alias):
-                return sheet_name
-    return None
+def _alias_match(name, aliases):
+    norm_name = _norm(name)
+    return any(_norm(a) in norm_name or norm_name in _norm(a) for a in aliases)
+
+
+def locate_brand_sheets(sources, source_paths):
+    """
+    Para cada marca em SOURCE_SHEETS, encontra em qual (source, sheet_name) ela
+    está — primeiro tentando casar o nome da ABA com os aliases da marca; se
+    nenhuma aba bater em nenhum arquivo, cai para casar o nome do ARQUIVO
+    (útil quando cada marca chega em um arquivo separado com aba genérica
+    tipo "Plan1").
+
+    Retorna {marca: (source, sheet_name) ou None}.
+    """
+    result = {}
+    for marca, aliases in SOURCE_SHEETS.items():
+        found = None
+        for src, path in zip(sources, source_paths):
+            for sheet_name in src.sheetnames:
+                if _alias_match(sheet_name, aliases):
+                    found = (src, sheet_name)
+                    break
+            if found:
+                break
+        if found is None:
+            for src, path in zip(sources, source_paths):
+                if _alias_match(path.stem, aliases) and len(src.sheetnames) == 1:
+                    found = (src, src.sheetnames[0])
+                    break
+        result[marca] = found
+    return result
 
 
 def map_headers(header_row):
@@ -152,9 +254,9 @@ def compute_marca_segmento(nome_grupo_valor, marca_da_aba):
     """
     Decide MARCA e SEGMENTO de uma linha a partir do texto de "Nome do grupo".
 
-    A MARCA normalmente é a aba de origem, mas algumas marcas não têm aba
-    própria e só se distinguem pelo "Nome do grupo" (ver MARCA_EMBUTIDA_RULES),
-    então essa checagem vem primeiro.
+    A MARCA normalmente é a aba/arquivo de origem, mas algumas marcas não têm
+    aba própria e só se distinguem pelo "Nome do grupo" (ver
+    MARCA_EMBUTIDA_RULES), então essa checagem vem primeiro.
 
     Retorna (marca, segmento, segmento_foi_mapeado).
     """
@@ -168,7 +270,7 @@ def compute_marca_segmento(nome_grupo_valor, marca_da_aba):
             marca_da_aba = marca
             break
 
-    # 2) Overrides de segmento por grupo específico (ex.: FUTEBOL MIZUNO).
+    # 2) Overrides de segmento por grupo específico (ex.: Futebol Mizuno).
     for needle, segmento in SEGMENTO_OVERRIDES:
         if needle in norm:
             return marca_da_aba, segmento, True
@@ -187,8 +289,9 @@ def compute_marca_segmento(nome_grupo_valor, marca_da_aba):
 # Núcleo da consolidação
 # ---------------------------------------------------------------------------
 
-def consolidate(input_path: Path):
-    wb = load_workbook(input_path, data_only=True)
+def consolidate(input_paths):
+    sources = [open_source(p) for p in input_paths]
+    located = locate_brand_sheets(sources, input_paths)
 
     report_lines = []
     all_rows = []  # linhas já no formato final (lista de valores)
@@ -197,27 +300,26 @@ def consolidate(input_path: Path):
     marca_counts = {}  # MARCA final -> quantidade de linhas (pode diferir da aba,
                        # ex.: OPANKA sai de dentro da aba Olympikus)
 
-    for marca, aliases in SOURCE_SHEETS.items():
-        sheet_name = find_sheet(wb, aliases)
-        if sheet_name is None:
-            report_lines.append(f"⚠️  Aba '{marca}' não encontrada no arquivo — pulando.")
+    for marca, found in located.items():
+        if found is None:
+            report_lines.append(f"⚠️  Marca '{marca}' não encontrada em nenhum arquivo — pulando.")
             continue
+        src, sheet_name = found
 
-        ws = wb[sheet_name]
-        header_row = [cell.value for cell in ws[1]]
+        header_row = src.header_row(sheet_name)
         header_map = map_headers(header_row)
 
         missing_headers = [k for k in HEADER_ALIASES if k not in header_map]
         if missing_headers:
             report_lines.append(
-                f"⚠️  Aba '{sheet_name}': cabeçalhos não encontrados: {', '.join(missing_headers)} "
-                f"(essas colunas ficarão em branco na base final para esta aba)."
+                f"⚠️  Marca '{marca}' (aba '{sheet_name}'): cabeçalhos não encontrados: "
+                f"{', '.join(missing_headers)} (essas colunas ficarão em branco na base final)."
             )
 
         rows_in_sheet = 0
         missing_in_sheet = 0
 
-        for row in ws.iter_rows(min_row=2, values_only=True):
+        for row in src.data_rows(sheet_name):
             if row is None or all(v is None or str(v).strip() == "" for v in row):
                 continue  # linha totalmente vazia
 
@@ -258,7 +360,7 @@ def consolidate(input_path: Path):
                 missing_in_sheet += 1
 
         missing_field_counts[marca] = missing_in_sheet
-        report_lines.append(f"✓ Aba '{sheet_name}': {rows_in_sheet} linhas consolidadas.")
+        report_lines.append(f"✓ Marca '{marca}' (aba '{sheet_name}'): {rows_in_sheet} linhas consolidadas.")
 
     if marca_counts:
         resumo_marcas = ", ".join(f"{m}: {c}" for m, c in sorted(marca_counts.items()))
@@ -272,7 +374,7 @@ def consolidate(input_path: Path):
 
     for marca, count in missing_field_counts.items():
         if count:
-            report_lines.append(f"⚠️  Aba '{marca}': {count} linha(s) com pelo menos um campo ausente.")
+            report_lines.append(f"⚠️  Marca '{marca}': {count} linha(s) com pelo menos um campo ausente.")
 
     return all_rows, report_lines
 
@@ -294,10 +396,12 @@ def write_output(rows, output_path: Path):
     for row in rows:
         ws.append(row)
 
-    # Auto-largura simples baseada no maior valor de cada coluna.
+    # Auto-largura simples baseada no maior valor de cada coluna (amostra as
+    # primeiras linhas para não pesar em bases muito grandes).
+    sample = rows[:2000]
     for col_idx, header in enumerate(headers, start=1):
         max_len = len(str(header))
-        for row in rows:
+        for row in sample:
             v = row[col_idx - 1]
             if v is not None:
                 max_len = max(max_len, len(str(v)))
@@ -308,21 +412,27 @@ def write_output(rows, output_path: Path):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Uso: python consolidate.py <arquivo_entrada.xlsx> [<arquivo_saida.xlsx>]")
+    args = sys.argv[1:]
+    output_path = None
+    if "--output" in args:
+        i = args.index("--output")
+        output_path = Path(args[i + 1])
+        del args[i:i + 2]
+
+    if not args:
+        print("Uso: python consolidate.py <arquivo1> [<arquivo2> <arquivo3> ...] [--output <arquivo_saida.xlsx>]")
         sys.exit(1)
 
-    input_path = Path(sys.argv[1])
-    if not input_path.exists():
-        print(f"Arquivo não encontrado: {input_path}")
-        sys.exit(1)
+    input_paths = [Path(a) for a in args]
+    for p in input_paths:
+        if not p.exists():
+            print(f"Arquivo não encontrado: {p}")
+            sys.exit(1)
 
-    if len(sys.argv) >= 3:
-        output_path = Path(sys.argv[2])
-    else:
-        output_path = input_path.with_name(f"{input_path.stem}_Final.xlsx")
+    if output_path is None:
+        output_path = input_paths[0].with_name(f"{input_paths[0].stem}_Final.xlsx")
 
-    rows, report_lines = consolidate(input_path)
+    rows, report_lines = consolidate(input_paths)
     write_output(rows, output_path)
 
     print(f"\nBase final gerada: {output_path}")
