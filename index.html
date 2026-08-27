@@ -1583,6 +1583,10 @@ async function carregarInbound() {
   }
 
   var estoquePayload = (resEstoque.data && resEstoque.data.length > 0) ? resEstoque.data[0].payload : null;
+
+  document.getElementById('topbarSub').textContent =
+    'Última atualização: ' + formatarDataBR(resInbound.data[0].gerado_em);
+
   renderizarInbound(resInbound.data[0].payload, estoquePayload);
 }
 
@@ -1841,6 +1845,10 @@ async function carregarReversa() {
     return;
   }
   var qualidadePendente = (qualidadeRes.data && qualidadeRes.data[0] && qualidadeRes.data[0].quantidade) || 0;
+
+  document.getElementById('topbarSub').textContent =
+    'Última atualização: ' + formatarDataBR(data[0].gerado_em);
+
   renderizarReversa(data[0].payload, null, qualidadePendente);
 }
 
@@ -2037,6 +2045,10 @@ function renderRosca(containerId, dados) {
   const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','estoque').order('gerado_em',{ascending:false}).limit(1);
   if (error || !data || !data.length) { document.getElementById('estoque-conteudo').innerHTML = '<div class="erro-msg">Sem dados. Use Abastecimento → Atualizar Estoque.</div>'; return; }
   window._estoquePayload = data[0].payload;
+
+  document.getElementById('topbarSub').textContent =
+    'Última atualização: ' + formatarDataBR(data[0].gerado_em);
+
   renderizarEstoque(data[0].payload);
 }
 
@@ -2147,6 +2159,10 @@ async function carregarBalanco() {
   document.getElementById('balanco-conteudo').innerHTML = '<div class="loading-msg">Carregando Balanço...</div>';
   const { data, error } = await supabaseClient.from('dashboard_snapshots').select('*').eq('pagina','balanco').order('gerado_em',{ascending:false}).limit(1);
   if (error || !data || !data.length) { document.getElementById('balanco-conteudo').innerHTML = '<div class="erro-msg">Sem dados. Use Abastecimento → Atualizar Balanço.</div>'; return; }
+
+  document.getElementById('topbarSub').textContent =
+    'Última atualização: ' + formatarDataBR(data[0].gerado_em);
+
   renderizarBalanco(data[0].payload);
 }
 
