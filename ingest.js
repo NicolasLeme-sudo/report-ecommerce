@@ -1632,28 +1632,42 @@ const CLASS_SAP = {
 
 // Classificação WMS baseada no Setor (mapeamento da planilha de referência)
 // Mapa completo de prefixo de endereço → classificação (Gabarito_Endereços_E-comm)
+//
+// IMPORTANTE: esta função é só um ESPELHO de documentação. O cálculo real do
+// Balanço WMS×SAP roda inteiramente dentro do Postgres, na function
+// `calcular_balanco_wms_final` (chamada via RPC em processarBalanco, mais
+// abaixo neste arquivo) — é lá que qualquer ajuste de gabarito precisa ser
+// aplicado de verdade. Se alterar a regra aqui e esquecer de alterar a
+// function no banco (ou vice-versa), os dois ficam dessincronizados e é
+// exatamente esse tipo de divergência que gera "os dados não estão batendo".
 var GABARITO_PREFIX = {
+  "D01":"Material de 2° qualidade (Outlet)",
+  "D02":"Material de 2° qualidade (Outlet)",
+  "T06":"Material de 2° qualidade (Outlet)",
   "K01":"Não Comercializável",
   "L05":"DExPARA (Aguardando ação fiscal)",
+  "L03":"Aguardando ação fiscal (Emissão NF-D)","L04":"Aguardando ação fiscal (Emissão NF-D)",
   "T02":"Avaria (Incineração)","T07":"Avaria (Incineração)","T08":"Avaria (Incineração)",
   "T03":"Faltas de Recebimento","V03":"Faltas de Recebimento","V04":"Faltas de Recebimento",
   "S01":"Integração de NFs Reversa","S02":"Integração de NFs Reversa","S03":"Integração de NFs Reversa",
   "S04":"Integração de NFs Reversa","S08":"Integração de NFs Reversa",
   "T01":"Integração de NFs Reversa","T04":"Integração de NFs Reversa","T05":"Integração de NFs Reversa",
-  "T06":"Material de 2° qualidade (Outlet)","D02":"Material de 2° qualidade (Outlet)",
   "V05":"Material em análise","V08":"Material em análise",
 };
 
 // Classificação WMS via gabarito de endereços
-// B01, B02, D01 são ambíguos: PICKING=Vendável, PULMÃO=Outlet
+// D01 sempre é Outlet, junto com D02 (não é mais um caso ambíguo).
+// Letras A, B, C, E, F, G, H, I, J sempre são Vendável, independente do tipo
+// de local — regra confirmada pelo gestor da operação.
 function classificarEnderecoWMS(local, tipoLocal) {
   var prefix = (local || "").substring(0, 3).toUpperCase();
+  var letra  = prefix.charAt(0);
   var tipo   = normalizarEncoding(tipoLocal || "").toUpperCase().trim();
 
-  if (prefix === "B01" || prefix === "B02" || prefix === "D01") {
-    return tipo.includes("PICKING") ? "Vendável" : "Material de 2° qualidade (Outlet)";
-  }
   if (GABARITO_PREFIX[prefix]) return GABARITO_PREFIX[prefix];
+  if (["A","B","C","E","F","G","H","I","J"].indexOf(letra) !== -1) return "Vendável";
+  if (letra === "S") return "Integração de NFs Reversa";
+  if (letra === "K") return "Material em análise";
   if (tipo.includes("PICKING")) return "Vendável";
   return "Outros";
 }
