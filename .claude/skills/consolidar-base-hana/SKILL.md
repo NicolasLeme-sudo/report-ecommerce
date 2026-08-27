@@ -43,29 +43,61 @@ Todo o trabalho pesado está em `scripts/consolidate.py`. Ele:
    | 8 | Nome do grupo | coluna "Nome do grupo" |
    | 9 | Códigodebarras | (repetida — mesmo valor da coluna 2) |
    | 10 | Colorway Description | coluna "Colorway Description" |
-   | 11 | MARCA | calculada: nome da aba de origem (Mizuno / Olympikus / Under Armour) |
-   | 12 | SEGMENTO | calculada a partir do texto de "Nome do grupo" (ver regra abaixo) |
+   | 11 | MARCA | calculada: normalmente a aba de origem, com exceção da OPANKA (ver abaixo) |
+   | 12 | SEGMENTO | calculada a partir do texto de "Nome do grupo" (ver regras abaixo) |
 
 4. Todas as linhas de todas as abas entram na base final — não há filtro por
    `SKUCOMERCIAL?` nem por nenhuma outra coluna.
 5. Gera um novo `.xlsx` com uma única aba **"Base Final"**.
 
+### Regra da MARCA
+
+Na maioria dos casos a MARCA é simplesmente a aba de origem. A exceção é a
+**OPANKA**: ela não tem estoque próprio e por isso não tem aba, mas tem
+cadastro na base de embalagem e vem **dentro da aba Olympikus**, distinguível
+apenas pelo texto de "Nome do grupo". O script detecta "opanka" no nome do
+grupo e reclassifica a MARCA daquela linha para `OPANKA` — todos os produtos
+dela são CHINELOS.
+
+Por isso o relatório final mostra as contagens **por MARCA**, além das
+contagens por aba: os dois números não batem quando há linhas OPANKA saindo
+de dentro da Olympikus, e isso é esperado.
+
 ### Regra do SEGMENTO
 
 A coluna "Nome do grupo" traz marca + segmento juntos e, no caso da Under
-Armour, vem em inglês (o fornecedor entrega assim). O script traduz e
-padroniza por substring, case-insensitive:
+Armour, vem em inglês (o fornecedor entrega assim). O SEGMENTO final é sempre
+**em caixa alta e no plural**, dentro deste conjunto fechado: `CALÇADOS`,
+`VESTUÁRIOS`, `CHINELOS`, `ACESSÓRIOS`, `MEIAS`.
 
-| Texto contém | SEGMENTO final |
-|---|---|
-| "Calçados" ou "Footwear" | Calçados |
-| "Acessórios" ou "Accessories" | Acessórios |
-| "Apparel" ou "Vestuário" | Vestuário |
+O script decide em três camadas, nesta ordem:
+
+1. **Marca embutida** — "opanka" no nome do grupo ⇒ MARCA `OPANKA`, SEGMENTO
+   `CHINELOS`.
+2. **Override por grupo específico** — casos em que o nome do grupo não
+   descreve o segmento de forma óbvia. Hoje há um: a linha de roupas do
+   Botafogo da Mizuno vem marcada como **"FUTEBOL MIZUNO"**, e é vestuário —
+   a palavra "futebol" sozinha não diria isso, por isso a regra é explícita.
+3. **Tradução genérica por substring** (case/acento-insensitive):
+
+   | Texto contém | SEGMENTO |
+   |---|---|
+   | "Chinelos", "Chinelo", "Sandals", "Slides" | CHINELOS |
+   | "Meias", "Meia", "Socks" | MEIAS |
+   | "Calçados", "Footwear" | CALÇADOS |
+   | "Acessórios", "Accessories" | ACESSÓRIOS |
+   | "Apparel", "Vestuário" | VESTUÁRIOS |
+
+   A ordem importa: chinelos e meias são checados antes de calçados e
+   vestuário, porque um nome de grupo pode conter as duas palavras e o mais
+   específico deve ganhar.
 
 Se nenhuma regra bater, o script mantém o texto original naquela linha (para
 não travar a execução) e sinaliza no relatório final que precisa de revisão
-manual — isso normalmente indica um segmento novo que ainda não existe na
-tabela acima e vale a pena adicionar.
+manual — isso normalmente indica um segmento ou uma linha de produto nova que
+ainda não tem regra, e vale a pena adicionar em `SEGMENTO_RULES` (se for um
+segmento genérico novo) ou em `SEGMENTO_OVERRIDES` (se for um caso específico
+como o FUTEBOL MIZUNO).
 
 ## Como executar
 
@@ -96,7 +128,11 @@ surgir uma 4ª marca, ajuste apenas as constantes no topo de
 - `SOURCE_SHEETS` — nomes/aliases das abas de origem.
 - `HEADER_ALIASES` — nomes/aliases de cada cabeçalho procurado.
 - `FINAL_COLUMNS` — colunas e ordem da base final.
-- `SEGMENTO_RULES` — regras de tradução do segmento.
+- `MARCA_EMBUTIDA_RULES` — marcas sem aba própria, identificadas pelo nome do
+  grupo (hoje: OPANKA dentro da Olympikus).
+- `SEGMENTO_OVERRIDES` — grupos específicos cujo segmento não dá para deduzir
+  do texto (hoje: FUTEBOL MIZUNO ⇒ VESTUÁRIOS).
+- `SEGMENTO_RULES` — regras genéricas de tradução do segmento.
 
 Não é necessário reescrever a lógica de leitura — ela já busca por nome de
 cabeçalho e é resiliente a deslocamento de colunas entre abas.

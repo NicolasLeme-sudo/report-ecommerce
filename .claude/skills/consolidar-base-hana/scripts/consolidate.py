@@ -64,16 +64,43 @@ FINAL_COLUMNS = [
     ("SEGMENTO", None),   # calculada: a partir de "nome do grupo"
 ]
 
+# Marcas que não têm aba própria: vivem dentro da aba de outra marca e são
+# identificadas apenas pelo texto de "Nome do grupo". Ex.: OPANKA não tem
+# estoque próprio, mas tem cadastro na base de embalagem, e vem dentro da aba
+# Olympikus. Formato: (substring procurada em "Nome do grupo", MARCA, SEGMENTO
+# fixo ou None para cair nas regras normais).
+MARCA_EMBUTIDA_RULES = [
+    ("opanka", "OPANKA", "CHINELOS"),
+]
+
+# Regras que dependem do texto exato de "Nome do grupo" e têm precedência
+# sobre as regras genéricas de segmento abaixo. Ex.: a linha de roupas do
+# Botafogo da Mizuno vem marcada como "FUTEBOL MIZUNO", mas é vestuário —
+# a palavra "futebol" sozinha não diria isso.
+SEGMENTO_OVERRIDES = [
+    ("futebol mizuno", "VESTUÁRIOS"),
+]
+
 # Regras de tradução/padronização do SEGMENTO a partir do texto de
 # "Nome do grupo" (comparação por substring, case/acento-insensitive).
-# A ordem importa: a primeira regra que bater é usada.
+# A ordem importa: a primeira regra que bater é usada — por isso "chinelos" e
+# "meias" vêm antes de "calcados"/"vestuario", já que um grupo pode conter
+# as duas palavras e o mais específico deve ganhar.
 SEGMENTO_RULES = [
-    ("calcados", "Calçados"),
-    ("footwear", "Calçados"),
-    ("acessorios", "Acessórios"),
-    ("accessories", "Acessórios"),
-    ("apparel", "Vestuário"),
-    ("vestuario", "Vestuário"),
+    ("chinelos", "CHINELOS"),
+    ("chinelo", "CHINELOS"),
+    ("sandals", "CHINELOS"),
+    ("slides", "CHINELOS"),
+    ("meias", "MEIAS"),
+    ("meia", "MEIAS"),
+    ("socks", "MEIAS"),
+    ("calcados", "CALÇADOS"),
+    ("footwear", "CALÇADOS"),
+    ("acessorios", "ACESSÓRIOS"),
+    ("accessories", "ACESSÓRIOS"),
+    ("apparel", "VESTUÁRIOS"),
+    ("vestuario", "VESTUÁRIOS"),
+    ("vestuarios", "VESTUÁRIOS"),
 ]
 
 FINAL_SHEET_NAME = "Base Final"
@@ -121,13 +148,39 @@ def map_headers(header_row):
     return found
 
 
-def compute_segmento(nome_grupo_valor):
+def compute_marca_segmento(nome_grupo_valor, marca_da_aba):
+    """
+    Decide MARCA e SEGMENTO de uma linha a partir do texto de "Nome do grupo".
+
+    A MARCA normalmente é a aba de origem, mas algumas marcas não têm aba
+    própria e só se distinguem pelo "Nome do grupo" (ver MARCA_EMBUTIDA_RULES),
+    então essa checagem vem primeiro.
+
+    Retorna (marca, segmento, segmento_foi_mapeado).
+    """
     norm = _norm(nome_grupo_valor)
+
+    # 1) Marca embutida na aba de outra marca (ex.: OPANKA dentro de Olympikus).
+    for needle, marca, segmento_fixo in MARCA_EMBUTIDA_RULES:
+        if needle in norm:
+            if segmento_fixo:
+                return marca, segmento_fixo, True
+            marca_da_aba = marca
+            break
+
+    # 2) Overrides de segmento por grupo específico (ex.: FUTEBOL MIZUNO).
+    for needle, segmento in SEGMENTO_OVERRIDES:
+        if needle in norm:
+            return marca_da_aba, segmento, True
+
+    # 3) Regras genéricas de tradução/padronização.
     for needle, segmento in SEGMENTO_RULES:
         if needle in norm:
-            return segmento, True
+            return marca_da_aba, segmento, True
+
     # Nada bateu: mantém o texto original para revisão manual.
-    return (str(nome_grupo_valor).strip() if nome_grupo_valor else ""), False
+    original = str(nome_grupo_valor).strip() if nome_grupo_valor else ""
+    return marca_da_aba, original, False
 
 
 # ---------------------------------------------------------------------------
@@ -141,6 +194,8 @@ def consolidate(input_path: Path):
     all_rows = []  # linhas já no formato final (lista de valores)
     missing_field_counts = {}  # marca -> quantidade de linhas com campo faltando
     unmapped_segmentos = set()
+    marca_counts = {}  # MARCA final -> quantidade de linhas (pode diferir da aba,
+                       # ex.: OPANKA sai de dentro da aba Olympikus)
 
     for marca, aliases in SOURCE_SHEETS.items():
         sheet_name = find_sheet(wb, aliases)
@@ -173,9 +228,10 @@ def consolidate(input_path: Path):
                 return row[idx]
 
             nome_grupo_valor = get("nome_grupo")
-            segmento, mapped_ok = compute_segmento(nome_grupo_valor)
+            marca_linha, segmento, mapped_ok = compute_marca_segmento(nome_grupo_valor, marca)
             if not mapped_ok and nome_grupo_valor:
                 unmapped_segmentos.add(str(nome_grupo_valor).strip())
+            marca_counts[marca_linha] = marca_counts.get(marca_linha, 0) + 1
 
             final_row = []
             row_missing = False
@@ -187,7 +243,7 @@ def consolidate(input_path: Path):
                 elif header_key is not None:
                     val = get(header_key)
                 elif col_name == "MARCA":
-                    val = marca
+                    val = marca_linha
                 elif col_name == "SEGMENTO":
                     val = segmento
                 else:
@@ -203,6 +259,10 @@ def consolidate(input_path: Path):
 
         missing_field_counts[marca] = missing_in_sheet
         report_lines.append(f"✓ Aba '{sheet_name}': {rows_in_sheet} linhas consolidadas.")
+
+    if marca_counts:
+        resumo_marcas = ", ".join(f"{m}: {c}" for m, c in sorted(marca_counts.items()))
+        report_lines.append(f"Linhas por MARCA na base final — {resumo_marcas}")
 
     if unmapped_segmentos:
         report_lines.append(
