@@ -192,6 +192,29 @@ def open_source(path: Path):
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _as_barcode_number(val):
+    """
+    Converte o código de barras para número inteiro puro (sem notação
+    científica, sem casas decimais) — é assim que o usuário quer a coluna
+    formatada na base final. Alguns exports trazem o valor como texto
+    ('7894756748414') e outros como float (7894756748414.0); ambos viram int.
+
+    Não mexe em valores vazios nem em códigos com zero à esquerda (ex.:
+    '0894756748414') — converter esses para int apagaria o zero e mudaria o
+    código de verdade, então esses ficam como estavam para revisão manual.
+    """
+    if val is None:
+        return None
+    if isinstance(val, float):
+        return int(val) if val.is_integer() else val
+    if isinstance(val, int):
+        return val
+    text = str(val).strip()
+    if text.isdigit() and not (len(text) > 1 and text[0] == "0"):
+        return int(text)
+    return val
+
+
 def _norm(text) -> str:
     """Normaliza texto para comparação: sem acento, minúsculo, sem espaços extras."""
     if text is None:
@@ -345,7 +368,7 @@ def consolidate(input_paths):
                 if header_key == "sku":
                     val = get("sku")
                 elif header_key == "codigo_barras":
-                    val = get("codigo_barras")
+                    val = _as_barcode_number(get("codigo_barras"))
                 elif header_key is not None:
                     val = get(header_key)
                 elif col_name == "MARCA":
@@ -399,6 +422,15 @@ def write_output(rows, output_path: Path):
 
     for row in rows:
         ws.append(row)
+
+    # Código de barras: número inteiro puro, sem notação científica e sem
+    # separador de milhar (formato "0" no Excel) — pedido explícito do
+    # usuário, não o "Geral" padrão que faz o Excel mostrar algo como
+    # "7,89476E+12" em números grandes.
+    barcode_cols = [i for i, (name, _) in enumerate(FINAL_COLUMNS, start=1) if name == "Códigodebarras"]
+    for col_idx in barcode_cols:
+        for row_idx in range(2, len(rows) + 2):
+            ws.cell(row=row_idx, column=col_idx).number_format = "0"
 
     # Auto-largura simples baseada no maior valor de cada coluna (amostra as
     # primeiras linhas para não pesar em bases muito grandes).
