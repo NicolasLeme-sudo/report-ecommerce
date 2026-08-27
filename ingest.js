@@ -1698,9 +1698,18 @@ var CROSS_MAP = [
   { bin: "009-24", sap: "Integração de NFs Reversa",             wms: "Integração de NFs Reversa" },
   { bin: "009-04", sap: "Material de 2° qualidade (Outlet)",     wms: "Material de 2° qualidade (Outlet)" },
   { bin: "009-05", sap: "Não Comercializável",                   wms: "Não Comercializável" },
-  { bin: "009-01", sap: "Aguardando ação fiscal (Emissão NF-D)", wms: "Aguardando ação fiscal" },
+  { bin: "009-01", sap: "Aguardando ação fiscal (Emissão NF-D)", wms: "Aguardando ação fiscal (Emissão NF-D)" },
   { bin: "009-02", sap: "Aguardando ação fiscal (Pedidos Loja)", wms: "DExPARA (Aguardando ação fiscal)" },
 ];
+
+// ATENÇÃO: o campo `wms` de cada linha acima precisa bater EXATAMENTE (string
+// idêntica) com a classificação devolvida pela function calcular_balanco_wms_final
+// no Postgres. Se não bater, o cruzamento não acha a classificação e lança 0 no
+// lado WMS do balanço — sem erro nenhum, silenciosamente — enquanto o valor
+// continua aparecendo certo na tabela de detalhado. Foi exatamente esse o caso
+// de "Aguardando ação fiscal (Emissão NF-D)", que aqui estava escrito sem o
+// sufixo "(Emissão NF-D)" e derrubava 3.386 itens do balanço.
+// A conferência automática dessa consistência está em gerarPayloadBalanco().
 
 // -------------------------------------------------------------------------
 // ESTOQUE (OPERAÇÃO) — Estoque_Picking.tsv
@@ -1948,20 +1957,69 @@ async function processarBalanco(files, options) {
 }
 
 function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV) {
-  var cruzamento = CROSS_MAP.map(function(m) {
-    var wmsD = wmsPorClass[m.wms] || { qtde: 0, valor: 0 };
-    var sapD = sapPorBin[m.bin]   || { qtde: 0, valor: 0 };
+  function montarLinha(rotulo, bin, wmsClass, wmsD, sapD) {
     var dQ = wmsD.qtde - sapD.qtde;
     var dV = wmsD.valor - sapD.valor;
     var pct = sapD.qtde > 0 ? (dQ / sapD.qtde * 100) : (wmsD.qtde > 0 ? 100 : 0);
     return {
-      classificacao: m.sap, bin: m.bin, wms_class: m.wms,
+      classificacao: rotulo, bin: bin, wms_class: wmsClass,
       wms_qtde: wmsD.qtde, wms_valor: Math.round(wmsD.valor * 100) / 100,
       sap_qtde: sapD.qtde, sap_valor: Math.round(sapD.valor * 100) / 100,
       diff_qtde: dQ, diff_valor: Math.round(dV * 100) / 100,
       pct: Math.round(pct * 100) / 100,
     };
+  }
+
+  var cruzamento = CROSS_MAP.map(function(m) {
+    return montarLinha(
+      m.sap, m.bin, m.wms,
+      wmsPorClass[m.wms] || { qtde: 0, valor: 0 },
+      sapPorBin[m.bin]   || { qtde: 0, valor: 0 }
+    );
   });
+
+  // ---- Rede de segurança de reconciliação ----
+  // O cruzamento é montado a partir do CROSS_MAP, que é uma lista fixa. Se o
+  // gabarito de endereços (no Postgres) passar a produzir uma classificação
+  // que não está nessa lista, ou se o SAP trouxer um BIN novo, esse volume
+  // simplesmente não entraria no balanço — enquanto continuaria aparecendo nas
+  // tabelas de detalhado, fazendo os dois totais divergirem sem nenhum aviso.
+  // Como o balanço é justamente a conferência entre os dois estoques, aqui
+  // qualquer sobra é anexada como linha própria, garantindo que o Total Geral
+  // do balanço SEMPRE feche com o do detalhado dos dois lados.
+  var wmsCobertas = {}, sapCobertos = {};
+  CROSS_MAP.forEach(function(m) { wmsCobertas[m.wms] = true; sapCobertos[m.bin] = true; });
+
+  Object.keys(wmsPorClass).forEach(function(c) {
+    if (wmsCobertas[c]) return;
+    var d = wmsPorClass[c];
+    if (!d.qtde && !d.valor) return;
+    console.warn("Balanço: classificação do WMS fora do CROSS_MAP:", c, d);
+    cruzamento.push(montarLinha(c + " (sem BIN no SAP)", "—", c, d, { qtde: 0, valor: 0 }));
+  });
+
+  Object.keys(sapPorBin).forEach(function(bin) {
+    if (sapCobertos[bin]) return;
+    var d = sapPorBin[bin];
+    if (!d.qtde && !d.valor) return;
+    console.warn("Balanço: BIN do SAP fora do CROSS_MAP:", bin, d);
+    cruzamento.push(montarLinha(d.classificacao + " (sem classificação no WMS)", bin, null, { qtde: 0, valor: 0 }, d));
+  });
+
+  // Conferência final: os totais do cruzamento têm que bater com os totais
+  // gerais. Se não baterem, algo escapou das regras acima — registra no
+  // console pra aparecer na atualização de base, em vez de virar um número
+  // errado silencioso na tela da diretoria.
+  var confWMS = cruzamento.reduce(function(s, r) { return s + r.wms_qtde; }, 0);
+  var confSAP = cruzamento.reduce(function(s, r) { return s + r.sap_qtde; }, 0);
+  if (confWMS !== totWMSQ || confSAP !== totSAPQ) {
+    console.error(
+      "Balanço: divergência de reconciliação! " +
+      "WMS cruzamento=" + confWMS + " vs total=" + totWMSQ + " | " +
+      "SAP cruzamento=" + confSAP + " vs total=" + totSAPQ
+    );
+  }
+
   return {
     gerado_em: new Date().toISOString(), cruzamento: cruzamento,
     total_wms: { qtde: totWMSQ, valor: Math.round(totWMSV * 100) / 100 },

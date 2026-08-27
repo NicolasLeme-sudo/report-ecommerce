@@ -414,6 +414,65 @@ for (let diasAtras = 1; diasAtras <= 7; diasAtras++) {
 }
 ```
 
+### 3.6. Reconciliação: nenhuma categoria pode sumir em silêncio
+
+**Sintoma real:** o Balanço WMS×SAP e a tabela "Estoque WMS — Detalhado"
+mostravam totais diferentes (1.270.011 vs 1.273.397). A diferença de 3.386
+era exatamente uma linha — "Aguardando ação fiscal (Emissão NF-D)" —
+aparecendo com o valor certo no detalhado e **zerada** no balanço.
+
+Causa raiz: o cruzamento do balanço é montado a partir de uma lista fixa
+(`CROSS_MAP`) que traduz o nome da classificação no WMS para o BIN
+equivalente no SAP. A chave do lado WMS estava escrita como
+`"Aguardando ação fiscal"`, sem o sufixo `"(Emissão NF-D)"` que a regra de
+classificação no Postgres realmente produz. A busca não encontrava a chave,
+caía no default `{ qtde: 0 }` — e **não gerava erro nenhum**. O volume
+simplesmente evaporava do balanço.
+
+Esse é o pior tipo de bug para um relatório de conferência: o número errado
+não parece errado. Duas defesas foram adicionadas:
+
+**1. Rede de segurança** — qualquer classificação do WMS ou BIN do SAP que
+não esteja no `CROSS_MAP` é anexada ao cruzamento como linha própria, em vez
+de descartada:
+
+```js
+var wmsCobertas = {}, sapCobertos = {};
+CROSS_MAP.forEach(function (m) { wmsCobertas[m.wms] = true; sapCobertos[m.bin] = true; });
+
+Object.keys(wmsPorClass).forEach(function (c) {
+  if (wmsCobertas[c]) return;
+  var d = wmsPorClass[c];
+  if (!d.qtde && !d.valor) return;
+  console.warn("Balanço: classificação do WMS fora do CROSS_MAP:", c, d);
+  cruzamento.push(montarLinha(c + " (sem BIN no SAP)", "—", c, d, { qtde: 0, valor: 0 }));
+});
+// ...e o espelho equivalente para BINs do SAP fora do CROSS_MAP
+```
+
+**2. Conferência de fechamento** — depois de montar o cruzamento, os totais
+são comparados com os totais gerais; divergência vira erro no console
+durante a atualização de base, em vez de virar um número errado na tela:
+
+```js
+var confWMS = cruzamento.reduce(function (s, r) { return s + r.wms_qtde; }, 0);
+var confSAP = cruzamento.reduce(function (s, r) { return s + r.sap_qtde; }, 0);
+if (confWMS !== totWMSQ || confSAP !== totSAPQ) {
+  console.error("Balanço: divergência de reconciliação! ...");
+}
+```
+
+**Regra para a recriação:** todo relatório que cruza duas fontes através de
+uma tabela de-para fixa precisa dessas duas defesas. Uma lista de tradução
+escrita à mão **vai** ficar dessincronizada da regra que gera os nomes — a
+questão é só quando. O sistema tem que reagir a isso mostrando a sobra, nunca
+descartando-a.
+
+**Regra irmã (ver 7.1):** quando a mesma regra de negócio existe em dois
+lugares — a function no Postgres e o espelho em JS —, os dois precisam ser
+alterados juntos. Foi essa dessincronização que produziu o gabarito errado de
+endereços antes deste mesmo bug.
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador
