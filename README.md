@@ -473,6 +473,45 @@ lugares — a function no Postgres e o espelho em JS —, os dois precisam ser
 alterados juntos. Foi essa dessincronização que produziu o gabarito errado de
 endereços antes deste mesmo bug.
 
+### 3.7. Defasagem de etapa entre sistemas não é divergência de estoque
+
+**Situação real:** o Balanço mostrava a classificação "Integração de NFs
+Reversa" com 2.214 itens no WMS contra 78.022 no SAP (BIN 009-24) — uma
+divergência enorme que não representava perda nenhuma.
+
+Causa: uma NF de reversa entra no SAP assim que é recebida fiscalmente, mas
+só aparece no arquivo de estoque do WMS depois de ser **fisicamente
+armazenada** num endereço. Entre os dois momentos, a NF fica com status
+`IMPORTADA` ou `EM CARGA/OR` — existe no SAP, ainda não existe em endereço do
+WMS. Comparar os dois lados sem considerar isso transforma uma diferença de
+*tempo de processo* em aparente diferença de *saldo*.
+
+**Padrão:** o lado WMS recebe o saldo pendente somado à classificação
+correspondente, com três cuidados:
+
+1. **A fonte é o snapshot mais recente da área dona do dado**, não um número
+   digitado à mão. O fluxo da Reversa já calculava esse pendente
+   (`IMPORTADA` + `EM CARGA/OR`); bastou publicá-lo no payload dela
+   (`pendente_integracao`) e o Balanço passar a consumi-lo.
+2. **Ler sempre o último snapshot publicado, mesmo que não seja de hoje.** Se
+   a Reversa não foi atualizada, vale o último número que ela divulgou — o
+   Balanço não pode ficar sem o ajuste só porque a outra área não rodou.
+3. **A data de origem do número vai junto e aparece na tela.** Um número
+   defasado precisa ser visível, não silencioso — é um relatório de
+   conferência. Quando o ajuste não existe no snapshot, a tela avisa em
+   âmbar em vez de simplesmente mostrar o valor menor.
+
+O valor em R$ do ajuste é calculado com a **mesma base de custo** (`dim_custo`)
+que o resto do Balanço usa, para os dois lados não saírem de réguas
+diferentes.
+
+**Regra para a recriação:** antes de tratar qualquer divergência entre dois
+sistemas como erro, mapear as **etapas de processo** entre eles. Toda vez que
+um sistema registra um evento antes do outro, existe um saldo em trânsito que
+precisa entrar na conta explicitamente. Vale perguntar à operação, para cada
+classificação: *"existe algum momento em que isso já está num sistema e ainda
+não está no outro?"*
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador

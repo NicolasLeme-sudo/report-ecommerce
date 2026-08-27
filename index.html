@@ -2217,6 +2217,30 @@ function renderizarBalanco(p) {
   linhasSAP += `<tr class="total"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
 
   window._balancoPayload = p;
+
+  // Nota do ajuste da Reversa: NFs com status IMPORTADA / EM CARGA/OR já estão
+  // no BIN 009-24 do SAP mas ainda não foram armazenadas num endereço do WMS,
+  // então esse saldo é somado ao lado WMS da linha "Integração de NFs Reversa".
+  // Mostrar a data de origem é o que impede um número defasado de passar
+  // despercebido — o balanço é relatório de conferência.
+  var aj = p.ajuste_reversa;
+  var notaReversa = '';
+  if (aj && aj.qtde) {
+    notaReversa =
+      '<div style="font-size:11px;color:var(--gelo);margin:-8px 0 12px 2px;line-height:1.5">' +
+      '↩️ A linha <strong>Integração de NFs Reversa</strong> inclui <strong>' + fmtInt(aj.qtde) + '</strong> itens ' +
+      '(' + fmtCur(aj.valor) + ') de NFs com status <em>Importada</em> / <em>Em Carga/OR</em>, que já estão no BIN 009-24 ' +
+      'do SAP mas ainda não foram armazenadas em endereço do WMS. ' +
+      'Base da Reversa de ' + formatarDataBR(aj.origem_gerado_em) + '.' +
+      '</div>';
+  } else {
+    notaReversa =
+      '<div style="font-size:11px;color:var(--amber);margin:-8px 0 12px 2px;line-height:1.5">' +
+      '⚠ Sem o saldo pendente da Reversa nesta versão — atualize a Reversa e reprocesse o Balanço ' +
+      'para a linha "Integração de NFs Reversa" considerar as NFs Importada / Em Carga/OR.' +
+      '</div>';
+  }
+
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Estoque Geral WMS × SAP
@@ -2228,6 +2252,7 @@ function renderizarBalanco(p) {
         <tbody>${linhasCruz}</tbody>
       </table>
     </div>
+    ${notaReversa}
 
     <div class="grid2">
       <div class="card">

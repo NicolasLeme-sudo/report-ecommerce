@@ -1880,6 +1880,45 @@ async function processarBalanco(files, options) {
     wmsPorClass[r.classificacao] = { qtde: Number(r.qtde), valor: Number(r.valor) };
   });
 
+  // ---- Ajuste: pendente de integração da Reversa ----
+  // NFs de reversa com status IMPORTADA ou EM CARGA/OR já estão lançadas no BIN
+  // 009-24 do SAP, mas ainda não foram armazenadas num endereço físico do WMS —
+  // então não aparecem no arquivo de estoque do WMS. Sem este ajuste o balanço
+  // mostra essa defasagem de etapa como se fosse divergência de estoque.
+  //
+  // O número vem do snapshot mais recente da Reversa, seja ele de hoje ou não:
+  // se a Reversa não tiver sido atualizada, vale o último número publicado por
+  // ela. A data de origem vai no payload para a tela mostrar de quando é o
+  // número — assim um dado defasado fica visível, em vez de silencioso.
+  var ajusteReversa = null;
+  var resSnapRev = await supabaseClient
+    .from("dashboard_snapshots")
+    .select("gerado_em, payload")
+    .eq("pagina", "reversa")
+    .order("gerado_em", { ascending: false })
+    .limit(1);
+
+  if (resSnapRev.error) {
+    console.error("Erro ao ler snapshot da Reversa para o balanço:", resSnapRev.error);
+    onProgress("⚠ Não foi possível ler a Reversa; balanço segue sem o ajuste de integração.");
+  } else if (resSnapRev.data && resSnapRev.data.length > 0) {
+    var pend = resSnapRev.data[0].payload && resSnapRev.data[0].payload.pendente_integracao;
+    if (pend && Number(pend.qtde)) {
+      var CLASSE_REVERSA = "Integração de NFs Reversa";
+      if (!wmsPorClass[CLASSE_REVERSA]) wmsPorClass[CLASSE_REVERSA] = { qtde: 0, valor: 0 };
+      wmsPorClass[CLASSE_REVERSA].qtde  += Number(pend.qtde)  || 0;
+      wmsPorClass[CLASSE_REVERSA].valor += Number(pend.valor) || 0;
+      ajusteReversa = {
+        qtde:  Number(pend.qtde)  || 0,
+        valor: Number(pend.valor) || 0,
+        origem_gerado_em: resSnapRev.data[0].gerado_em,
+      };
+      onProgress("✓ Pendente da Reversa somado ao WMS: " + ajusteReversa.qtde.toLocaleString('pt-BR') + " itens.");
+    } else {
+      onProgress("⚠ Reversa sem 'pendente_integracao' no snapshot — atualize a Reversa para o balanço considerar esse saldo.");
+    }
+  }
+
   var totalWMSQtde  = Object.values(wmsPorClass).reduce(function(s,v){ return s + v.qtde; }, 0);
   var totalWMSValor = Object.values(wmsPorClass).reduce(function(s,v){ return s + v.valor; }, 0);
   var wmsRegistros = Object.keys(wmsPorClass).map(function(c) {
@@ -1950,13 +1989,13 @@ async function processarBalanco(files, options) {
   }
 
   // ==================== Snapshot ====================
-  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor);
+  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor, ajusteReversa);
   await salvarSnapshot("balanco", "auto", payload);
   await registrarLog("balanco", "Estoque_WMS.tsv + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
   onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " | SAP: " + totalSAPQtde.toLocaleString('pt-BR'));
 }
 
-function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV) {
+function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa) {
   function montarLinha(rotulo, bin, wmsClass, wmsD, sapD) {
     var dQ = wmsD.qtde - sapD.qtde;
     var dV = wmsD.valor - sapD.valor;
@@ -2022,6 +2061,9 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
 
   return {
     gerado_em: new Date().toISOString(), cruzamento: cruzamento,
+    // Quanto do lado WMS da linha "Integração de NFs Reversa" veio do pendente
+    // da Reversa (e de quando é esse número), para a tela poder informar.
+    ajuste_reversa: ajusteReversa || null,
     total_wms: { qtde: totWMSQ, valor: Math.round(totWMSV * 100) / 100 },
     total_sap: { qtde: totSAPQ, valor: Math.round(totSAPV * 100) / 100 },
     estoque_wms: wmsReg, estoque_sap: sapReg,
@@ -2261,6 +2303,16 @@ var embalasBarraMap = new Map();
 
   // Recalcula o Montante por marca via banco, para evitar a mesma falha de
   // carregamento incompleto de dim_embalas que já vimos no Balanço de Estoque
+  // Total pendente de integração da Reversa (IMPORTADA + EM CARGA/OR).
+  // Essas NFs já estão lançadas no BIN 009-24 do SAP, mas ainda não foram
+  // armazenadas num endereço físico do WMS — então não aparecem no arquivo de
+  // estoque do WMS, e o balanço acusava divergência que não é perda, é só
+  // defasagem de etapa. O balanço soma este número no lado WMS da classificação
+  // "Integração de NFs Reversa" (ver processarBalanco).
+  // Começa com o cálculo local como fallback; o RPC abaixo sobrescreve com o
+  // número do banco, que também traz o valor em R$ via dim_custo.
+  var pendenteIntegracao = { qtde: itensVinc + itensArm, valor: 0 };
+
   onProgress("Enviando itens de reversa para staging (" + registrosParaStaging.length + ")...");
   const { error: errLimpezaReversa } = await supabaseClient.rpc("limpar_stg_reversa_itens");
   if (errLimpezaReversa) {
@@ -2303,6 +2355,20 @@ var embalasBarraMap = new Map();
           console.error("Erro ao ler resultado do montante de reversa:", errLeituraMontante);
         }
       }
+    }
+
+    // Pendente de integração valorizado — precisa rodar ANTES de limpar a staging,
+    // que é de onde a function lê os itens.
+    var resPend = await supabaseClient.rpc("calcular_reversa_pendente_integracao");
+    if (!resPend.error && resPend.data && resPend.data.length > 0) {
+      pendenteIntegracao = {
+        qtde:  Number(resPend.data[0].qtde)  || 0,
+        valor: Number(resPend.data[0].valor) || 0,
+      };
+      onProgress("✓ Pendente de integração (vai pro balanço): " + pendenteIntegracao.qtde.toLocaleString('pt-BR') + " itens.");
+    } else {
+      console.error("Erro ao calcular pendente de integração da reversa:", resPend.error);
+      onProgress("⚠ Pendente de integração via banco falhou; usando cálculo local (sem valor em R$).");
     }
 
     await supabaseClient.rpc("limpar_stg_reversa_itens");
@@ -2575,6 +2641,11 @@ var embalasBarraMap = new Map();
     montante_marca:    montanteArr,
     reversas_pendentes: reversasPendArr,
     mapa_estados:      mapaEstados,
+    // Consumido pelo Balanço WMS x SAP para somar no lado WMS da classificação
+    // "Integração de NFs Reversa". Fica no snapshot (e não numa tabela à parte)
+    // porque assim o balanço sempre acha o último número publicado pela Reversa,
+    // mesmo que a Reversa não tenha sido atualizada hoje.
+    pendente_integracao: pendenteIntegracao,
   };
 
   await salvarSnapshot("reversa", "auto", payload);
