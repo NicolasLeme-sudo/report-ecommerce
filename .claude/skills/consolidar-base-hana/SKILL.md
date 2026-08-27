@@ -115,8 +115,11 @@ python .claude/skills/consolidar-base-hana/scripts/consolidate.py <arquivo.xlsx>
 python .claude/skills/consolidar-base-hana/scripts/consolidate.py <mizuno.xlsb> <olympikus.xlsb> <under_armour.xlsb> --output <arquivo_saida.xlsx>
 ```
 
-Se `--output` não for passado, o script gera `<nome_do_primeiro_arquivo>_Final.xlsx`
-na mesma pasta do primeiro arquivo de entrada.
+Se `--output` não for passado, o script gera **`Embalas.xlsx`** na mesma pasta
+do primeiro arquivo de entrada — esse é o nome e o formato de saída padrão
+sempre que a skill entrega o resultado ao usuário; não renomeie nem troque de
+formato ao entregar, mesmo que os arquivos de entrada tenham outro nome ou
+outro formato (`.xlsb`, por exemplo).
 
 Ler `.xlsb` depende da biblioteca `pyxlsb` (`pip install pyxlsb`) — se ela não
 estiver instalada e o usuário mandar um `.xlsb`, instale antes de rodar.
@@ -125,14 +128,16 @@ Passos ao usar esta skill numa conversa:
 
 1. Salve o(s) arquivo(s) enviado(s) pelo usuário em disco (ex.: no diretório
    de scratchpad da sessão).
-2. Rode o script apontando para eles.
+2. Rode o script apontando para eles, **sem passar `--output`** (o padrão já
+   gera `Embalas.xlsx`).
 3. Leia a saída do script no terminal — ela traz quantas linhas foram
    consolidadas por marca e um resumo de qualquer inconsistência (segmento não
    mapeado, campo ausente). Reporte esse resumo ao usuário em texto, não só
    o arquivo. Campo ausente não é necessariamente erro — "Colorway Description"
    legitimamente vem vazia em parte dos produtos; olhe QUAL coluna está
    faltando antes de tratar como problema.
-4. Entregue o `.xlsx` gerado ao usuário (via `SendUserFile` ou equivalente).
+4. Entregue o `Embalas.xlsx` gerado ao usuário (via `SendUserFile` ou
+   equivalente).
 
 ## Se a estrutura mudar
 

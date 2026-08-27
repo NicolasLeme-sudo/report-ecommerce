@@ -10,8 +10,8 @@ Aceita tanto UM arquivo com as 3 abas (Mizuno/Olympikus/Under Armour) quanto
 até 3 arquivos separados, um por marca (nesse caso a aba pode ter qualquer
 nome — a marca é inferida pelo nome do arquivo). Lê .xlsx e .xlsb.
 
-Se --output não for informado, é gerado "<nome_do_primeiro_arquivo>_Final.xlsx"
-na mesma pasta do primeiro arquivo de entrada.
+Se --output não for informado, é gerado "Embalas.xlsx" na mesma pasta do
+primeiro arquivo de entrada — esse é sempre o nome/formato de saída padrão.
 """
 
 import sys
@@ -117,6 +117,10 @@ SEGMENTO_RULES = [
 ]
 
 FINAL_SHEET_NAME = "Base Final"
+
+# Nome padrão (sem extensão) do arquivo de saída quando --output não é
+# informado. O arquivo sempre é salvo como .xlsx.
+DEFAULT_OUTPUT_NAME = "Embalas"
 
 
 # ---------------------------------------------------------------------------
@@ -430,7 +434,7 @@ def main():
             sys.exit(1)
 
     if output_path is None:
-        output_path = input_paths[0].with_name(f"{input_paths[0].stem}_Final.xlsx")
+        output_path = input_paths[0].with_name(f"{DEFAULT_OUTPUT_NAME}.xlsx")
 
     rows, report_lines = consolidate(input_paths)
     write_output(rows, output_path)
