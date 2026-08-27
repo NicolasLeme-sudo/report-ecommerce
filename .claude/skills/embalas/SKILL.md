@@ -1,9 +1,9 @@
 ---
-name: consolidar-base-hana
-description: Consolida em uma única base as informações de colunas específicas das abas Mizuno, Olympikus e Under Armour de um export Excel da base HANA (relatório e-commerce). Use sempre que o usuário mandar/anexar um Excel com essas 3 abas e pedir para gerar a "base final", consolidar/juntar as abas, montar a planilha semanal de cadastro, ou mencionar "base HANA", mesmo sem citar o nome exato da skill.
+name: embalas
+description: Consolida em uma única base ("Embalas") as informações de colunas específicas das abas Mizuno, Olympikus e Under Armour de um export Excel da base HANA (relatório e-commerce). Use sempre que o usuário mandar/anexar um Excel com essas 3 abas e pedir para gerar a base de embalagem, o "Embalas", a "base final", consolidar/juntar as abas, montar a planilha semanal de cadastro, ou mencionar "base HANA", mesmo sem citar o nome exato da skill.
 ---
 
-# Consolidar Base HANA
+# Embalas
 
 ## Quando usar
 
@@ -109,10 +109,10 @@ como o FUTEBOL MIZUNO).
 
 ```bash
 # Um único arquivo com as 3 abas:
-python .claude/skills/consolidar-base-hana/scripts/consolidate.py <arquivo.xlsx> [--output <arquivo_saida.xlsx>]
+python .claude/skills/embalas/scripts/consolidate.py <arquivo.xlsx> [--output <arquivo_saida.xlsx>]
 
 # Ou até 3 arquivos separados, um por marca (.xlsx ou .xlsb):
-python .claude/skills/consolidar-base-hana/scripts/consolidate.py <mizuno.xlsb> <olympikus.xlsb> <under_armour.xlsb> --output <arquivo_saida.xlsx>
+python .claude/skills/embalas/scripts/consolidate.py <mizuno.xlsb> <olympikus.xlsb> <under_armour.xlsb> --output <arquivo_saida.xlsx>
 ```
 
 Se `--output` não for passado, o script gera **`Embalas.xlsx`** na mesma pasta
