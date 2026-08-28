@@ -685,8 +685,145 @@ async function baixarArquivoOriginal(caminho, btnId) {
   }
 }
 
-function exportarOutboundCSV() {
-  baixarArquivoOriginal('outbound/Acompanhamento_Op.tsv', 'btnExportOutbound');
+// ---------------------------------------------------------------------
+// Exportações do report diário (Pedidos SAP / Backlog FIFO)
+//
+// Diferente de baixarArquivoOriginal() (que reenvia o arquivo cru que o
+// operador subiu), estas duas consultam a tabela `pedidos` ao vivo e montam
+// a planilha na hora — porque cruzam dado que só existe na base (Pedido VTEX
+// e Valor do Pedido, vindos do SAP) e porque cada uma filtra um recorte
+// diferente de pedidos.
+//
+// Paginação sempre por página vazia (nunca por "voltou menos que pedi") —
+// mesma regra de segurança usada no restante do projeto: um teto de linhas
+// por requisição do PostgREST não pode ser confundido com "acabaram os dados".
+async function buscarTodosPedidosAbertos(colunas, filtroExtra) {
+  const linhas = [];
+  let offset = 0;
+  const LOTE = 1000;
+  while (true) {
+    let q = supabaseClient.from('pedidos').select(colunas)
+      .eq('situacao', 'ABERTO')
+      .order('pedido_venda', { ascending: true })
+      .range(offset, offset + LOTE - 1);
+    if (filtroExtra) q = filtroExtra(q);
+    const { data, error } = await q;
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    linhas.push(...data);
+    offset += data.length;
+  }
+  return linhas;
+}
+
+// Mesmo de-para acrônimo → razão social usado em ingest.js (dim_acronimos) —
+// aqui só para exibir o nome completo do marketplace no arquivo exportado.
+async function carregarMapaAcronimos() {
+  const { data } = await supabaseClient.from('dim_acronimos').select('acronimo, razao_social');
+  const mapa = {};
+  (data || []).forEach(function(r) {
+    const chave = String(r.acronimo || '').trim().toUpperCase();
+    if (chave && !mapa[chave]) mapa[chave] = r.razao_social;
+  });
+  return mapa;
+}
+
+function nomeMarketplaceExport(acronimo, mapaAcronimos) {
+  if (!acronimo) return '';
+  return mapaAcronimos[String(acronimo).trim().toUpperCase()] || acronimo;
+}
+
+function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo) {
+  const ws = XLSX.utils.json_to_sheet(linhas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, nomeAbaLinhas);
+  XLSX.writeFile(wb, nomeArquivo);
+}
+
+// Colunas do Acompanhamento Op, na mesma ordem/nome do arquivo original do
+// WMS — usadas nas duas exportações abaixo para o operador reconhecer o
+// layout de sempre.
+function linhaAcompanhamentoOp(p) {
+  return {
+    'Pedido de Venda': p.pedido_venda,
+    'Nota Fiscal': p.nota_fiscal,
+    'Classificação Tipo Pedido': p.classificacao_tipo_pedido,
+    'Qtde. Total de Produto': p.qtd_total_produto,
+    'Status da Nota Fiscal': p.status_nf,
+    'Cancelado Pelo ERP': p.cancelado_pelo_erp ? '1' : '',
+    'Importado em': p.importado_em ? formatarDataBR(p.importado_em) : '',
+    'Separado em': p.separado_em ? formatarDataBR(p.separado_em) : '',
+    'Enviado para Faturamento': p.enviado_faturamento_em ? formatarDataBR(p.enviado_faturamento_em) : '',
+    'Faturado em': p.faturado_em ? formatarDataBR(p.faturado_em) : '',
+    'Conferido em': p.conferido_em ? formatarDataBR(p.conferido_em) : '',
+    'Coletado em': p.coletado_em ? formatarDataBR(p.coletado_em) : '',
+    'Processado em': p.processado_em ? formatarDataBR(p.processado_em) : '',
+    'Data Esperada para Embarque': p.data_esperada_embarque ? formatarDataBR(p.data_esperada_embarque) : '',
+    'Transportadora': p.transportadora,
+    'Cidade do Destinatário': p.destinatario_cidade,
+    'UF Destinatário': p.destinatario_uf,
+  };
+}
+
+// Arquivo 1 — Backlog FIFO: pedidos em operação com 3+ dias de backlog
+// (faixas "03" e "04+" do próprio gráfico), no layout do Acompanhamento Op.
+async function exportarBacklogFifoXLSX() {
+  const btn = document.getElementById('btnExportBacklogFifo');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const pedidos = await buscarTodosPedidosAbertos(
+      'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
+      'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
+      'conferido_em,coletado_em,processado_em,data_esperada_embarque,transportadora,' +
+      'destinatario_cidade,destinatario_uf,backlog_fifo_bucket',
+      function(q) { return q.in('backlog_fifo_bucket', ['03', '04+']); }
+    );
+    if (pedidos.length === 0) { alert('Nenhum pedido com 3 dias ou mais de backlog no momento.'); return; }
+    const linhas = pedidos.map(linhaAcompanhamentoOp);
+    const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+    baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
+  } catch (err) {
+    alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
+// Arquivo 2 — Pedidos SAP: todos os pedidos em operação, com Pedido VTEX e
+// Valor do Pedido (vindos do cruzamento com o SAP em ingest.js) nas duas
+// primeiras colunas, seguidos do layout do Acompanhamento Op.
+async function exportarPedidosSapXLSX() {
+  const btn = document.getElementById('btnExportOutbound');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const [pedidos, mapaAcronimos] = await Promise.all([
+      buscarTodosPedidosAbertos(
+        'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
+        'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
+        'conferido_em,coletado_em,processado_em,data_esperada_embarque,transportadora,' +
+        'destinatario_cidade,destinatario_uf,pedido_vtex,valor_pedido,marketplace_acronimo,marca'
+      ),
+      carregarMapaAcronimos(),
+    ]);
+    if (pedidos.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
+    const linhas = pedidos.map(function(p) {
+      return Object.assign({
+        'Pedido VTEX': p.pedido_vtex || '',
+        'Valor do Pedido': p.valor_pedido != null ? p.valor_pedido : '',
+        'Marketplace': p.marketplace_acronimo || '',
+        'Marketplace (Razão Social)': nomeMarketplaceExport(p.marketplace_acronimo, mapaAcronimos),
+        'Marca': p.marca || '',
+      }, linhaAcompanhamentoOp(p));
+    });
+    const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+    baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx');
+  } catch (err) {
+    alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
 }
 
 function exportarInboundCSV() {
@@ -1047,7 +1184,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do dia
-      <button class="btn-tema" id="btnExportOutbound" onclick="exportarOutboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button>
+      <button class="btn-tema" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()" style="font-size:11px;padding:4px 10px;">⬇ Pedidos SAP</button>
     </div>
     <div class="kpi-row" id="kpiRow"></div>
     
@@ -1060,7 +1197,10 @@ function renderizarOutbound(atual, anterior) {
       <div class="stack">
         <div class="card"><div class="section-title">Itens por Marketplace — Top 5</div><div class="bar-list" id="mktBars"></div></div>
         <div class="card">
-          <div class="section-title">Backlog FIFO em itens</div>
+          <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
+            Backlog FIFO em itens
+            <button class="btn-tema" id="btnExportBacklogFifo" onclick="exportarBacklogFifoXLSX()" style="font-size:11px;padding:4px 10px;">⬇ Backlog ≥ 3 dias</button>
+          </div>
           <div class="donut-wrap">
             <svg class="donut" width="200" height="200" viewBox="0 0 220 220" id="donutSvg"></svg>
             <div class="donut-legend" id="donutLegend"></div>

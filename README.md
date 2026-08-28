@@ -512,6 +512,40 @@ precisa entrar na conta explicitamente. Vale perguntar à operação, para cada
 classificação: *"existe algum momento em que isso já está num sistema e ainda
 não está no outro?"*
 
+### 3.8. Exportação sob demanda: consulta ao vivo, não snapshot
+
+**Situação real:** o report diário do operador (enviado por e-mail à
+diretoria) usava dois arquivos montados à mão no Excel — um PROCV do pedido
+do WMS contra o `Primário` do SAP para extrair Pedido VTEX e valor, e um
+filtro manual de pedidos com 3+ dias de backlog. Automatizamos os dois como
+botões de exportação.
+
+A decisão de design aqui é diferente dos outros exports do projeto (que
+sempre baixam de novo o arquivo original do Storage, sem processar nada). Os
+dois botões do report diário fazem algo nunca feito antes no projeto:
+**consultam a tabela `pedidos` ao vivo** e montam a planilha `.xlsx` na hora,
+no navegador, com SheetJS (já carregado para ler `.xlsx` de entrada — reaproveitado
+aqui para escrever). Motivo: o PROCV do usuário já existia dentro do
+`ingest.js` (`sapPorPedido`, ver 1.1), só não persistia os dois campos que o
+report precisava — bastou persistir e consultar, sem inventar um cálculo novo
+nem um snapshot novo só para isso.
+
+Dois cuidados replicam padrões já estabelecidos neste documento:
+
+- **Paginação por página vazia** (3.1), porque a consulta de pedidos abertos
+  passa de 1.000 linhas — o mesmo teto do PostgREST que já causou um bug real
+  neste projeto.
+- **O de-para de marketplace (acrônimo → razão social) é o mesmo já usado em
+  `ingest.js`** para os cards, replicado em `index.html` só para o rótulo do
+  arquivo exportado — é leitura de apoio para exibição, não recálculo de
+  regra de negócio, então não fere a separação da seção 1.
+
+**Regra para a recriação:** nem toda exportação precisa de um snapshot
+dedicado. Quando o dado já está numa tabela relacional e a extração é
+simplesmente "filtra e formata", uma consulta ao vivo no clique do botão é
+mais simples e sempre está atualizada — reserve o padrão de snapshot
+pré-calculado (seção 1) para o que realmente precisa de agregação pesada.
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador

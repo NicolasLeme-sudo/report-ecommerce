@@ -476,6 +476,12 @@ async function processarRelatoriosDaOperacao(files, options) {
       data_pedido_sap: sap["Data do pedido SAP"] ? new Date(sap["Data do pedido SAP"]) : null,
       marca: sap["Marca"] || null, // fallback aplicado abaixo
       marketplace_acronimo: sap["Marketplace"] || null,
+      // Usados no arquivo de exportação "Pedidos SAP" (report diário) — mesmo
+      // cruzamento de sapPorPedido acima, só dois campos a mais que antes não
+      // eram aproveitados.
+      pedido_vtex: sap["Pedido VTEX"] || null,
+      valor_pedido: sap["Total do pedido"] != null && sap["Total do pedido"] !== ""
+        ? Number(sap["Total do pedido"]) : null,
 
       situacao: linha.origem === "Acompanhamento_Exp"
         ? (linha["Status da Nota Fiscal"] === "CANCELADO" ? "CANCELADO" : "EXPEDIDO")
