@@ -827,10 +827,23 @@ async function exportarBacklogFifoXLSX() {
   try {
     // Mesmo recorte que o gráfico já usa pra separar as faixas 03/04+ — os
     // IDs vêm do array que desenha o donut na tela, não de um cálculo à parte.
-    const ids = idsPedidosDaTela(function(p) {
+    let ids = idsPedidosDaTela(function(p) {
       return p.backlog_fifo_bucket === '03' || p.backlog_fifo_bucket === '04+';
     });
-    if (ids.length === 0) { alert('Nenhum pedido com 3 dias ou mais de backlog no momento.'); return; }
+    // Fallback: sem ninguém em 03/04+ (dia bom), o arquivo não pode sair
+    // vazio nem virar "qualquer coisa" — pega os 500 pedidos mais antigos em
+    // tela (por Importado em), pra sempre ter volume comparável dia a dia.
+    let usouFallback500 = false;
+    if (ids.length === 0) {
+      const detalhe = (outboundPayloadAtual && outboundPayloadAtual.pedidos_detalhe) || [];
+      ids = detalhe.slice()
+        .filter(function(p) { return p.importado_em; })
+        .sort(function(a, b) { return new Date(a.importado_em) - new Date(b.importado_em); })
+        .slice(0, 500)
+        .map(function(p) { return p.pedido_venda; });
+      usouFallback500 = true;
+    }
+    if (ids.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
     const pedidos = await buscarPedidosPorId(
       'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
       'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
@@ -840,6 +853,7 @@ async function exportarBacklogFifoXLSX() {
     );
     const linhas = pedidos.map(linhaAcompanhamentoOp);
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+    if (usouFallback500) console.info('Backlog FIFO: nada em 03/04+ hoje — exportados os ' + ids.length + ' pedidos mais antigos em tela.');
     await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));

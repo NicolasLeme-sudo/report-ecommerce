@@ -619,6 +619,40 @@ outra:
    export) deve **ler dali**, não reimplementar o mesmo critério em paralelo
    — mesmo que a reimplementação pareça, no papel, equivalente.
 
+### 3.10. Exportação nunca sai vazia: fallback com critério explícito
+
+**Pedido do usuário:** em dia sem nenhum pedido com 3+ dias de backlog (bom
+sinal operacional), o botão "Backlog ≥ 3 dias" não pode simplesmente exportar
+um arquivo vazio nem um recorte pequeno/arbitrário — precisa de um volume
+comparável dia a dia para quem recebe o report. Critério definido: na
+ausência de pedidos em 03/04+, exportar os **500 pedidos mais antigos** que
+estão na tela (por `importado_em`, do mais antigo pro mais novo).
+
+```js
+let ids = idsPedidosDaTela(p => p.backlog_fifo_bucket === '03' || p.backlog_fifo_bucket === '04+');
+if (ids.length === 0) {
+  // Fallback: mesmo array da tela (pedidos_detalhe), ordenado por
+  // importado_em — nunca uma nova consulta com critério próprio.
+  ids = detalhe.filter(p => p.importado_em)
+               .sort((a, b) => new Date(a.importado_em) - new Date(b.importado_em))
+               .slice(0, 500)
+               .map(p => p.pedido_venda);
+}
+```
+
+Reforça o mesmo princípio da seção 3.9: mesmo o fallback lê do array que já
+monta a tela (`pedidos_detalhe`), nunca de uma query paralela — só muda o
+critério de corte dentro dos mesmos dados. Precisou de um campo a mais nesse
+array (`importado_em`, que antes não estava lá — só existia nas colunas
+buscadas por ID depois) porque é o campo que define "mais antigo".
+
+**Regra para a recriação:** quando um relatório recorrente pode legitimamente
+ficar vazio em um dia bom, decida com o usuário desde já qual é o
+comportamento de fallback — não deixe pra descobrir depois que alguém recebeu
+um e-mail sem anexo, ou com um anexo de tamanho estranho. Se o fallback
+existir, ele deve ser tão previsível/auditável quanto a regra principal (um
+critério de corte fixo e documentado, não "o que sobrar").
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador

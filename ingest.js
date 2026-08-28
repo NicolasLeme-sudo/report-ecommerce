@@ -1226,6 +1226,9 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
       leadtime_nf_horas: p.leadtime_nf_horas,
       leadtime_cd_horas: p.leadtime_cd_horas,
       segmento_predominante: segmentoPredominante(itensP),
+      // Usado pela exportação de Backlog no index.html: quando não há nenhum
+      // pedido nas faixas 03/04+, ela cai pros 500 mais antigos por esta data.
+      importado_em: p.importado_em ? p.importado_em.toISOString() : null,
     };
   });
 
