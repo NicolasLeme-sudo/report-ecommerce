@@ -28,6 +28,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- XLSX: leitura de arquivos Excel/TSV no navegador -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- SheetJS acima só LÊ .xlsx (parseXLSX em ingest.js). A edição/escrita da
+     versão gratuita do SheetJS não aplica estilo (negrito, alinhamento) —
+     por isso o ExcelJS abaixo cobre a ESCRITA dos arquivos exportados do
+     report diário, com fallback pro SheetJS sem estilo se este não carregar. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 
 <style>
 /* ============================================================
@@ -697,13 +702,33 @@ async function baixarArquivoOriginal(caminho, btnId) {
 // Paginação sempre por página vazia (nunca por "voltou menos que pedi") —
 // mesma regra de segurança usada no restante do projeto: um teto de linhas
 // por requisição do PostgREST não pode ser confundido com "acabaram os dados".
+// "Em operação" é sempre "está no Acompanhamento_Op da última atualização" —
+// nunca um p.situacao que pode ficar congelado no banco (foi assim que um
+// pedido de 14/08 ficou "Aberto" pra sempre depois de sumir do arquivo
+// diário: nada nunca vinha atualizar aquela linha de novo). presente_no_op_em
+// recebe o MESMO timestamp em toda linha de uma mesma rodada do Outbound
+// (ver ingest.js, momentoOpIso) — então descobrir o valor mais recente da
+// coluna já isola exatamente "os pedidos da última atualização", sem
+// depender de nenhuma limpeza manual de registro órfão.
 async function buscarTodosPedidosAbertos(colunas, filtroExtra) {
+  const { data: maxRow, error: erroMax } = await supabaseClient
+    .from('pedidos')
+    .select('presente_no_op_em')
+    .not('presente_no_op_em', 'is', null)
+    .order('presente_no_op_em', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (erroMax) throw erroMax;
+  const ultimoOp = maxRow && maxRow.presente_no_op_em;
+  if (!ultimoOp) throw new Error('Nenhuma atualização do Outbound encontrada ainda.');
+
   const linhas = [];
   let offset = 0;
   const LOTE = 1000;
   while (true) {
     let q = supabaseClient.from('pedidos').select(colunas)
       .eq('situacao', 'ABERTO')
+      .eq('presente_no_op_em', ultimoOp)
       .order('pedido_venda', { ascending: true })
       .range(offset, offset + LOTE - 1);
     if (filtroExtra) q = filtroExtra(q);
@@ -733,11 +758,50 @@ function nomeMarketplaceExport(acronimo, mapaAcronimos) {
   return mapaAcronimos[String(acronimo).trim().toUpperCase()] || acronimo;
 }
 
-function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo) {
-  const ws = XLSX.utils.json_to_sheet(linhas);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, nomeAbaLinhas);
-  XLSX.writeFile(wb, nomeArquivo);
+// opts.colunasMoeda: nomes de coluna (cabeçalho) a formatar como R$.
+// Título em negrito+itálico e todas as células centralizadas em toda exportação.
+async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
+  opts = opts || {};
+  const colunasMoeda = opts.colunasMoeda || [];
+  const colunas = Object.keys(linhas[0] || {});
+
+  if (window.ExcelJS) {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(nomeAbaLinhas);
+    ws.columns = colunas.map(function(c) {
+      return { header: c, key: c, width: Math.max(12, c.length + 2) };
+    });
+    linhas.forEach(function(l) { ws.addRow(l); });
+
+    ws.getRow(1).eachCell(function(cell) {
+      cell.font = { bold: true, italic: true };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    ws.eachRow({ includeEmpty: false }, function(row, idx) {
+      if (idx === 1) return; // cabeçalho já tratado acima
+      row.eachCell(function(cell) { cell.alignment = { horizontal: 'center', vertical: 'middle' }; });
+    });
+    colunasMoeda.forEach(function(nomeCol) {
+      const idx = colunas.indexOf(nomeCol) + 1;
+      if (idx > 0) ws.getColumn(idx).numFmt = '"R$" #,##0.00';
+    });
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nomeArquivo;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } else {
+    // Fallback sem formatação visual (o ExcelJS não carregou) — o arquivo
+    // ainda sai correto, só sem negrito/centralização/moeda visual.
+    console.warn('ExcelJS não carregou; exportando sem formatação visual.');
+    const wsPlain = XLSX.utils.json_to_sheet(linhas);
+    const wbPlain = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wbPlain, wsPlain, nomeAbaLinhas);
+    XLSX.writeFile(wbPlain, nomeArquivo);
+  }
 }
 
 // Colunas do Acompanhamento Op, na mesma ordem/nome do arquivo original do
@@ -782,7 +846,7 @@ async function exportarBacklogFifoXLSX() {
     if (pedidos.length === 0) { alert('Nenhum pedido com 3 dias ou mais de backlog no momento.'); return; }
     const linhas = pedidos.map(linhaAcompanhamentoOp);
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
-    baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
+    await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
   } finally {
@@ -818,7 +882,7 @@ async function exportarPedidosSapXLSX() {
       }, linhaAcompanhamentoOp(p));
     });
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
-    baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx');
+    await baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx', { colunasMoeda: ['Valor do Pedido'] });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
   } finally {

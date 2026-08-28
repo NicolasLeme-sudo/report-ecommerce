@@ -546,6 +546,61 @@ simplesmente "filtra e formata", uma consulta ao vivo no clique do botão é
 mais simples e sempre está atualizada — reserve o padrão de snapshot
 pré-calculado (seção 1) para o que realmente precisa de agregação pesada.
 
+### 3.9. "Em operação" é derivado, nunca persistido como status fixo
+
+**Situação real:** um pedido específico (parado desde 14/08) apareceu nas
+exportações do report diário sem Pedido VTEX/Valor, e sumido do gráfico de
+Backlog FIFO na tela — dois sintomas aparentemente sem relação, mesma causa.
+
+Causa: `pedidos.situacao` era escrito como `"ABERTO"` a cada processamento e
+**nunca mais tocado** se aquele pedido parasse de aparecer no arquivo
+`Acompanhamento_Op` do dia seguinte (resolvido por outro caminho, corrigido
+manualmente, etc.). O campo ficava congelado em `"ABERTO"` para sempre — um
+registro fantasma. A tela nunca mostrava esse pedido (o payload é calculado
+do zero a cada rodada, só com o que está no arquivo do dia), mas qualquer
+consulta nova que confiasse no `situacao` já persistido no banco (como as
+exportações, que precisam buscar o dado ao vivo — ver 3.8) herdava o
+fantasma.
+
+**Padrão:** "em operação" não é um status que se grava e mantém — é uma
+pergunta que se refaz a cada consulta: *"este pedido está no Acompanhamento_Op
+da atualização mais recente?"* Implementado com um timestamp de rodada, não
+com um booleano:
+
+```js
+// ingest.js — um único timestamp por rodada inteira do Outbound
+const momentoOpIso = hoje.toISOString();
+// ... por linha, só quando vem do Acompanhamento_Op (nunca do Exp):
+presente_no_op_em: linha.origem === "Acompanhamento_Op" ? momentoOpIso : null,
+```
+
+Toda consulta que precisa de "pedidos em operação agora" primeiro descobre o
+`presente_no_op_em` mais recente da tabela, depois filtra por igualdade a
+esse valor — nunca por `situacao = 'ABERTO'` sozinho:
+
+```js
+// index.html — antes de qualquer exportação
+const ultimoOp = /* MAX(presente_no_op_em) */;
+supabaseClient.from('pedidos').select(colunas)
+  .eq('situacao', 'ABERTO')
+  .eq('presente_no_op_em', ultimoOp);
+```
+
+Um pedido que sumir do Acompanhamento_Op deixa de contar automaticamente na
+próxima rodada — sem precisar de uma limpeza manual, uma tarefa agendada, ou
+qualquer processo separado para "fechar" registros órfãos. O mesmo raciocínio
+vale para o KPI computado dentro do próprio `ingest.js`: o filtro passou a
+checar `presente_no_op_em` explicitamente, em vez de confiar só em
+`situacao`, para nunca acidentalmente herdar algo vindo do
+`Acompanhamento_Exp` (fonte diferente — Exp só informa o que já saiu ou foi
+cancelado, nunca decide quem está em operação).
+
+**Regra para a recriação:** qualquer campo que representa "isto ainda é
+válido/atual" é um candidato a virar registro fantasma se for gravado como
+status fixo em vez de recalculado. Prefira sempre uma pergunta derivada
+("está presente na fonte mais recente?") a um campo que alguém precisa
+lembrar de atualizar ou limpar.
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador

@@ -444,6 +444,13 @@ async function processarRelatoriosDaOperacao(files, options) {
   }
 
   const hoje = new Date();
+  // Um único timestamp pra rodada inteira: toda linha vinda do
+  // Acompanhamento_Op nesta execução recebe exatamente este valor em
+  // presente_no_op_em. É o que permite, depois, achar "os pedidos em
+  // operação agora" com uma comparação simples de igualdade — nunca
+  // precisa de uma limpeza manual de pedido que sumiu do Op de um dia
+  // pro outro (ver migration add_presente_no_op_em).
+  const momentoOpIso = hoje.toISOString();
   const pedidosProcessados = [];
 
   const todasLinhas = linhasOp.concat(linhasExp);
@@ -453,6 +460,10 @@ async function processarRelatoriosDaOperacao(files, options) {
 
     const p = {
       pedido_venda: Number(pedidoVenda),
+      // "Em operação" é sempre derivado de presença no Acompanhamento_Op da
+      // rodada atual — nunca do Acompanhamento_Exp, e nunca herdado de uma
+      // rodada anterior (ver README, seção sobre pedidos "fantasma").
+      presente_no_op_em: linha.origem === "Acompanhamento_Op" ? momentoOpIso : null,
       nota_fiscal: linha["Nota Fiscal"],
       classificacao_tipo_pedido: linha["Classificação Tipo Pedido"],
       qtd_total_produto: Number(linha["Qtde. Total de Produto"]) || 0,
@@ -1054,8 +1065,13 @@ function segmentoPredominante(itensP) {
 }
 
 async function gerarPayloadOutbound(pedidos, itensPorPedido) {
+  // "Em operação" = está no Acompanhamento_Op desta rodada, ponto. Explícito
+  // aqui (em vez de confiar só em p.situacao === "ABERTO") pra nunca
+  // acidentalmente contar algo vindo do Acompanhamento_Exp — são fontes
+  // diferentes: Op decide quem está em operação, Exp só informa o que já
+  // saiu/foi cancelado.
   const abertos = pedidos.filter(function(p){
-    return p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
+    return p.presente_no_op_em && p.situacao === "ABERTO" && p.status_calculado !== "Cancelado";
   });
 
   // KPIs simples
