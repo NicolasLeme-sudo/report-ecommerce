@@ -491,8 +491,13 @@ async function processarRelatoriosDaOperacao(files, options) {
       // cruzamento de sapPorPedido acima, só dois campos a mais que antes não
       // eram aproveitados.
       pedido_vtex: sap["Pedido VTEX"] || null,
+      // "Total do pedido" vem do SAP em centavos como valor bruto da célula
+      // (a formatação "587,06" é só exibição no Excel — o valor real gravado
+      // na planilha é 58706). Confirmado batendo contra a faixa de preço real
+      // de calçado (~R$250-300 médio); sem o /100 o valor médio de pedido
+      // dava ~R$30 mil, implausível.
       valor_pedido: sap["Total do pedido"] != null && sap["Total do pedido"] !== ""
-        ? Number(sap["Total do pedido"]) : null,
+        ? Number(sap["Total do pedido"]) / 100 : null,
 
       situacao: linha.origem === "Acompanhamento_Exp"
         ? (linha["Status da Nota Fiscal"] === "CANCELADO" ? "CANCELADO" : "EXPEDIDO")
