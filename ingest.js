@@ -663,7 +663,20 @@ async function uploadArquivoOriginal(caminho, file) {
   if (error) console.error("Erro ao guardar arquivo original (" + caminho + "):", error);
 }
 
+// Carimbo de versão do ingest.js. Serve para saber QUAL código gerou um
+// snapshot: o ingest.js roda no navegador do operador, então uma aba aberta
+// desde antes de um deploy (ou um arquivo em cache) continua processando com
+// a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
+// correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
+// Atualizar esta data ao mexer em regra de cálculo deste arquivo.
+var INGEST_VERSAO = "2026-08-28";
+
 async function salvarSnapshot(pagina, tipo, payload) {
+  // Grava a versão junto do payload — assim dá pra auditar depois qual código
+  // produziu cada número, sem depender de reconstruir a linha do tempo à mão.
+  if (payload && typeof payload === "object" && !payload.ingest_versao) {
+    payload.ingest_versao = INGEST_VERSAO;
+  }
   const resultado = await supabaseClient.from("dashboard_snapshots").insert({
     pagina: pagina, tipo_snapshot: tipo,
     data_snapshot: new Date().toISOString().slice(0, 10),
