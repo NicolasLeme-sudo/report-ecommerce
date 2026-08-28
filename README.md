@@ -574,32 +574,50 @@ const momentoOpIso = hoje.toISOString();
 presente_no_op_em: linha.origem === "Acompanhamento_Op" ? momentoOpIso : null,
 ```
 
-Toda consulta que precisa de "pedidos em operação agora" primeiro descobre o
-`presente_no_op_em` mais recente da tabela, depois filtra por igualdade a
-esse valor — nunca por `situacao = 'ABERTO'` sozinho:
+Isso resolve o registro fantasma **dentro do `ingest.js`**: o filtro do KPI
+(`gerarPayloadOutbound`) passou a checar `presente_no_op_em` explicitamente,
+em vez de confiar só em `situacao`, então `pedidos_detalhe` (o array que
+monta a tela — KPIs, cards, o gráfico de Backlog FIFO) nunca mais inclui um
+pedido congelado.
+
+Mas isso, sozinho, **não bastava** para as exportações — e aqui veio uma
+correção direta do usuário que vale registrar como princípio, não só como
+fix pontual: minha primeira versão fazia as exportações reconstruírem "quem
+está em operação" com uma SEGUNDA consulta ao banco (mesma lógica de
+`presente_no_op_em`, mas repetida em `index.html`). Funcionava, mas duas
+implementações independentes da mesma regra de negócio são exatamente o tipo
+de coisa que diverge silenciosamente mais cedo ou mais tarde — a pergunta do
+usuário foi direta: *"não quero uma informação se o pedido está no
+Acompanhamento Op, quero que os pedidos extraídos sejam os mesmos que estão
+nessa tela."*
+
+**Padrão corrigido:** quando já existe um array que decide o que aparece na
+tela, uma exportação relacionada não deve *recalcular* o mesmo critério — ela
+deve *ler os IDs desse mesmo array* e buscar só as colunas que faltam:
 
 ```js
-// index.html — antes de qualquer exportação
-const ultimoOp = /* MAX(presente_no_op_em) */;
-supabaseClient.from('pedidos').select(colunas)
-  .eq('situacao', 'ABERTO')
-  .eq('presente_no_op_em', ultimoOp);
+// index.html — os pedidos exportados são, por construção, os mesmos da tela:
+// os IDs vêm do array que já monta os KPIs/gráficos, não de uma nova regra.
+function idsPedidosDaTela(filtro) {
+  const detalhe = outboundPayloadAtual.pedidos_detalhe; // o mesmo array da tela
+  return (filtro ? detalhe.filter(filtro) : detalhe).map(p => p.pedido_venda);
+}
+// Depois: supabaseClient.from('pedidos').select(colunas).in('pedido_venda', ids)
+// — só busca as colunas que pedidos_detalhe não carrega (datas, transportadora,
+// Pedido VTEX, Valor), nunca decide de novo QUEM entra.
 ```
 
-Um pedido que sumir do Acompanhamento_Op deixa de contar automaticamente na
-próxima rodada — sem precisar de uma limpeza manual, uma tarefa agendada, ou
-qualquer processo separado para "fechar" registros órfãos. O mesmo raciocínio
-vale para o KPI computado dentro do próprio `ingest.js`: o filtro passou a
-checar `presente_no_op_em` explicitamente, em vez de confiar só em
-`situacao`, para nunca acidentalmente herdar algo vindo do
-`Acompanhamento_Exp` (fonte diferente — Exp só informa o que já saiu ou foi
-cancelado, nunca decide quem está em operação).
-
-**Regra para a recriação:** qualquer campo que representa "isto ainda é
-válido/atual" é um candidato a virar registro fantasma se for gravado como
-status fixo em vez de recalculado. Prefira sempre uma pergunta derivada
-("está presente na fonte mais recente?") a um campo que alguém precisa
-lembrar de atualizar ou limpar.
+**Regra para a recriação:** duas coisas ficam registradas aqui, uma dentro da
+outra:
+1. Qualquer campo que representa "isto ainda é válido/atual" é candidato a
+   virar registro fantasma se for gravado como status fixo em vez de
+   recalculado — prefira sempre uma pergunta derivada a um campo que alguém
+   precisa lembrar de atualizar ou limpar (`presente_no_op_em` resolve isso
+   onde o dado nasce, dentro do `ingest.js`).
+2. Uma vez que existe um lugar único de verdade para "o que está na tela"
+   (aqui, `pedidos_detalhe`), qualquer funcionalidade derivada dela (como um
+   export) deve **ler dali**, não reimplementar o mesmo critério em paralelo
+   — mesmo que a reimplementação pareça, no papel, equivalente.
 
 ---
 

@@ -702,42 +702,31 @@ async function baixarArquivoOriginal(caminho, btnId) {
 // Paginação sempre por página vazia (nunca por "voltou menos que pedi") —
 // mesma regra de segurança usada no restante do projeto: um teto de linhas
 // por requisição do PostgREST não pode ser confundido com "acabaram os dados".
-// "Em operação" é sempre "está no Acompanhamento_Op da última atualização" —
-// nunca um p.situacao que pode ficar congelado no banco (foi assim que um
-// pedido de 14/08 ficou "Aberto" pra sempre depois de sumir do arquivo
-// diário: nada nunca vinha atualizar aquela linha de novo). presente_no_op_em
-// recebe o MESMO timestamp em toda linha de uma mesma rodada do Outbound
-// (ver ingest.js, momentoOpIso) — então descobrir o valor mais recente da
-// coluna já isola exatamente "os pedidos da última atualização", sem
-// depender de nenhuma limpeza manual de registro órfão.
-async function buscarTodosPedidosAbertos(colunas, filtroExtra) {
-  const { data: maxRow, error: erroMax } = await supabaseClient
-    .from('pedidos')
-    .select('presente_no_op_em')
-    .not('presente_no_op_em', 'is', null)
-    .order('presente_no_op_em', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (erroMax) throw erroMax;
-  const ultimoOp = maxRow && maxRow.presente_no_op_em;
-  if (!ultimoOp) throw new Error('Nenhuma atualização do Outbound encontrada ainda.');
+// Os pedidos exportados precisam ser exatamente os mesmos que estão na tela
+// — não uma segunda consulta ao banco que tenta "significar a mesma coisa".
+// `outboundPayloadAtual.pedidos_detalhe` é o próprio array que já monta os
+// KPIs, os cards e o gráfico de Backlog FIFO (ver carregarOutbound() /
+// renderizarOutbound()); então a lista de pedido_venda tirada dali É a tela,
+// por construção — nunca pode divergir dela. Essa lista só decide QUAIS
+// pedidos entram; os campos que faltam pro arquivo (datas, transportadora,
+// Pedido VTEX, Valor) são buscados na tabela `pedidos` filtrando por esses
+// mesmos IDs.
+function idsPedidosDaTela(filtro) {
+  const detalhe = (outboundPayloadAtual && outboundPayloadAtual.pedidos_detalhe) || [];
+  const filtrados = filtro ? detalhe.filter(filtro) : detalhe;
+  return filtrados.map(function(p) { return p.pedido_venda; });
+}
 
+async function buscarPedidosPorId(colunas, ids) {
   const linhas = [];
-  let offset = 0;
-  const LOTE = 1000;
-  while (true) {
-    let q = supabaseClient.from('pedidos').select(colunas)
-      .eq('situacao', 'ABERTO')
-      .eq('presente_no_op_em', ultimoOp)
-      .order('pedido_venda', { ascending: true })
-      .range(offset, offset + LOTE - 1);
-    if (filtroExtra) q = filtroExtra(q);
-    const { data, error } = await q;
+  const LOTE = 300; // .in() com lista grande pode estourar o limite de URL do PostgREST
+  for (let i = 0; i < ids.length; i += LOTE) {
+    const lote = ids.slice(i, i + LOTE);
+    const { data, error } = await supabaseClient.from('pedidos').select(colunas).in('pedido_venda', lote);
     if (error) throw error;
-    if (!data || data.length === 0) break;
-    linhas.push(...data);
-    offset += data.length;
+    linhas.push(...(data || []));
   }
+  linhas.sort(function(a, b) { return a.pedido_venda - b.pedido_venda; });
   return linhas;
 }
 
@@ -836,14 +825,19 @@ async function exportarBacklogFifoXLSX() {
   const textoOriginal = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
-    const pedidos = await buscarTodosPedidosAbertos(
+    // Mesmo recorte que o gráfico já usa pra separar as faixas 03/04+ — os
+    // IDs vêm do array que desenha o donut na tela, não de um cálculo à parte.
+    const ids = idsPedidosDaTela(function(p) {
+      return p.backlog_fifo_bucket === '03' || p.backlog_fifo_bucket === '04+';
+    });
+    if (ids.length === 0) { alert('Nenhum pedido com 3 dias ou mais de backlog no momento.'); return; }
+    const pedidos = await buscarPedidosPorId(
       'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
       'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
       'conferido_em,coletado_em,processado_em,data_esperada_embarque,transportadora,' +
-      'destinatario_cidade,destinatario_uf,backlog_fifo_bucket',
-      function(q) { return q.in('backlog_fifo_bucket', ['03', '04+']); }
+      'destinatario_cidade,destinatario_uf',
+      ids
     );
-    if (pedidos.length === 0) { alert('Nenhum pedido com 3 dias ou mais de backlog no momento.'); return; }
     const linhas = pedidos.map(linhaAcompanhamentoOp);
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
     await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
@@ -862,16 +856,20 @@ async function exportarPedidosSapXLSX() {
   const textoOriginal = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
+    // Todos os pedidos que estão na tela agora — mesma lista do KPI "Pedidos
+    // em Fluxo", sem recalcular nada em separado.
+    const ids = idsPedidosDaTela();
+    if (ids.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
     const [pedidos, mapaAcronimos] = await Promise.all([
-      buscarTodosPedidosAbertos(
+      buscarPedidosPorId(
         'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
         'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
         'conferido_em,coletado_em,processado_em,data_esperada_embarque,transportadora,' +
-        'destinatario_cidade,destinatario_uf,pedido_vtex,valor_pedido,marketplace_acronimo,marca'
+        'destinatario_cidade,destinatario_uf,pedido_vtex,valor_pedido,marketplace_acronimo,marca',
+        ids
       ),
       carregarMapaAcronimos(),
     ]);
-    if (pedidos.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
     const linhas = pedidos.map(function(p) {
       return Object.assign({
         'Pedido VTEX': p.pedido_vtex || '',
