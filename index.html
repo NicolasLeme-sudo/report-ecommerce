@@ -351,16 +351,7 @@ table.matrix thead th:last-child  { border-radius: 0 6px 0 0; }
 table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent); background: var(--bg-input); }
 table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
 table.matrix tbody tr.total td,
-table.matrix tbody tr.total th {
-  /* box-shadow em vez de border-top: com border-collapse, uma linha anterior
-     com texto que quebra em 2 linhas (ex.: "Aguardando ação fiscal (Emissão
-     NF-D)") faz o border-top da linha de total desalinhar entre colunas —
-     parece uma "quebra" no meio da linha. box-shadow não sofre desse problema
-     de fusão de bordas, sempre desenha reto na borda superior real da célula. */
-  box-shadow: inset 0 2px 0 0 var(--accent);
-  background: var(--bg-input);
-  font-weight: 700;
-}
+table.matrix tbody tr.total th { border-top: 2px solid var(--accent); background: var(--bg-input); font-weight: 700; }
 .cell-0  { color: var(--text-muted) !important; }
 .cell-hi { color: var(--red) !important; }
 
