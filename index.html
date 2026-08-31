@@ -1513,7 +1513,7 @@ function renderSparkline(dados) {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
     c.setAttribute('fill',i===pts.length-1?'var(--text)':'var(--accent)'); svg.appendChild(c);
-    labelComFundo(svg, p[0], p[1]-7, fmtInt(vals[i]), {fontSize:10});
+    labelComFundo(svg, p[0], p[1]-7, fmtInt(vals[i]), {fontSize:10, cor:'var(--accent)'});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-3); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
@@ -1992,7 +1992,7 @@ function renderGraficoLinhaInbound(svgId, dados) {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r','3');
     c.setAttribute('fill','var(--accent)'); svg.appendChild(c);
-    labelComFundo(svg, p[0], p[1]-8, fmtInt(vals[i]), {fontSize:10});
+    labelComFundo(svg, p[0], p[1]-8, fmtInt(vals[i]), {fontSize:10, cor:'var(--accent)'});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-6);
     dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','10');
@@ -2199,7 +2199,7 @@ function renderGraficoLinhaReversa(svgId, dados) {
   pts.forEach(function(pt,i){
     var c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','4'); c.setAttribute('fill','var(--amber)'); svg.appendChild(c);
     // RÓTULO DE DADOS — sempre visível
-    labelComFundo(svg, pt[0], pt[1]-10, fmtInt(vals[i]), {fontSize:11, peso:'600'});
+    labelComFundo(svg, pt[0], pt[1]-10, fmtInt(vals[i]), {fontSize:11, peso:'600', cor:'var(--accent)'});
     // Data eixo X
     var dt=document.createElementNS('http://www.w3.org/2000/svg','text'); dt.setAttribute('x',pt[0]); dt.setAttribute('y',H-6); dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','9'); dt.setAttribute('fill','var(--text-muted)'); dt.textContent=dias[i]; svg.appendChild(dt);
   });
