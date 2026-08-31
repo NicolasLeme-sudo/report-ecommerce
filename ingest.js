@@ -881,9 +881,16 @@ async function processarForecastMensal(file, options) {
 
   onProgress(`${linhasLidas} dias de forecast lidos. Gravando ${registros.length} registros...`);
 
-  // DELETE completo antes de inserir — garante que dados corrigidos sempre sobrescrevem
-  // os anteriores, sem depender do upsert resolver conflitos corretamente.
-  await supabaseClient.from("forecast_diario").delete().neq("id", 0);
+  // Apaga só os dias que estão NESTE arquivo antes de inserir — garante que
+  // dados corrigidos sempre sobrescrevem os anteriores PARA ESSAS DATAS, sem
+  // depender do upsert resolver conflitos corretamente. Antes isso era um
+  // delete completo da tabela (sem filtro de data): funcionava pra corrigir
+  // um mês já lançado, mas também apagava qualquer OUTRO mês já gravado —
+  // subir o forecast de setembro apagava o de agosto inteiro. Filtrando por
+  // data, subir um mês novo só adiciona; subir de novo um mês já lançado
+  // continua substituindo (comportamento de correção preservado).
+  const datasDoArquivo = registros.map(function(r){ return r.data; });
+  await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo);
 
   let erros = 0;
   const TAMANHO_LOTE = 200;
