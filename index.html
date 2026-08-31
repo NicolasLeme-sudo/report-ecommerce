@@ -352,14 +352,11 @@ table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent)
 table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
 table.matrix tbody tr.total td,
 table.matrix tbody tr.total th {
-  /* 1px, não 2px: testado empiricamente (Chromium headless, vários fatores de
-     zoom) — a borda de 2px "quebra" entre colunas quando a linha logo acima
-     tem texto que vira 2 linhas (ex.: "Aguardando ação fiscal (Emissão
-     NF-D)"), especificamente em zooms fracionários (110%, 125%...). Com 1px
-     o problema não ocorre em nenhum fator testado (90% a 150%). O contraste
-     de cor (azul vs. cinza da borda comum) já deixa a linha de Total visível
-     mesmo na mesma espessura das demais. */
-  border-top: 1px solid var(--accent);
+  /* Voltou pra 2px: prioridade é a linha sempre aparecer visível. Em zoom
+     fracionário (110%/125%) ela pode ocasionalmente "quebrar" entre colunas
+     quando a linha de cima tem texto de 2 linhas — problema conhecido, não
+     vale reinvestir tempo nisso agora. */
+  border-top: 2px solid var(--accent);
   background: var(--bg-input);
   font-weight: 700;
 }
