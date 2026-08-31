@@ -132,6 +132,24 @@ function normalizarEncoding(str) {
     .trim();
 }
 
+// Padroniza o segmento vindo de dim_embalas.segmento pra uma grafia única.
+// A base traz o mesmo segmento em grafias diferentes (ex.: "CALÇADOS" em
+// 114 mil linhas e "Calçados" em só 30 — provavelmente cadastros manuais
+// pontuais) — usar o texto cru como chave de agrupamento faz o mesmo
+// segmento aparecer duplicado no card "Itens por Segmento" (um bucket pra
+// cada grafia, cada um com uma fatia do que deveria ser um total só).
+// Comparação sempre por palavra-chave em maiúsculo, saída sempre na mesma
+// grafia — não importa como o dado chegou.
+function canonicalizarSegmento(raw) {
+  var s = normalizarEncoding(String(raw || "")).trim().toUpperCase();
+  if (s.indexOf("CAL") !== -1)    return "Calçados";
+  if (s.indexOf("VEST") !== -1)   return "Vestuários";
+  if (s.indexOf("CHINEL") !== -1) return "Chinelos";
+  if (s.indexOf("MEIA") !== -1)   return "Meias";
+  if (s.indexOf("ACESS") !== -1)  return "Acessórios";
+  return raw || "Calçados"; // grafia não reconhecida: mantém como veio, nunca cai vazio
+}
+
 // Converte "dd/mm/yyyy HH:mm:ss" (ou só "dd/mm/yyyy") em Date. Retorna null se vazio.
 function parseDataBR(str) {
   if (!str || !str.trim()) return null;
@@ -429,7 +447,7 @@ async function processarRelatoriosDaOperacao(files, options) {
     const barra = String(r["Barra"] || "").trim();
     const emb = embalasMap.get(barra);
     // Fallback para "Calçados" se não encontrar na base de embalagem
-    const segmento = emb ? emb.segmento : "Calçados";
+    const segmento = canonicalizarSegmento(emb ? emb.segmento : "Calçados");
     const descricaoProduto = normalizarEncoding(r["Produto"] || r["Descrição do item"] || "");
     const marcaItem = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(descricaoProduto);
     itensPorPedido.get(chave).push({
