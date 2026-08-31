@@ -1287,6 +1287,8 @@ function normalizarSegmentoInbound(segmento) {
 // -------------------------------------------------------------------------
 async function processarRelatoriosInbound(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
+  // Usado no corte de 7 dias do backfill de Recebimento/Armazenagem, mais abaixo.
+  const hoje = new Date();
 
   onProgress("Lendo arquivos do Inbound...");
   await uploadArquivoOriginal("inbound/Controle_de_NF_Recebs.tsv", files.arquivoRecebs);
