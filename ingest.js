@@ -1602,24 +1602,57 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 
   // Pendente por Marca (colunas) x Segmento (linhas: Calçados / Vestuário)
   // Considera IMPORTADA + EM CARGA/OR + Stage
+  //
+  // Marca vem de dim_embalas (via Barra) e, quando não localizada ali, de um
+  // fallback por palavra-chave na descrição do produto (inferirMarcaPorDescricao)
+  // — que pode não reconhecer nada e devolver null. Antes, esses itens sem
+  // marca reconhecida ficavam de fora da lista de colunas E de toda soma da
+  // tabela — silenciosamente, sem aparecer em canto nenhum. Só que os KPIs
+  // de itens pendentes (itens_pend_recebimento/armazenagem, mais abaixo) não
+  // filtram por marca, então continuavam contando esses itens: o total da
+  // tabela nunca fechava com a soma dos cards por causa dessa sobra. Usar
+  // "Sem Marca" como categoria própria garante que a soma da tabela sempre
+  // bate com os KPIs — nenhum item some sem aparecer em algum lugar.
+  const SEM_MARCA = "Sem Marca";
+  function marcaOuSemMarca(i) { return i.marca || SEM_MARCA; }
+
   const marcasSet = {};
   itensRegistros.forEach(function(i){
-    if ((nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.marca) {
-      marcasSet[i.marca] = true;
+    if (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) {
+      marcasSet[marcaOuSemMarca(i)] = true;
     }
   });
-  stageRegistros.forEach(function(i){ if (i.marca) marcasSet[i.marca] = true; });
-  const marcas = Object.keys(marcasSet).sort();
-  const segmentos = ["Calçados", "Vestuário"];
+  stageRegistros.forEach(function(i){ marcasSet[marcaOuSemMarca(i)] = true; });
+  const marcas = Object.keys(marcasSet).sort(function(a, b) {
+    if (a === SEM_MARCA) return 1;   // "Sem Marca" sempre por último
+    if (b === SEM_MARCA) return -1;
+    return a.localeCompare(b);
+  });
+
+  // Segmento vem sempre normalizado em Calçados/Vestuário (normalizarSegmentoInbound
+  // nunca devolve outra coisa nem null), então aqui não existe o mesmo risco de
+  // sobra que existe do lado da marca — mas deriva da base em vez de uma lista
+  // fixa mesmo assim, por segurança caso essa normalização mude no futuro.
+  const segmentosSet = {};
+  itensRegistros.forEach(function(i){
+    if (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) segmentosSet[i.segmento] = true;
+  });
+  stageRegistros.forEach(function(i){ segmentosSet[i.segmento] = true; });
+  const ORDEM_SEGMENTO = ["Calçados", "Vestuário"];
+  const segmentos = Object.keys(segmentosSet).sort(function(a, b) {
+    var ia = ORDEM_SEGMENTO.indexOf(a), ib = ORDEM_SEGMENTO.indexOf(b);
+    if (ia === -1) ia = 999; if (ib === -1) ib = 999;
+    return ia !== ib ? ia - ib : a.localeCompare(b);
+  });
 
   function somarPendente(seg, marca) {
     // Itens das NFs IMPORTADA
     const deNFs = itensRegistros
-      .filter(function(i){ return (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.segmento === seg && i.marca === marca; })
+      .filter(function(i){ return (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.segmento === seg && marcaOuSemMarca(i) === marca; })
       .reduce(function(s,i){ return s + i.quantidade; }, 0);
     // Itens no Stage
     const doStage = stageRegistros
-      .filter(function(i){ return i.segmento === seg && i.marca === marca; })
+      .filter(function(i){ return i.segmento === seg && marcaOuSemMarca(i) === marca; })
       .reduce(function(s,i){ return s + i.estoque_un; }, 0);
     return deNFs + doStage;
   }

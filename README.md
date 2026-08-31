@@ -653,6 +653,49 @@ um e-mail sem anexo, ou com um anexo de tamanho estranho. Se o fallback
 existir, ele deve ser tão previsível/auditável quanto a regra principal (um
 critério de corte fixo e documentado, não "o que sobrar").
 
+### 3.11. Toda tabela cruzada precisa fechar com o total do card ao lado
+
+**Situação real:** os cards "Itens Pendentes Recebimento" (35.211) e "Itens
+Pendentes Armazenagem" (16.918) somavam mais do que o total da tabela
+"Pendente de Entrada — Marca × Segmento" ao lado (52.075 contra 52.129) — uma
+diferença de 54 itens que não deveria existir: são o mesmo dado, só
+organizado de duas formas diferentes.
+
+Causa: a marca de um item vem de `dim_embalas` (via código de barras) e, se
+não encontrada ali, de um fallback por palavra-chave na descrição do produto
+(`inferirMarcaPorDescricao`) — que pode não reconhecer nada e devolver `null`.
+A tabela cruzada só cria uma coluna por marca **reconhecida** e soma célula a
+célula comparando `item.marca === marca` — um item com marca `null` nunca
+bate com nenhuma coluna e simplesmente não aparece em lugar nenhum da tabela.
+Os cards, por outro lado, somam todos os itens do status pendente sem filtrar
+por marca — contam esse item normalmente. A tabela "perde" itens que os cards
+"têm".
+
+**Padrão:** toda vez que um total aparece em dois lugares — um card
+resumido e uma tabela que abre o mesmo total por categoria —, a categoria "eu
+não sei classificar isso" precisa ser uma opção explícita da tabela, nunca um
+motivo pra excluir o item da soma:
+
+```js
+const SEM_MARCA = "Sem Marca";
+function marcaOuSemMarca(i) { return i.marca || SEM_MARCA; }
+// A lista de colunas passa a incluir "Sem Marca" (sempre por último), e toda
+// soma por célula usa marcaOuSemMarca(i) === marca em vez de i.marca === marca.
+```
+
+Com isso, a soma da tabela **sempre** fecha com a soma dos cards — não porque
+os dois foram calibrados pra bater um dia, mas porque estruturalmente todo
+item cai em alguma célula, sem exceção.
+
+**Regra para a recriação:** ao publicar um card com um total e, ao lado, uma
+tabela que abre esse total por categoria, pergunte: "todo item tem uma
+categoria garantida, ou existe algum caminho em que a categorização falha
+silenciosamente?" Se existe (marca não reconhecida, segmento sem mapeamento,
+cliente sem CNPJ cadastrado etc.), essa tabela precisa de uma linha/coluna
+"não classificado" — a alternativa é o card e a tabela divergirem aos poucos,
+de um jeito pequeno demais pra virar bug óbvio, mas grande o suficiente pra
+alguém desconfiar do relatório inteiro.
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador
