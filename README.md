@@ -696,6 +696,45 @@ cliente sem CNPJ cadastrado etc.), essa tabela precisa de uma linha/coluna
 de um jeito pequeno demais pra virar bug óbvio, mas grande o suficiente pra
 alguém desconfiar do relatório inteiro.
 
+### 3.12. Regra de negócio > categoria genérica de "não identificado"
+
+Ajuste direto do gestor sobre o padrão anterior (3.11): em vez de uma
+categoria "Sem Marca"/"Sem Segmento" para os itens que a base de embalagem
+(`dim_embalas`) não resolve, aplicar as regras de negócio reais que a
+operação já usa manualmente para esses casos:
+
+- **Marca**: `dim_embalas` (via código de barras) → palavra-chave no título
+  do produto (`inferirMarcaPorDescricao`, já existia) → **Olympikus** como
+  default final (é a marca dominante do mix; nunca deixar um item sem marca
+  nenhuma).
+- **Segmento**: `dim_embalas` primeiro → quando não resolve, o **tamanho no
+  final do Código do Produto** decide. Formato observado:
+  `PREFIXO-COR-TAMANHO` (ex.: `101182182-014-42`, `P2GEDW01-030-M`) — tamanho
+  numérico (28-44) = Calçados; tamanho de letra (PP/P/M/G/GG) = Vestuário.
+
+```js
+function segmentoPorCodigoProduto(codigoProduto) {
+  var partes = String(codigoProduto || "").trim().toUpperCase().split(/[-_\s]+/).filter(Boolean);
+  var tamanho = partes.length ? partes[partes.length - 1] : "";
+  if (["PP","P","M","G","GG"].indexOf(tamanho) !== -1) return "Vestuário";
+  if (/^\d+$/.test(tamanho)) return "Calçados";
+  return "Calçados"; // fallback conservador quando o código foge do padrão
+}
+```
+
+Essa regra só se aplica onde o Código do Produto existe (Recebimento — NFs).
+O Stage (endereços H/I/J) só traz Local/Barra/Produto no arquivo-fonte, sem
+Código do Produto — nesse caso, sem match em `dim_embalas`, o segmento cai no
+fallback anterior ("Calçados", o segmento dominante).
+
+**Regra para a recriação:** uma categoria "não identificado" genérica é
+aceitável como estrutura de segurança (garante que a soma sempre feche — ver
+3.11), mas **não é o destino final** de um dado sem classificação clara.
+Sempre vale perguntar ao gestor da operação: "existe algum sinal no próprio
+dado (código, descrição, endereço) que já resolve isso na prática, mesmo sem
+o cadastro formal?" — geralmente existe, e é mais preciso que qualquer
+default genérico.
+
 ---
 
 ## 4. Regra de posicionamento: onde entra cada novo indicador

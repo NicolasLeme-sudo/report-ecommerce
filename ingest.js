@@ -1377,10 +1377,12 @@ async function processarRelatoriosInbound(files, options) {
     .map(function(r){
       const barra = String(r["Barra"] || "").trim();
       const emb   = embalasMap.get(barra);
-      const seg   = emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados";
+      // Segmento: dim_embalas primeiro; sem barra correspondente, deduz pelo
+      // tamanho no final do Código do Produto (ver segmentoPorCodigoProduto).
+      const seg   = emb ? normalizarSegmentoInbound(emb.segmento) : segmentoPorCodigoProduto(r["Código do Produto"]);
       const produtoDescricao = normalizarEncoding(r["Produto"]);
-      // Marca: 1ª tentativa dim_embalas (via Barra); só se não localizado, cai no fallback por Descrição
-      const marca = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(produtoDescricao);
+      // Marca: dim_embalas → título do produto → Olympikus (ver marcaComFallbackOlympikus).
+      const marca = marcaComFallbackOlympikus(emb, produtoDescricao);
       return {
         id_nota_fiscal: Number(r["idNotaFiscal"]),
         codigo_produto:  r["Código do Produto"],
@@ -1435,14 +1437,30 @@ async function processarRelatoriosInbound(files, options) {
   const recebRegistros = Object.keys(recebPorDia).map(function(d){
     return { data_conferencia: d, nfs_recebidas: recebPorDia[d].nfs, itens_recebidos: recebPorDia[d].itens };
   });
-  // Recebimento: consulta quais dias já existem no Supabase e insere APENAS os novos.
+  // Recebimento: dias "antigos" (fora da janela de 7 dias) só entram se ainda
+  // não existirem — preserva qualquer correção manual feita via SQL. Dias
+  // dentro da janela de 7 dias são sempre recalculados (upsert), porque o
+  // "Itens NF" às vezes chega com atraso no arquivo-fonte em relação ao dia
+  // em que a NF foi conferida — sem isso, um dia processado antes dos itens
+  // dele estarem disponíveis fica com itens_recebidos travado em 0 (ou
+  // incompleto) para sempre. Mesmo raciocínio do backfill de 7 dias já usado
+  // na Expedição.
+  const cutoffRecebIso = paraDataISOLocal(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 7));
+  const recebRecentes = recebRegistros.filter(function(r){ return r.data_conferencia >= cutoffRecebIso; });
+  const recebAntigos  = recebRegistros.filter(function(r){ return r.data_conferencia <  cutoffRecebIso; });
+
+  if (recebRecentes.length > 0) {
+    const { error } = await supabaseClient.from("inbound_recebimento_diario")
+      .upsert(recebRecentes, { onConflict: "data_conferencia" });
+    if (error) console.error("Erro recebimento_diario (upsert últimos 7 dias):", error);
+  }
   const { data: recebExistentes } = await supabaseClient
     .from("inbound_recebimento_diario").select("data_conferencia");
   const diasRecebExistentes = new Set((recebExistentes || []).map(function(r){ return r.data_conferencia; }));
-  const recebNovos = recebRegistros.filter(function(r){ return !diasRecebExistentes.has(r.data_conferencia); });
-  for (let i = 0; i < recebNovos.length; i += 200) {
+  const recebAntigosNovos = recebAntigos.filter(function(r){ return !diasRecebExistentes.has(r.data_conferencia); });
+  for (let i = 0; i < recebAntigosNovos.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_recebimento_diario")
-      .insert(recebNovos.slice(i, i + 200));
+      .insert(recebAntigosNovos.slice(i, i + 200));
     if (error) console.error("Erro recebimento_diario:", error);
   }
 
@@ -1463,15 +1481,26 @@ async function processarRelatoriosInbound(files, options) {
   const armRegistros = Object.keys(armPorDia).map(function(d){
     return { data_alocacao: d, itens_armazenados: armPorDia[d] };
   });
-  // Armazenagem: consulta quais dias já existem no Supabase e insere APENAS os novos.
-  // Dias já gravados (inclusive correções via SQL) nunca são tocados.
+  // Armazenagem: mesma janela de 7 dias que o recebimento — dias antigos só
+  // entram se ainda não existirem (preserva correção manual via SQL); dias
+  // recentes são sempre recalculados, pra absorver Kardex que chegou com
+  // atraso no arquivo-fonte.
+  const cutoffArmIso = paraDataISOLocal(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 7));
+  const armRecentes = armRegistros.filter(function(r){ return r.data_alocacao >= cutoffArmIso; });
+  const armAntigos   = armRegistros.filter(function(r){ return r.data_alocacao <  cutoffArmIso; });
+
+  if (armRecentes.length > 0) {
+    const { error } = await supabaseClient.from("inbound_armazenagem_diario")
+      .upsert(armRecentes, { onConflict: "data_alocacao" });
+    if (error) console.error("Erro armazenagem_diario (upsert últimos 7 dias):", error);
+  }
   const { data: armExistentes } = await supabaseClient
     .from("inbound_armazenagem_diario").select("data_alocacao");
   const diasArmExistentes = new Set((armExistentes || []).map(function(r){ return r.data_alocacao; }));
-  const armNovos = armRegistros.filter(function(r){ return !diasArmExistentes.has(r.data_alocacao); });
-  for (let i = 0; i < armNovos.length; i += 200) {
+  const armAntigosNovos = armAntigos.filter(function(r){ return !diasArmExistentes.has(r.data_alocacao); });
+  for (let i = 0; i < armAntigosNovos.length; i += 200) {
     const { error } = await supabaseClient.from("inbound_armazenagem_diario")
-      .insert(armNovos.slice(i, i + 200));
+      .insert(armAntigosNovos.slice(i, i + 200));
     if (error) console.error("Erro armazenagem_diario:", error);
   }
 
@@ -1485,13 +1514,17 @@ async function processarRelatoriosInbound(files, options) {
       const barra = String(r["Barra"] || "").trim();
       const emb   = embalasMap.get(barra);
       const produtoDescricao = normalizarEncoding(r["Produto"]);
-      // Marca: 1ª tentativa dim_embalas (via Barra); só se não localizado, cai no fallback por Descrição
-      const marca = (emb && emb.marca) ? emb.marca : inferirMarcaPorDescricao(produtoDescricao);
+      // Marca: dim_embalas → título do produto → Olympikus (ver marcaComFallbackOlympikus).
+      const marca = marcaComFallbackOlympikus(emb, produtoDescricao);
       return {
         local:       r["Local"],
         barra:       barra,
         produto:     produtoDescricao,
         estoque_un:  Number(r["Estoque (UN)"]) || 0,
+        // O Stage não traz "Código do Produto" (só Local/Barra/Produto), então
+        // não dá pra aplicar a regra de segmentoPorCodigoProduto aqui como no
+        // Recebimento — sem barra correspondente em dim_embalas, mantém
+        // "Calçados" (segmento dominante) como fallback.
         segmento:    emb ? normalizarSegmentoInbound(emb.segmento) : "Calçados",
         marca:       marca,
       };
@@ -1603,36 +1636,18 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   // Pendente por Marca (colunas) x Segmento (linhas: Calçados / Vestuário)
   // Considera IMPORTADA + EM CARGA/OR + Stage
   //
-  // Marca vem de dim_embalas (via Barra) e, quando não localizada ali, de um
-  // fallback por palavra-chave na descrição do produto (inferirMarcaPorDescricao)
-  // — que pode não reconhecer nada e devolver null. Antes, esses itens sem
-  // marca reconhecida ficavam de fora da lista de colunas E de toda soma da
-  // tabela — silenciosamente, sem aparecer em canto nenhum. Só que os KPIs
-  // de itens pendentes (itens_pend_recebimento/armazenagem, mais abaixo) não
-  // filtram por marca, então continuavam contando esses itens: o total da
-  // tabela nunca fechava com a soma dos cards por causa dessa sobra. Usar
-  // "Sem Marca" como categoria própria garante que a soma da tabela sempre
-  // bate com os KPIs — nenhum item some sem aparecer em algum lugar.
-  const SEM_MARCA = "Sem Marca";
-  function marcaOuSemMarca(i) { return i.marca || SEM_MARCA; }
-
+  // Marca e segmento nunca ficam nulos: marcaComFallbackOlympikus e
+  // segmentoPorCodigoProduto/normalizarSegmentoInbound sempre devolvem algo
+  // concreto (ver definição das duas funções, mais acima). Sem valor nulo
+  // possível, todo item cai em alguma célula da tabela, e a soma dela sempre
+  // bate com os KPIs de itens pendentes (que não filtram por marca/segmento).
   const marcasSet = {};
   itensRegistros.forEach(function(i){
-    if (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) {
-      marcasSet[marcaOuSemMarca(i)] = true;
-    }
+    if (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) marcasSet[i.marca] = true;
   });
-  stageRegistros.forEach(function(i){ marcasSet[marcaOuSemMarca(i)] = true; });
-  const marcas = Object.keys(marcasSet).sort(function(a, b) {
-    if (a === SEM_MARCA) return 1;   // "Sem Marca" sempre por último
-    if (b === SEM_MARCA) return -1;
-    return a.localeCompare(b);
-  });
+  stageRegistros.forEach(function(i){ marcasSet[i.marca] = true; });
+  const marcas = Object.keys(marcasSet).sort();
 
-  // Segmento vem sempre normalizado em Calçados/Vestuário (normalizarSegmentoInbound
-  // nunca devolve outra coisa nem null), então aqui não existe o mesmo risco de
-  // sobra que existe do lado da marca — mas deriva da base em vez de uma lista
-  // fixa mesmo assim, por segurança caso essa normalização mude no futuro.
   const segmentosSet = {};
   itensRegistros.forEach(function(i){
     if (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) segmentosSet[i.segmento] = true;
@@ -1648,11 +1663,11 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   function somarPendente(seg, marca) {
     // Itens das NFs IMPORTADA
     const deNFs = itensRegistros
-      .filter(function(i){ return (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.segmento === seg && marcaOuSemMarca(i) === marca; })
+      .filter(function(i){ return (nfIdsReceb.has(i.id_nota_fiscal) || nfIdsArm.has(i.id_nota_fiscal)) && i.segmento === seg && i.marca === marca; })
       .reduce(function(s,i){ return s + i.quantidade; }, 0);
     // Itens no Stage
     const doStage = stageRegistros
-      .filter(function(i){ return i.segmento === seg && marcaOuSemMarca(i) === marca; })
+      .filter(function(i){ return i.segmento === seg && i.marca === marca; })
       .reduce(function(s,i){ return s + i.estoque_un; }, 0);
     return deNFs + doStage;
   }
@@ -2744,6 +2759,30 @@ function inferirMarcaPorDescricao(descricao) {
   if (/OLYMPIKUS|\bOLY\b|\bOLK\b/.test(d))       return "Olympikus";
   if (/OPANKA/.test(d))                              return "Opanka";
   return null;
+}
+
+// Marca: dim_embalas (via Barra) é sempre a primeira tentativa. Se não achou
+// ali, procura por palavra-chave no título/descrição do produto
+// (inferirMarcaPorDescricao). Se mesmo assim não reconhecer nada, cai pra
+// Olympikus — instrução direta do gestor da operação, pra nunca deixar um
+// item sem marca nenhuma (a marca dominante do mix é a Olympikus).
+function marcaComFallbackOlympikus(emb, produtoDescricao) {
+  if (emb && emb.marca) return emb.marca;
+  return inferirMarcaPorDescricao(produtoDescricao) || "Olympikus";
+}
+
+// Segmento pelo código do produto, usado só quando dim_embalas não resolve
+// (sem barra correspondente). Formato observado: PREFIXO-COR-TAMANHO, ex.:
+// "101182182-014-42" (calçado) ou "P2GEDW01-030-M" (vestuário) — o tamanho
+// sempre fica no último segmento separado por hífen. Tamanho de letra
+// (PP/P/M/G/GG) = Vestuário; tamanho numérico = Calçados.
+var TAMANHOS_VESTUARIO = ["PP", "P", "M", "G", "GG"];
+function segmentoPorCodigoProduto(codigoProduto) {
+  var partes = String(codigoProduto || "").trim().toUpperCase().split(/[-_\s]+/).filter(Boolean);
+  var tamanho = partes.length ? partes[partes.length - 1] : "";
+  if (TAMANHOS_VESTUARIO.indexOf(tamanho) !== -1) return "Vestuário";
+  if (/^\d+$/.test(tamanho)) return "Calçados";
+  return "Calçados"; // fallback conservador quando o código não segue o padrão esperado
 }
 function parseTSVComSep(texto, sep, colsDesejadas) {
   var linhas = texto.split('\n');
