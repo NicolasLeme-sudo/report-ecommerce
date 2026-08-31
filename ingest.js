@@ -1699,11 +1699,13 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // ESTOQUE (OPERAÇÃO) + BALANÇO (GESTÃO)
 // =========================================================
 
+// Capacidades ajustadas pelo gestor da operação em 31/08 — Calçados (A/B/C,
+// Pisos 1-4) revisados; Vestuário (E/F/G) não mudou nesse ajuste.
 const CAPACIDADES = {
-  "PISO 1 - A": 63840,  "PISO 1 - B": 85440,  "PISO 1 - C": 53920,
-  "PISO 2 - A": 72960,  "PISO 2 - B": 87240,  "PISO 2 - C": 76360,
-  "PISO 3 - A": 72960,  "PISO 3 - B": 93720,  "PISO 3 - C": 76360,
-  "PISO 4 - A": 72960,  "PISO 4 - B": 93720,  "PISO 4 - C": 76000,
+  "PISO 1 - A": 73080,  "PISO 1 - B": 92160,  "PISO 1 - C": 60660,
+  "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
+  "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
+  "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,
   "PISO 1 - E": 130464, "PISO 1 - F": 157248, "PISO 1 - G": 130176,
 };
 
