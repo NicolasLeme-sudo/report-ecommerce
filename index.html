@@ -2339,8 +2339,11 @@ function renderizarEstoque(p) {
   function donutSVG(pct, sz) {
     var r=sz*0.38, cx=sz/2, cy=sz/2, sw=sz*0.1;
     var cor = pct >= 95 ? 'var(--red)' : pct >= 85 ? 'var(--amber)' : 'var(--olive)';
-    var circ=2*Math.PI*r, dash=(pct/100)*circ;
-    return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--border)" stroke-width="'+sw+'"/><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+cor+'" stroke-width="'+sw+'" stroke-dasharray="'+dash.toFixed(1)+' '+circ.toFixed(1)+'" stroke-dashoffset="-'+(circ*0.25).toFixed(1)+'" stroke-linecap="round"/><text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" font-size="'+(sz*0.16)+'" font-weight="700" fill="var(--text)">'+fmtPct(pct)+'</text><text x="'+cx+'" y="'+(cy+sz*0.12)+'" text-anchor="middle" font-size="'+(sz*0.09)+'" fill="var(--text-muted)">ocupado</text></svg>';
+    // Arco proporcional exato: linecap "butt" (padrão) — "round" adicionava meia
+    // espessura de traço em cada ponta (~+4% de arco visual), inflando a leitura e
+    // deixando percentuais próximos visualmente idênticos. Início às 12h via rotate.
+    var circ=2*Math.PI*r, dash=(Math.max(0,Math.min(100,pct))/100)*circ;
+    return '<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'"><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="var(--border)" stroke-width="'+sw+'"/><circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="none" stroke="'+cor+'" stroke-width="'+sw+'" stroke-dasharray="'+dash.toFixed(1)+' '+circ.toFixed(1)+'" transform="rotate(-90 '+cx+' '+cy+')"/><text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" font-size="'+(sz*0.16)+'" font-weight="700" fill="var(--text)">'+fmtPct(pct)+'</text><text x="'+cx+'" y="'+(cy+sz*0.12)+'" text-anchor="middle" font-size="'+(sz*0.09)+'" fill="var(--text-muted)">ocupado</text></svg>';
   }
 
   function barMarca(pct, nome, logo, saldo, cap) {
