@@ -1179,16 +1179,32 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = computarIntegracao7Dias(pedidos);
 
-  // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria;
-  // fecharExpedicaoDoDia já gravou o dia de hoje, então a soma abaixo já inclui hoje)
+  // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria).
+  // ATENÇÃO: fecharExpedicaoDoDia só fecha de "ontem" pra trás (loop diasAtras=1..7,
+  // igual ao "Últimos 7 dias" do gráfico) — o dia de HOJE nunca é gravado na tabela
+  // durante o próprio dia. Sem o ajuste abaixo, o acumulado do mês ficava sempre um
+  // dia atrasado: no dia 1º de cada mês aparecia zerado mesmo já tendo expedição no
+  // dia, e em qualquer outro dia faltava exatamente o itens_expedidos de hoje. O
+  // gráfico "Expedição x Forecast" já soma hoje ao vivo (computarExpedicaoSemana),
+  // então aqui somamos hoje da mesma forma, e só ele — os demais dias do mês já
+  // estão fechados na tabela.
   const hojeExped = new Date();
   const anoAtualExped = hojeExped.getFullYear();
   const mesAtualExped = hojeExped.getMonth();
+  const hojeExpedISO = paraDataISOLocal(hojeExped);
   const { data: acumExpedRows } = await supabaseClient
     .from("expedicao_diaria")
     .select("itens_expedidos, data")
     .gte("data", anoAtualExped + "-" + String(mesAtualExped + 1).padStart(2, "0") + "-01");
-  kpis.acumulado_expedicao_mes = (acumExpedRows || []).reduce(function(s, r){ return s + r.itens_expedidos; }, 0);
+  const hojeJaFechado = (acumExpedRows || []).some(function(r){ return r.data === hojeExpedISO; });
+  const itensExpedidosHojeAoVivo = hojeJaFechado ? 0 : pedidos
+    .filter(function(p){
+      return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado" &&
+             p.processado_em && paraDataISOLocal(p.processado_em) === hojeExpedISO;
+    })
+    .reduce(function(s, p){ return s + (p.qtd_total_produto || 0); }, 0);
+  kpis.acumulado_expedicao_mes =
+    (acumExpedRows || []).reduce(function(s, r){ return s + r.itens_expedidos; }, 0) + itensExpedidosHojeAoVivo;
 
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
   // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de
