@@ -671,6 +671,53 @@ function fmtCur(n) { return 'R$ ' + Math.round(Number(n) || 0).toLocaleString('p
 /* ---------- Exportação de arquivos ---------- */
 // Baixa o arquivo original (sem tratamento nenhum) que foi usado para
 // abastecer aquela tela, direto do Supabase Storage.
+// Carrega a lib pako (inflate em JS puro) uma única vez, sob demanda — só é
+// baixada se o navegador precisar dela (ver descomprimirGzip).
+let _pakoPromise = null;
+function carregarPako() {
+  if (window.pako) return Promise.resolve();
+  if (_pakoPromise) return _pakoPromise;
+  _pakoPromise = new Promise(function (resolve, reject) {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js';
+    s.onload = function () { resolve(); };
+    s.onerror = function () { reject(new Error('Falha ao carregar biblioteca de descompactação.')); };
+    document.head.appendChild(s);
+  });
+  return _pakoPromise;
+}
+
+// Descompacta um blob gzip. Todo backup salvo por uploadArquivoOriginal (ingest.js)
+// está comprimido — inclusive os grandes (Estoque_Picking, Controle_NF_Reversa
+// passam de 20MB), então sem descompactar eles nem cabem no limite do bucket.
+// O metadado 'mimetype' que o Storage grava fica sempre 'application/octet-stream'
+// (não reflete a compressão real), então não dá pra usar isso pra decidir — a
+// descompactação é sempre tentada.
+// Caminho rápido: DecompressionStream nativo (suportado pela grande maioria dos
+// navegadores atuais). Fallback: pako, puro JS, funciona em qualquer navegador —
+// cobre máquinas corporativas com Chrome/Edge/Safari desatualizado por política
+// de TI, onde a API nativa não existe. Sem esse fallback, o download baixava os
+// bytes ainda comprimidos e o arquivo abria em branco/ilegível no Excel — foi
+// exatamente o que aconteceu num computador sem a API nativa disponível.
+async function descomprimirGzip(blob) {
+  if (typeof DecompressionStream !== 'undefined') {
+    try {
+      const ds = blob.stream().pipeThrough(new DecompressionStream('gzip'));
+      const resultado = await new Response(ds).blob();
+      if (resultado.size > 0) return resultado; // 0 bytes = suspeito, tenta o fallback
+    } catch (e) { /* cai para o fallback abaixo */ }
+  }
+  try {
+    await carregarPako();
+    const buffer = await blob.arrayBuffer();
+    const bytes = window.pako.ungzip(new Uint8Array(buffer));
+    if (bytes.length > 0) return new Blob([bytes], { type: 'text/plain' });
+  } catch (e) {
+    console.error('Descompactação via pako falhou:', e);
+  }
+  return null; // nem a API nativa nem o pako conseguiram
+}
+
 async function baixarArquivoOriginal(caminho, btnId) {
   const btn = btnId ? document.getElementById(btnId) : null;
   const textoOriginal = btn ? btn.textContent : null;
@@ -678,18 +725,10 @@ async function baixarArquivoOriginal(caminho, btnId) {
   try {
     const { data, error } = await supabaseClient.storage.from('arquivos-abastecimento').download(caminho);
     if (error) throw error;
-    // Desde o Ajuste 4, o backup é salvo comprimido em gzip pra caber no limite
-    // do bucket. Se a descompactação falhar (arquivo antigo, salvo antes dessa
-    // mudança, ou navegador sem suporte), usa o conteúdo original sem alterar nada.
-    let dataFinal = data;
-    if (typeof DecompressionStream !== 'undefined') {
-      try {
-        const ds = data.stream().pipeThrough(new DecompressionStream('gzip'));
-        dataFinal = await new Response(ds).blob();
-      } catch (e) {
-        dataFinal = data;
-      }
-    }
+    // Se não conseguir descomprimir (arquivo raro salvo sem compressão, antes do
+    // Ajuste 4), usa o conteúdo original sem alterar nada.
+    const descomprimido = await descomprimirGzip(data);
+    const dataFinal = descomprimido || data;
     const nomeArquivo = caminho.split('/').pop();
     const url = URL.createObjectURL(dataFinal);
     const a = document.createElement('a');
@@ -761,10 +800,13 @@ function nomeMarketplaceExport(acronimo, mapaAcronimos) {
 }
 
 // opts.colunasMoeda: nomes de coluna (cabeçalho) a formatar como R$.
+// opts.colunasData: nomes de coluna cujo valor já vem como Date (ver
+// paraDataExcelBR) — aqui só aplica o numFmt de data/hora na coluna.
 // Título em negrito+itálico e todas as células centralizadas em toda exportação.
 async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
   opts = opts || {};
   const colunasMoeda = opts.colunasMoeda || [];
+  const colunasData = opts.colunasData || [];
   const colunas = Object.keys(linhas[0] || {});
 
   if (window.ExcelJS) {
@@ -786,6 +828,10 @@ async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
     colunasMoeda.forEach(function(nomeCol) {
       const idx = colunas.indexOf(nomeCol) + 1;
       if (idx > 0) ws.getColumn(idx).numFmt = '"R$" #,##0.00';
+    });
+    colunasData.forEach(function(nomeCol) {
+      const idx = colunas.indexOf(nomeCol) + 1;
+      if (idx > 0) ws.getColumn(idx).numFmt = 'dd/mm/yyyy hh:mm';
     });
 
     const buffer = await wb.xlsx.writeBuffer();
@@ -809,6 +855,13 @@ async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
 // Colunas do Acompanhamento Op, na mesma ordem/nome do arquivo original do
 // WMS — usadas nas duas exportações abaixo para o operador reconhecer o
 // layout de sempre.
+// Nomes das colunas de data/hora do Acompanhamento Op — usado tanto aqui
+// (pra saber quais campos virar Date de verdade) quanto em baixarComoXLSX
+// (pra saber em quais colunas aplicar o numFmt de data).
+const COLUNAS_DATA_ACOMPANHAMENTO_OP = [
+  'Importado em', 'Separado em', 'Enviado para Faturamento', 'Faturado em',
+  'Conferido em', 'Coletado em', 'Processado em', 'Data Esperada para Embarque',
+];
 function linhaAcompanhamentoOp(p) {
   return {
     'Pedido de Venda': p.pedido_venda,
@@ -817,14 +870,14 @@ function linhaAcompanhamentoOp(p) {
     'Qtde. Total de Produto': p.qtd_total_produto,
     'Status da Nota Fiscal': p.status_nf,
     'Cancelado Pelo ERP': p.cancelado_pelo_erp ? '1' : '',
-    'Importado em': p.importado_em ? formatarDataBR(p.importado_em) : '',
-    'Separado em': p.separado_em ? formatarDataBR(p.separado_em) : '',
-    'Enviado para Faturamento': p.enviado_faturamento_em ? formatarDataBR(p.enviado_faturamento_em) : '',
-    'Faturado em': p.faturado_em ? formatarDataBR(p.faturado_em) : '',
-    'Conferido em': p.conferido_em ? formatarDataBR(p.conferido_em) : '',
-    'Coletado em': p.coletado_em ? formatarDataBR(p.coletado_em) : '',
-    'Processado em': p.processado_em ? formatarDataBR(p.processado_em) : '',
-    'Data Esperada para Embarque': p.data_esperada_embarque ? formatarDataBR(p.data_esperada_embarque) : '',
+    'Importado em': paraDataExcelBR(p.importado_em),
+    'Separado em': paraDataExcelBR(p.separado_em),
+    'Enviado para Faturamento': paraDataExcelBR(p.enviado_faturamento_em),
+    'Faturado em': paraDataExcelBR(p.faturado_em),
+    'Conferido em': paraDataExcelBR(p.conferido_em),
+    'Coletado em': paraDataExcelBR(p.coletado_em),
+    'Processado em': paraDataExcelBR(p.processado_em),
+    'Data Esperada para Embarque': paraDataExcelBR(p.data_esperada_embarque),
     'Transportadora': p.transportadora,
     'Cidade do Destinatário': p.destinatario_cidade,
     'UF Destinatário': p.destinatario_uf,
@@ -867,7 +920,7 @@ async function exportarBacklogFifoXLSX() {
     const linhas = pedidos.map(linhaAcompanhamentoOp);
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
     if (usouFallback500) console.info('Backlog FIFO: nada em 03/04+ hoje — exportados os ' + ids.length + ' pedidos mais antigos em tela.');
-    await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx');
+    await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx', { colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
   } finally {
@@ -907,7 +960,7 @@ async function exportarPedidosSapXLSX() {
       }, linhaAcompanhamentoOp(p));
     });
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
-    await baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx', { colunasMoeda: ['Valor do Pedido'] });
+    await baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx', { colunasMoeda: ['Valor do Pedido'], colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
   } finally {
@@ -1099,6 +1152,18 @@ function componentesDataBR(isoStr) {
 function formatarDataBR(isoStr) {
   const c = componentesDataBR(isoStr);
   return c.day + '/' + c.month + '/' + c.year + ' ' + c.hour + ':' + c.minute;
+}
+
+// Para exportação em .xlsx: gera um valor de data DE VERDADE (não texto), pra
+// Excel reconhecer como data/hora — ordenável, filtrável, sem precisar de
+// "Texto para Colunas". ExcelJS serializa um Date pelos getters UTC, então
+// construímos o Date em UTC já com o horário de Brasília embutido nos campos
+// (mesmo truque de componentesDataBR/formatarDataBR) — assim a célula mostra
+// exatamente o mesmo dia/hora que já aparecia como texto, só que como valor.
+function paraDataExcelBR(isoStr) {
+  if (!isoStr) return null;
+  const c = componentesDataBR(isoStr);
+  return new Date(Date.UTC(Number(c.year), Number(c.month) - 1, Number(c.day), Number(c.hour), Number(c.minute)));
 }
 
 // Para campos que são DATA DE CALENDÁRIO, não instante: data de emissão de NF,
