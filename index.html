@@ -1100,6 +1100,18 @@ function formatarDataBR(isoStr) {
   const c = componentesDataBR(isoStr);
   return c.day + '/' + c.month + '/' + c.year + ' ' + c.hour + ':' + c.minute;
 }
+
+// Para campos que são DATA DE CALENDÁRIO, não instante: data de emissão de NF,
+// competência de forecast e afins. Uma data de calendário não tem fuso — 11/08 é
+// 11/08 em qualquer lugar — então ela NÃO pode passar por formatarDataBR nem por
+// new Date(): "2026-08-11" é lido como meia-noite UTC e, ao renderizar em Brasília
+// (UTC-3), volta 3h e vira 10/08. Aqui a string é apenas reordenada, sem conversão.
+function formatarDataCalendario(valor) {
+  const s = String(valor || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return m[3] + '/' + m[2] + '/' + m[1];
+  return s ? formatarDataBR(s) : '-'; // formato inesperado: cai no tratamento de instante
+}
   async function carregarDatasHistorico() {
   const { data, error } = await supabaseClient
     .from('dashboard_snapshots')
@@ -2019,7 +2031,7 @@ function renderTabelaFifo(nfs) {
   if (!nfs || !nfs.length) { el.innerHTML='<tr><td>Sem dados</td></tr>'; return; }
   let h = '<thead><tr><th>NF</th><th>Status</th><th>Emissão</th><th>Itens</th><th>Marca</th><th>Segmento</th></tr></thead><tbody>';
   nfs.forEach(function(n) {
-    const dt = n.data_emissao ? new Date(String(n.data_emissao).replace(' ','T')).toLocaleDateString('pt-BR') : '-';
+    const dt = n.data_emissao ? formatarDataCalendario(n.data_emissao) : '-';
     h += `<tr>
       <th>${n.nota_fiscal}</th>
       <td>${n.status}</td>
