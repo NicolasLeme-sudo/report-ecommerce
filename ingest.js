@@ -1742,10 +1742,12 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // ESTOQUE (OPERAÇÃO) + BALANÇO (GESTÃO)
 // =========================================================
 
-// Capacidades ajustadas pelo gestor da operação em 31/08 — Calçados (A/B/C,
-// Pisos 1-4) revisados; Vestuário (E/F/G) não mudou nesse ajuste.
+// Capacidades ajustadas pelo gestor da operação. Revisão de 02/09: só
+// Piso 1-A (73.080 -> 67.320) e Piso 1-B (92.160 -> 88.110) mudaram nesse
+// ajuste; resto de Calçados (Pisos 2-4) e Vestuário (E/F/G) ficou igual à
+// revisão anterior (31/08).
 const CAPACIDADES = {
-  "PISO 1 - A": 73080,  "PISO 1 - B": 92160,  "PISO 1 - C": 60660,
+  "PISO 1 - A": 67320,  "PISO 1 - B": 88110,  "PISO 1 - C": 60660,
   "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
   "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
   "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,
