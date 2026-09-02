@@ -2187,16 +2187,22 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
     if (wmsCobertas[c]) return;
     var d = wmsPorClass[c];
     if (!d.qtde && !d.valor) return;
+    // Exceção conhecida: rótulo limpo, sem sufixo — pedido explícito do
+    // gestor da operação, a tabela de cruzamento não precisa desse nível de
+    // detalhe pra um caso já esperado todo dia. Uma sobra nova e genuína
+    // (fora dessa allowlist) continua com o sufixo, pra chamar atenção.
+    var rotulo = wmsSemAvisoEsperado[c] ? c : (c + " (sem BIN no SAP)");
     if (!wmsSemAvisoEsperado[c]) console.warn("Balanço: classificação do WMS fora do CROSS_MAP:", c, d);
-    cruzamento.push(montarLinha(c + " (sem BIN no SAP)", "—", c, d, { qtde: 0, valor: 0 }));
+    cruzamento.push(montarLinha(rotulo, "—", c, d, { qtde: 0, valor: 0 }));
   });
 
   Object.keys(sapPorBin).forEach(function(bin) {
     if (sapCobertos[bin]) return;
     var d = sapPorBin[bin];
     if (!d.qtde && !d.valor) return;
+    var rotulo = sapSemAvisoEsperado[bin] ? d.classificacao : (d.classificacao + " (sem classificação no WMS)");
     if (!sapSemAvisoEsperado[bin]) console.warn("Balanço: BIN do SAP fora do CROSS_MAP:", bin, d);
-    cruzamento.push(montarLinha(d.classificacao + " (sem classificação no WMS)", bin, null, { qtde: 0, valor: 0 }, d));
+    cruzamento.push(montarLinha(rotulo, bin, null, { qtde: 0, valor: 0 }, d));
   });
 
   // Conferência final: os totais do cruzamento têm que bater com os totais
