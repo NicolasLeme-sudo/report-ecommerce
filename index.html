@@ -1329,7 +1329,7 @@ function renderizarOutbound(atual, anterior) {
         <div class="filter-chips" id="fMarcaChips">
           <span class="chip ativo" data-marca="Todas">Todas</span>
           <span class="chip" data-marca="Mizuno">MIZ</span><span class="chip" data-marca="Olympikus">OLK</span>
-          <span class="chip" data-marca="Under Armour">UA</span><span class="chip" data-marca="Opanka">Opanka</span>
+          <span class="chip" data-marca="Under Armour">UA</span>
         </div>
       </div>
       <div class="filter-group">
@@ -1755,16 +1755,25 @@ function renderExpedicao(dados) {
   drawL(ptsForecast,'var(--accent)');
   drawL(ptsExpedido,'var(--olive)');
 
-  // Rótulos: forecast acima / expedido abaixo, com afastamento dinâmico
-  // quando as duas séries ficam próximas naquele dia (evita sobreposição)
+  // Rótulos: o ponto que estiver fisicamente mais alto na tela naquele dia
+  // recebe o rótulo empurrado pra cima, o mais baixo pra baixo — não é fixo
+  // por série (forecast sempre acima / expedido sempre abaixo). Quando as
+  // linhas se cruzam (uma semana ruim de expedição, forecast passa a ficar
+  // abaixo do expedido), "sempre acima" jogava o rótulo do forecast em cima
+  // da própria linha do expedido, e o do expedido em cima da linha do
+  // forecast — os dois trocados. Afastamento dinâmico quando as séries ficam
+  // próximas naquele dia continua igual, só evita sobreposição.
   const GAP_MIN=24;
   ptsForecast.forEach((ptF,i)=>{
     const ptE=ptsExpedido[i];
     const dist=Math.abs(ptF[1]-ptE[1]);
-    let offF=10, offE=18;
-    if (dist<GAP_MIN) { const extra=(GAP_MIN-dist)/2+4; offF+=extra; offE+=extra; }
-    labelComFundo(svg, ptF[0], ptF[1]-offF, fmtInt(dados.forecast[i]), {fontSize:10, cor:'var(--accent)'});
-    labelComFundo(svg, ptE[0], ptE[1]+offE, fmtInt(dados.expedido[i]), {fontSize:10, cor:'var(--olive)'});
+    let offAcima=10, offAbaixo=18;
+    if (dist<GAP_MIN) { const extra=(GAP_MIN-dist)/2+4; offAcima+=extra; offAbaixo+=extra; }
+    const forecastMaisAlto = ptF[1] <= ptE[1]; // menor y = mais acima na tela
+    const yForecast = forecastMaisAlto ? ptF[1]-offAcima : ptF[1]+offAbaixo;
+    const yExpedido  = forecastMaisAlto ? ptE[1]+offAbaixo : ptE[1]-offAcima;
+    labelComFundo(svg, ptF[0], yForecast, fmtInt(dados.forecast[i]), {fontSize:10, cor:'var(--accent)'});
+    labelComFundo(svg, ptE[0], yExpedido, fmtInt(dados.expedido[i]), {fontSize:10, cor:'var(--olive)'});
   });
   dados.dias.forEach((lab,i)=>{
     const t=document.createElementNS('http://www.w3.org/2000/svg','text');
