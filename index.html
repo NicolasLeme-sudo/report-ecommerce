@@ -1328,7 +1328,7 @@ function renderizarOutbound(atual, anterior) {
         <label>Marca</label>
         <div class="filter-chips" id="fMarcaChips">
           <span class="chip ativo" data-marca="Todas">Todas</span>
-          <span class="chip" data-marca="Mizuno">MIZ</span><span class="chip" data-marca="Olympikus">OLK</span>
+          <span class="chip" data-marca="Mizuno">MIZ</span><span class="chip" data-marca="Olympikus">OLY</span>
           <span class="chip" data-marca="Under Armour">UA</span>
         </div>
       </div>
@@ -2190,7 +2190,7 @@ function renderizarReversa(p, marcaFiltro, qualidadePendente) {
     var lbl = m === 'Todas' ? 'Todas' : m === 'Under Armour' ? 'UA' : m.substring(0,3).toUpperCase();
     if (m === 'Todas') lbl = 'Todas';
     else if (m === 'Mizuno') lbl = 'MIZ';
-    else if (m === 'Olympikus') lbl = 'OLK';
+    else if (m === 'Olympikus') lbl = 'OLY';
     else if (m === 'Under Armour') lbl = 'UA';
     else lbl = m;
     var cls = m === marcaFiltro ? 'chip ativo' : 'chip';
