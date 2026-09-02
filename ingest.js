@@ -1835,7 +1835,17 @@ var CROSS_MAP = [
   { bin: "009-04", sap: "Material de 2° qualidade (Outlet)",     wms: "Material de 2° qualidade (Outlet)" },
   { bin: "009-05", sap: "Não Comercializável",                   wms: "Não Comercializável" },
   { bin: "009-01", sap: "Aguardando ação fiscal (Emissão NF-D)", wms: "Aguardando ação fiscal (Emissão NF-D)" },
-  { bin: "009-02", sap: "Aguardando ação fiscal (Pedidos Loja)", wms: "DExPARA (Aguardando ação fiscal)" },
+  // NÃO cruzar 009-02 (SAP "Pedidos Loja") com "DExPARA (Aguardando ação
+  // fiscal)"/L05: confirmado com o gestor da operação que os dois NÃO são a
+  // mesma coisa. L05 no WMS é só DExPARA — pedidos de loja não têm endereço
+  // dedicado no WMS, não existe contrapartida física pra cruzar. Cruzar os
+  // dois inflava a diferença do balanço de forma artificial (SAP 14.128 x
+  // "WMS" 256, um "furo" que não existia de verdade — eram duas coisas
+  // diferentes sendo comparadas como se fossem uma só). Sem entrada aqui,
+  // as duas aparecem como linhas próprias pela rede de segurança de
+  // reconciliação (ver comentário abaixo): 009-02 como SAP puro, sem
+  // classificação no WMS, e DExPARA como WMS puro, sem BIN no SAP — o que
+  // reflete a realidade.
 ];
 
 // ATENÇÃO: o campo `wms` de cada linha acima precisa bater EXATAMENTE (string
@@ -2165,11 +2175,19 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
   var wmsCobertas = {}, sapCobertos = {};
   CROSS_MAP.forEach(function(m) { wmsCobertas[m.wms] = true; sapCobertos[m.bin] = true; });
 
+  // Exceções conhecidas: pares que NÃO devem ser cruzados (confirmado que
+  // não são a mesma coisa, ver comentário no CROSS_MAP), então cair aqui é
+  // esperado todo dia, não uma sobra que escapou do gabarito — sem isso o
+  // console.warn abaixo disparava sempre, mascarando um alerta de verdade
+  // no meio de ruído esperado.
+  var wmsSemAvisoEsperado = { "DExPARA (Aguardando ação fiscal)": true };
+  var sapSemAvisoEsperado = { "009-02": true };
+
   Object.keys(wmsPorClass).forEach(function(c) {
     if (wmsCobertas[c]) return;
     var d = wmsPorClass[c];
     if (!d.qtde && !d.valor) return;
-    console.warn("Balanço: classificação do WMS fora do CROSS_MAP:", c, d);
+    if (!wmsSemAvisoEsperado[c]) console.warn("Balanço: classificação do WMS fora do CROSS_MAP:", c, d);
     cruzamento.push(montarLinha(c + " (sem BIN no SAP)", "—", c, d, { qtde: 0, valor: 0 }));
   });
 
@@ -2177,7 +2195,7 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
     if (sapCobertos[bin]) return;
     var d = sapPorBin[bin];
     if (!d.qtde && !d.valor) return;
-    console.warn("Balanço: BIN do SAP fora do CROSS_MAP:", bin, d);
+    if (!sapSemAvisoEsperado[bin]) console.warn("Balanço: BIN do SAP fora do CROSS_MAP:", bin, d);
     cruzamento.push(montarLinha(d.classificacao + " (sem classificação no WMS)", bin, null, { qtde: 0, valor: 0 }, d));
   });
 
