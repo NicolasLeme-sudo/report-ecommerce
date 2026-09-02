@@ -807,28 +807,45 @@ function mostrarSecao(secao) {
 }
 ```
 
-### 5.2. Camada de dado (Postgres RLS) — **pendente, não implementada nesta sessão**
+### 5.2. Camada de dado (Postgres RLS) — implementada, mas precisa de checklist a cada tabela nova
 
-Isto precisa ficar registrado com destaque: as duas travas acima protegem
-**a interface**, não o dado. Um usuário com o `anon key` público e
-conhecimento técnico ainda pode consultar a API do Supabase diretamente e, se
-a tabela não tiver uma **RLS policy** que restrinja a leitura por `role`, o
-dado de Reversa (ou qualquer outro dado sensível) continua acessível via API
-mesmo com o menu escondido.
+Isto precisa ficar registrado com destaque: as duas travas da seção 5.1
+protegem **a interface**, não o dado — um usuário com o `anon key` público e
+conhecimento técnico ainda consulta a API do Supabase direto. RLS é a camada
+que garante que isso não vaza nada, e está habilitada: todas as tabelas
+relevantes têm policy verificando `perfil_atual()` (function `SECURITY
+DEFINER` que lê `role` de `perfis_acesso` pelo `auth.uid()`), com o padrão
+"gestor/admin sempre, operador só nas páginas dele" replicado em
+`dashboard_snapshots` (`pagina in (outbound, inbound, reversa, estoque)`) e
+no bucket de Storage `arquivos-abastecimento` (mesmo filtro, por pasta).
 
-**Antes de considerar o controle de acesso "completo" — nesta base ou numa
-recriação —, é obrigatório:**
-1. Habilitar RLS nas tabelas relevantes (`dashboard_snapshots` filtrado por
-   `pagina`, e quaisquer tabelas de detalhe de Reversa).
-2. Criar policies que verifiquem o `role` do usuário autenticado (via
-   `perfis_acesso` ou via custom claim no JWT) antes de liberar `SELECT`.
-3. Testar diretamente pela API (não só pela tela) que um usuário não-admin
-   recebe vazio/erro ao tentar ler dados de Reversa.
+**O gap real que já aconteceu neste projeto não foi RLS ausente — foi RLS
+que ficou pra trás quando uma feature nova passou a ler uma tabela que
+antes só o `ingest.js` (rodando como Admin) tocava.** As tabelas `pedidos` e
+`dim_acronimos` nasceram com uma única policy, `somente_admin` (`ALL`,
+`role = 'admin'`) — correto na época, porque só o Admin gravava e só o Admin
+lia (via `ingest.js`). Quando os botões de exportação do Outbound (3.8)
+foram adicionados fazendo `SELECT` **ao vivo** direto nessas duas tabelas em
+vez de ler do `dashboard_snapshots` já liberado por perfil, ninguém
+atualizou a RLS — e RLS falha **em silêncio**: a query não dá erro, só
+volta vazia. Gestor e Operador testaram e o arquivo saía sem nenhuma linha;
+Admin testava e funcionava normal, porque só o Admin testava com a policy
+certa. Corrigido adicionando uma segunda policy `SELECT`-only pras duas
+tabelas, liberando gestor/operador/admin, mantendo a `somente_admin`
+original intacta pra escrita (`INSERT`/`UPDATE`/`DELETE` continuam só
+Admin, via `ingest.js`).
 
-Isso não foi verificado neste projeto por falta de acesso de execução SQL na
-sessão em que o ajuste foi feito — **é o primeiro item de segurança a
-resolver ao dar início à recriação para a distribuidora**, para não herdar a
-mesma lacuna.
+**Checklist obrigatório sempre que uma feature nova passa a ler uma tabela
+que antes só o `ingest.js` tocava** (nesta base ou numa recriação):
+1. Antes de escrever a query no `index.html`, checar
+   `select * from pg_policies where tablename = '<tabela>'` — se só existir
+   uma policy `ALL`/admin, ela não cobre leitura de nenhum outro perfil.
+2. Criar uma policy `SELECT` separada pros perfis que a tela em questão já
+   expõe (espelhar o que `dashboard_snapshots` já faz), **sem tocar** na
+   policy de escrita existente.
+3. Testar logado como o perfil mais restrito que vai usar a feature — não
+   só como Admin. Uma RLS policy faltando não aparece no console como erro;
+   aparece como "o botão não fez nada" ou "o arquivo veio vazio".
 
 ---
 
@@ -944,9 +961,13 @@ determinam o schema e as seções do dashboard:
 3. Desenhar o schema de tabelas de apoio + `dashboard_snapshots` (mesma
    estrutura conceitual: uma linha "mais recente" por página, JSON pronto
    para renderizar).
-4. **Implementar RLS desde o início** — não repetir a lacuna registrada na
-   seção 5.2. Definir e testar as policies antes de considerar qualquer
-   seção "pronta para operação".
+4. **Implementar RLS desde o início, e repetir o checklist da seção 5.2 a
+   cada tabela nova** — o risco real não é esquecer RLS na criação da
+   tabela, é uma feature posterior passar a consultá-la ao vivo sem
+   atualizar a policy (foi exatamente o que aconteceu com `pedidos` e
+   `dim_acronimos` quando os exports do Outbound foram criados). Testar
+   logado como o perfil mais restrito antes de considerar qualquer feature
+   "pronta para operação", não só como Admin.
 5. Portar o `index.html`: manter a estrutura de tema (`data-tema` claro/
    escuro), os tokens de paleta da seção 2.1, o padrão de cards da skill, e
    trocar apenas o conteúdo das seções pelas equivalentes da distribuidora.
