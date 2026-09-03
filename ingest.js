@@ -632,6 +632,20 @@ async function processarRelatoriosDaOperacao(files, options) {
 // -------------------------------------------------------------------------
 // 9) UPSERTS NO SUPABASE
 // -------------------------------------------------------------------------
+// Vários pontos de gravação crítica (o que a tela realmente exibe) só
+// logavam o erro no console e seguiam em frente — o processamento inteiro
+// terminava reportando "✓ Atualizado com sucesso" mesmo quando a gravação
+// de verdade tinha falhado (sessão expirada, RLS, rede). Usar em escrita
+// que alimenta diretamente uma tela; deixar como só-log pontos que já têm
+// tratamento próprio de resiliência (retry com aviso de incompleto, etc.)
+// ou que são só diagnóstico/leitura auxiliar.
+function falharSeErro(resultado, contexto) {
+  if (resultado && resultado.error) {
+    console.error(contexto + ":", resultado.error);
+    throw new Error(contexto + ": " + resultado.error.message);
+  }
+}
+
 async function upsertPedidos(pedidos) {
   // Envia em lotes de 500, com até 6 lotes em paralelo por vez
   // (concorrência limitada para não estourar o pool de conexões do Supabase)
@@ -643,6 +657,14 @@ async function upsertPedidos(pedidos) {
     lotes.push(pedidos.slice(i, i + TAMANHO_LOTE));
   }
 
+  // CRÍTICO: se algum lote falhar aqui (RLS, sessão expirada, rede), precisa
+  // interromper e avisar — não seguir em frente gerando um snapshot como se
+  // TODOS os pedidos tivessem sido gravados. Sem isso, o payload do
+  // dashboard (calculado sobre pedidosProcessados em memória) e o que
+  // realmente ficou no banco divergem silenciosamente: a tela mostra um
+  // número que nem todo mundo com acesso direto ao banco vê, e o próximo
+  // export ao vivo (Pedidos SAP/Backlog FIFO) lê o banco, não o snapshot.
+  const errosLotes = [];
   for (let i = 0; i < lotes.length; i += CONCORRENCIA) {
     const grupo = lotes.slice(i, i + CONCORRENCIA);
     const resultados = await Promise.all(
@@ -651,8 +673,14 @@ async function upsertPedidos(pedidos) {
       })
     );
     resultados.forEach(function(resultado) {
-      if (resultado.error) console.error("Erro ao gravar pedidos:", resultado.error);
+      if (resultado.error) { console.error("Erro ao gravar pedidos:", resultado.error); errosLotes.push(resultado.error); }
     });
+  }
+  if (errosLotes.length > 0) {
+    throw new Error(
+      errosLotes.length + " de " + lotes.length + " lote(s) de pedidos falharam ao gravar: " +
+      errosLotes[0].message
+    );
   }
 }
 
@@ -696,14 +724,14 @@ async function upsertPedidoItens(itensPorPedido) {
   for (let i = 0; i < pedidosAfetados.length; i += LOTE_DELETE) {
     const lote = pedidosAfetados.slice(i, i + LOTE_DELETE);
     const resultado = await supabaseClient.from("pedido_itens").delete().in("pedido_venda", lote);
-    if (resultado.error) console.error("Erro ao limpar pedido_itens:", resultado.error);
+    falharSeErro(resultado, "Erro ao limpar pedido_itens");
   }
 
   const TAMANHO_LOTE = 500;
   for (let i = 0; i < registrosDedup.length; i += TAMANHO_LOTE) {
     const lote = registrosDedup.slice(i, i + TAMANHO_LOTE);
     const resultado = await supabaseClient.from("pedido_itens").insert(lote);
-    if (resultado.error) console.error("Erro ao gravar pedido_itens:", resultado.error);
+    falharSeErro(resultado, "Erro ao gravar pedido_itens");
   }
 }
 
@@ -755,7 +783,19 @@ async function salvarSnapshot(pagina, tipo, payload) {
     data_snapshot: new Date().toISOString().slice(0, 10),
     payload: payload,
   });
-  if (resultado.error) console.error("Erro ao salvar snapshot:", resultado.error);
+  // CRÍTICO: precisa relançar o erro, não só logar. Sem isso, quem chamou
+  // (processarRelatoriosDaOperacao/Inbound/Estoque/Balanço/Reversa) segue em
+  // frente normalmente, e ligarBotao (index.html) mostra "✓ Atualizado com
+  // sucesso" mesmo quando o passo que grava o que a TELA lê falhou por
+  // completo — o usuário sai achando que reprocessou e a tela nunca muda,
+  // sem nenhum aviso de que algo deu errado (ex.: sessão expirada e a
+  // policy de escrita do dashboard_snapshots, restrita a Admin, bloqueou o
+  // insert). Relançando, o erro real do Supabase aparece pro usuário em
+  // "✗ Erro: ...", em vez de um falso positivo.
+  if (resultado.error) {
+    console.error("Erro ao salvar snapshot:", resultado.error);
+    throw new Error("Falha ao salvar o snapshot de '" + pagina + "': " + resultado.error.message);
+  }
 }
 
 async function registrarLog(tipoBase, arquivoNome, linhasProcessadas) {
@@ -1038,7 +1078,7 @@ async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
     itens_expedidos: itens,
     pedidos_expedidos: qtdPedidos,
   }, { onConflict: "data" });
-  if (resultado.error) console.error("Erro ao gravar expedicao_diaria:", resultado.error);
+  falharSeErro(resultado, "Erro ao gravar expedicao_diaria (" + diaISO + ")");
 
   return { data: diaISO, itens: itens, pedidos: qtdPedidos };
 }
@@ -1442,8 +1482,8 @@ async function processarRelatoriosInbound(files, options) {
   // Limpa e reinsere (base mensal — sempre substitui)
   await supabaseClient.from("inbound_nfs").delete().neq("id_nota_fiscal", 0);
   for (let i = 0; i < nfRegistros.length; i += 500) {
-    const { error } = await supabaseClient.from("inbound_nfs").insert(nfRegistros.slice(i, i+500));
-    if (error) console.error("Erro inbound_nfs:", error);
+    const resultado = await supabaseClient.from("inbound_nfs").insert(nfRegistros.slice(i, i+500));
+    falharSeErro(resultado, "Erro ao gravar inbound_nfs (lote " + i + ")");
   }
 
   // ---- 2) Itens das NFs ----
@@ -1473,8 +1513,13 @@ async function processarRelatoriosInbound(files, options) {
   onProgress("Gravando " + itensRegistros.length + " itens...");
   await supabaseClient.from("inbound_itens").delete().neq("id", 0);
   for (let i = 0; i < itensRegistros.length; i += 500) {
-    const { error } = await supabaseClient.from("inbound_itens").insert(itensRegistros.slice(i, i+500));
-    if (error) console.error("Erro inbound_itens:", error);
+    const resultado = await supabaseClient.from("inbound_itens").insert(itensRegistros.slice(i, i+500));
+    // Antes só logava — os 409 de conflito de chave neste insert já foram
+    // vistos em produção, mas nunca diagnosticados de verdade porque o erro
+    // ficava só no console, e o backend de logs do Supabase falhou nas
+    // tentativas de investigar via query_logs. Agora o erro real aparece
+    // direto pro usuário em "✗ Erro: ...", sem precisar dos logs do Supabase.
+    falharSeErro(resultado, "Erro ao gravar inbound_itens (lote " + i + ")");
   }
 
   // ---- 3) Recebimento diário (Gerenciador de OR cruzado com Itens NF de entrada) ----
@@ -1919,8 +1964,8 @@ async function processarEstoqueOperacao(files, options) {
 
   onProgress("Gravando " + registros.length + " pisos/blocos...");
   await supabaseClient.from("estoque_picking").delete().neq("id", 0);
-  const { error } = await supabaseClient.from("estoque_picking").insert(registros);
-  if (error) console.error("Erro estoque_picking:", error);
+  const resultado = await supabaseClient.from("estoque_picking").insert(registros);
+  falharSeErro(resultado, "Erro ao gravar estoque_picking");
 
   await salvarSnapshot("estoque", "auto", gerarPayloadEstoque(registros));
   await registrarLog("estoque", "Estoque_Picking", registros.length);
@@ -2153,11 +2198,11 @@ async function processarBalanco(files, options) {
   await supabaseClient.from("balanco_sap").delete().neq("id", 0);
   for (var i = 0; i < wmsRegistros.length; i += 200) {
     var r1 = await supabaseClient.from("balanco_wms").insert(wmsRegistros.slice(i, i + 200));
-    if (r1.error) console.error("Erro balanco_wms:", r1.error);
+    falharSeErro(r1, "Erro ao gravar balanco_wms (lote " + i + ")");
   }
   for (var j = 0; j < sapRegistros.length; j += 200) {
     var r2 = await supabaseClient.from("balanco_sap").insert(sapRegistros.slice(j, j + 200));
-    if (r2.error) console.error("Erro balanco_sap:", r2.error);
+    falharSeErro(r2, "Erro ao gravar balanco_sap (lote " + j + ")");
   }
 
   // Guarda o detalhe completo (por bin+SKU) pra exportação — balanco_sap
@@ -2166,7 +2211,7 @@ async function processarBalanco(files, options) {
   await supabaseClient.from("balanco_sap_detalhado").delete().neq("id", 0);
   for (var k = 0; k < sapDetalhado.length; k += 500) {
     var r3 = await supabaseClient.from("balanco_sap_detalhado").insert(sapDetalhado.slice(k, k + 500));
-    if (r3.error) console.error("Erro balanco_sap_detalhado:", r3.error);
+    falharSeErro(r3, "Erro ao gravar balanco_sap_detalhado (lote " + k + ")");
   }
 
   // ==================== Snapshot ====================
