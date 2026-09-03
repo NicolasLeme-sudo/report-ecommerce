@@ -471,7 +471,40 @@ async function processarRelatoriosDaOperacao(files, options) {
   const momentoOpIso = hoje.toISOString();
   const pedidosProcessados = [];
 
-  const todasLinhas = linhasOp.concat(linhasExp);
+  // Deduplica por Pedido de Venda ANTES de processar qualquer coisa — mesmo
+  // problema já documentado em upsertPedidoItens, aqui no nível do pedido
+  // inteiro: o arquivo de origem pode trazer o mesmo pedido mais de uma vez
+  // (duplicata dentro do próprio Acompanhamento_Op/Exp, ou o pedido aparece
+  // nos dois arquivos na mesma extração — foi capturado ainda aberto no Op e
+  // já tinha expedido no instante em que o Exp foi extraído). Sem isso, cada
+  // linha duplicada virava um objeto A MAIS em pedidosProcessados, e esse
+  // array bruto é usado tanto pros KPIs/gráficos (soma tudo) quanto pra
+  // gravação no banco (upsertPedidos, onConflict:"pedido_venda" — só fica
+  // com a ÚLTIMA linha enviada). Resultado: o KPI contava a duplicata, mas o
+  // banco só gravava uma — os dois saíam com números diferentes da MESMA
+  // rodada, sem nenhum erro visível. Foi assim que "Itens em Fluxo" do
+  // snapshot (5.059) ficou maior que o mesmo filtro reconstruído direto no
+  // banco depois (4.759): 300 pedidos que o KPI contou como "aberto" (cópia
+  // vinda do Op) tinham sido sobrescritos no banco pela cópia do Exp.
+  //
+  // Prioridade quando o mesmo pedido aparece mais de uma vez: uma linha do
+  // Acompanhamento_Exp vence uma do Op — se ele já aparece expedido em
+  // QUALQUER lugar do arquivo, ele realmente já saiu (a cópia no Op é sempre
+  // a mais desatualizada, capturada num instante anterior da mesma
+  // extração). Entre duas linhas da MESMA origem, fica a primeira —
+  // duplicata dentro do mesmo arquivo é sujeira de exportação do WMS, não
+  // dois eventos reais (mesmo princípio já usado pra itens de NF).
+  const linhaPorPedido = new Map();
+  for (const linha of linhasOp.concat(linhasExp)) {
+    const chave = String(linha["Pedido de Venda"]);
+    const existente = linhaPorPedido.get(chave);
+    if (!existente) { linhaPorPedido.set(chave, linha); continue; }
+    if (linha.origem === "Acompanhamento_Exp" && existente.origem !== "Acompanhamento_Exp") {
+      linhaPorPedido.set(chave, linha);
+    }
+    // demais casos: mantém a que já está lá (primeira ganha)
+  }
+  const todasLinhas = Array.from(linhaPorPedido.values());
   for (const linha of todasLinhas) {
     const pedidoVenda = linha["Pedido de Venda"];
     const sap = sapPorPedido.get(String(pedidoVenda)) || {};
