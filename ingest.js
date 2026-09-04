@@ -1481,13 +1481,17 @@ async function processarRelatoriosInbound(files, options) {
   const nfRegistros = Array.from(nfPorId.values());
 
   onProgress("Gravando " + nfRegistros.length + " NFs...");
-  // Limpa e reinsere (base mensal — sempre substitui). O delete não tinha
-  // NENHUM tratamento de erro — se ele falhasse (timeout, rede, RLS) por
-  // qualquer motivo, o código seguia direto pro insert como se a tabela
-  // estivesse vazia, e uma linha de uma rodada anterior sobrando com o
-  // mesmo id_nota_fiscal de hoje batia na PK e derrubava o lote inteiro com
-  // 409 — foi exatamente esse o erro visto em produção (duplicate key value
-  // violates unique constraint "inbound_nfs_pkey", lote 0).
+  // inbound_itens tem FK pra inbound_nfs — apagar a NF (pai) enquanto ainda
+  // existem itens (filho) apontando pra ela viola a constraint e o Postgres
+  // bloqueia o delete inteiro. Isso é o que estava por trás do 409 nunca
+  // diagnosticado: o delete de inbound_nfs falhava TODA vez (silenciosamente,
+  // antes de falharSeErro existir), a tabela nunca era limpa de verdade, e o
+  // insert seguinte batia direto na chave primária de uma NF que já existia
+  // de uma rodada anterior. Corrigido apagando os itens ANTES das NFs — na
+  // ordem certa, pai só depois do filho.
+  const resultadoDeleteItensPrevio = await supabaseClient.from("inbound_itens").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteItensPrevio, "Erro ao limpar inbound_itens (antes de recriar as NFs)");
+
   const resultadoDelete = await supabaseClient.from("inbound_nfs").delete().neq("id_nota_fiscal", 0);
   falharSeErro(resultadoDelete, "Erro ao limpar inbound_nfs");
   for (let i = 0; i < nfRegistros.length; i += 500) {
@@ -1525,8 +1529,8 @@ async function processarRelatoriosInbound(files, options) {
     });
 
   onProgress("Gravando " + itensRegistros.length + " itens...");
-  const resultadoDeleteItens = await supabaseClient.from("inbound_itens").delete().neq("id", 0);
-  falharSeErro(resultadoDeleteItens, "Erro ao limpar inbound_itens");
+  // inbound_itens já foi limpo acima (antes de apagar inbound_nfs, ver
+  // comentário lá) — não precisa limpar de novo aqui, só inserir os novos.
   for (let i = 0; i < itensRegistros.length; i += 500) {
     const resultado = await supabaseClient.from("inbound_itens").insert(itensRegistros.slice(i, i+500));
     // Antes só logava — os 409 de conflito de chave neste insert já foram
