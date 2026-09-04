@@ -857,10 +857,11 @@ async function processarBaseAcronimos(file, options) {
 
   // Limpa a tabela inteira antes de recarregar (base pequena, ~100 linhas,
   // e o acrônimo não é chave única — ver observação sobre BWY)
-  await supabaseClient.from("dim_acronimos").delete().neq("id", 0);
+  const resultadoDeleteAcr = await supabaseClient.from("dim_acronimos").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteAcr, "Erro ao limpar dim_acronimos");
 
   const resultado = await supabaseClient.from("dim_acronimos").insert(registros);
-  if (resultado.error) console.error("Erro ao gravar dim_acronimos:", resultado.error);
+  falharSeErro(resultado, "Erro ao gravar dim_acronimos");
 
   await registrarLog("acronimos", file.name, registros.length);
   onProgress("Concluído.");
@@ -963,7 +964,8 @@ async function processarForecastMensal(file, options) {
   // data, subir um mês novo só adiciona; subir de novo um mês já lançado
   // continua substituindo (comportamento de correção preservado).
   const datasDoArquivo = registros.map(function(r){ return r.data; });
-  await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo);
+  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo);
+  falharSeErro(resultadoDeleteForecast, "Erro ao limpar forecast_diario");
 
   let erros = 0;
   const TAMANHO_LOTE = 200;
@@ -1479,10 +1481,22 @@ async function processarRelatoriosInbound(files, options) {
   const nfRegistros = Array.from(nfPorId.values());
 
   onProgress("Gravando " + nfRegistros.length + " NFs...");
-  // Limpa e reinsere (base mensal — sempre substitui)
-  await supabaseClient.from("inbound_nfs").delete().neq("id_nota_fiscal", 0);
+  // Limpa e reinsere (base mensal — sempre substitui). O delete não tinha
+  // NENHUM tratamento de erro — se ele falhasse (timeout, rede, RLS) por
+  // qualquer motivo, o código seguia direto pro insert como se a tabela
+  // estivesse vazia, e uma linha de uma rodada anterior sobrando com o
+  // mesmo id_nota_fiscal de hoje batia na PK e derrubava o lote inteiro com
+  // 409 — foi exatamente esse o erro visto em produção (duplicate key value
+  // violates unique constraint "inbound_nfs_pkey", lote 0).
+  const resultadoDelete = await supabaseClient.from("inbound_nfs").delete().neq("id_nota_fiscal", 0);
+  falharSeErro(resultadoDelete, "Erro ao limpar inbound_nfs");
   for (let i = 0; i < nfRegistros.length; i += 500) {
-    const resultado = await supabaseClient.from("inbound_nfs").insert(nfRegistros.slice(i, i+500));
+    // upsert em vez de insert: mesmo com o delete acima já devendo ter
+    // limpo tudo, upsert por id_nota_fiscal é resiliente a qualquer linha
+    // remanescente (delete parcial, corrida entre abas, etc.) — sobrescreve
+    // em vez de colidir. nfPorId (acima) já garante que não há duplicata
+    // DENTRO do próprio arquivo de hoje.
+    const resultado = await supabaseClient.from("inbound_nfs").upsert(nfRegistros.slice(i, i+500), { onConflict: "id_nota_fiscal" });
     falharSeErro(resultado, "Erro ao gravar inbound_nfs (lote " + i + ")");
   }
 
@@ -1511,7 +1525,8 @@ async function processarRelatoriosInbound(files, options) {
     });
 
   onProgress("Gravando " + itensRegistros.length + " itens...");
-  await supabaseClient.from("inbound_itens").delete().neq("id", 0);
+  const resultadoDeleteItens = await supabaseClient.from("inbound_itens").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteItens, "Erro ao limpar inbound_itens");
   for (let i = 0; i < itensRegistros.length; i += 500) {
     const resultado = await supabaseClient.from("inbound_itens").insert(itensRegistros.slice(i, i+500));
     // Antes só logava — os 409 de conflito de chave neste insert já foram
@@ -1651,10 +1666,11 @@ async function processarRelatoriosInbound(files, options) {
       };
     });
 
-  await supabaseClient.from("inbound_stage").delete().neq("id", 0);
+  const resultadoDeleteStage = await supabaseClient.from("inbound_stage").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteStage, "Erro ao limpar inbound_stage");
   for (let i = 0; i < stageRegistros.length; i += 500) {
-    const { error } = await supabaseClient.from("inbound_stage").insert(stageRegistros.slice(i, i+500));
-    if (error) console.error("Erro inbound_stage:", error);
+    const resultado = await supabaseClient.from("inbound_stage").insert(stageRegistros.slice(i, i+500));
+    falharSeErro(resultado, "Erro ao gravar inbound_stage (lote " + i + ")");
   }
 
   // ---- Gerar payload do dashboard Inbound ----
@@ -1963,7 +1979,8 @@ async function processarEstoqueOperacao(files, options) {
   });
 
   onProgress("Gravando " + registros.length + " pisos/blocos...");
-  await supabaseClient.from("estoque_picking").delete().neq("id", 0);
+  const resultadoDeleteEstoque = await supabaseClient.from("estoque_picking").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteEstoque, "Erro ao limpar estoque_picking");
   const resultado = await supabaseClient.from("estoque_picking").insert(registros);
   falharSeErro(resultado, "Erro ao gravar estoque_picking");
 
@@ -2043,7 +2060,8 @@ async function processarBalanco(files, options) {
 
   // Guarda o detalhe completo (por SKU/local) pra exportação — a tabela
   // balanco_wms só fica com o resumo por classificação, isso aqui é a base cheia.
-  await supabaseClient.from("balanco_wms_detalhado").delete().neq("id", 0);
+  const resultadoDeleteWmsDet = await supabaseClient.from("balanco_wms_detalhado").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteWmsDet, "Erro ao limpar balanco_wms_detalhado");
   for (let iDet = 0; iDet < registrosStaging.length; iDet += 1000) {
     const loteDet = registrosStaging.slice(iDet, iDet + 1000);
     const { error: errDet } = await supabaseClient.from("balanco_wms_detalhado").insert(loteDet);
@@ -2194,8 +2212,10 @@ async function processarBalanco(files, options) {
 
   // ==================== Gravar no Supabase ====================
   onProgress("Gravando balanço...");
-  await supabaseClient.from("balanco_wms").delete().neq("id", 0);
-  await supabaseClient.from("balanco_sap").delete().neq("id", 0);
+  const resultadoDeleteBWms = await supabaseClient.from("balanco_wms").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteBWms, "Erro ao limpar balanco_wms");
+  const resultadoDeleteBSap = await supabaseClient.from("balanco_sap").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteBSap, "Erro ao limpar balanco_sap");
   for (var i = 0; i < wmsRegistros.length; i += 200) {
     var r1 = await supabaseClient.from("balanco_wms").insert(wmsRegistros.slice(i, i + 200));
     falharSeErro(r1, "Erro ao gravar balanco_wms (lote " + i + ")");
@@ -2208,7 +2228,8 @@ async function processarBalanco(files, options) {
   // Guarda o detalhe completo (por bin+SKU) pra exportação — balanco_sap
   // só fica com o resumo por BIN, isso aqui é a base cheia.
   var sapDetalhado = Object.values(sapPorBinSku);
-  await supabaseClient.from("balanco_sap_detalhado").delete().neq("id", 0);
+  var resultadoDeleteSapDet = await supabaseClient.from("balanco_sap_detalhado").delete().neq("id", 0);
+  falharSeErro(resultadoDeleteSapDet, "Erro ao limpar balanco_sap_detalhado");
   for (var k = 0; k < sapDetalhado.length; k += 500) {
     var r3 = await supabaseClient.from("balanco_sap_detalhado").insert(sapDetalhado.slice(k, k + 500));
     falharSeErro(r3, "Erro ao gravar balanco_sap_detalhado (lote " + k + ")");
