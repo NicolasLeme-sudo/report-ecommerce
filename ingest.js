@@ -605,7 +605,13 @@ async function processarRelatoriosDaOperacao(files, options) {
   );
 
   await upsertPedidos(pedidosProcessados);
-  await upsertPedidoItens(itensPorPedido);
+  // pedido_itens tem FK pra pedidos.pedido_venda — mas itensPorPedido vem do
+  // arquivo "Itens de NF de Saída", uma fonte independente de
+  // Acompanhamento_Op/Exp, e pode citar um pedido_venda que não existe (ou
+  // ainda não existe) em pedidos. Sem filtrar, isso derruba o lote inteiro
+  // com "violates foreign key constraint pedido_itens_pedido_venda_fkey".
+  const pedidosValidos = new Set(pedidosProcessados.map(function(p){ return p.pedido_venda; }));
+  await upsertPedidoItens(itensPorPedido, pedidosValidos);
 
   onProgress("Gerando payload do dashboard...");
   const payload = await gerarPayloadOutbound(pedidosProcessados, itensPorPedido);
@@ -684,12 +690,19 @@ async function upsertPedidos(pedidos) {
   }
 }
 
-async function upsertPedidoItens(itensPorPedido) {
+async function upsertPedidoItens(itensPorPedido, pedidosValidos) {
   const registros = [];
   const pedidosAfetados = [];
+  let ignoradosSemPedido = 0;
   for (const par of itensPorPedido) {
     const pedidoVenda = par[0];
     const itens = par[1];
+    // Só grava itens de um pedido que realmente existe em `pedidos` — senão
+    // a FK derruba o lote inteiro (ver comentário no call site).
+    if (pedidosValidos && !pedidosValidos.has(Number(pedidoVenda))) {
+      ignoradosSemPedido += itens.length;
+      continue;
+    }
     pedidosAfetados.push(Number(pedidoVenda));
     for (const it of itens) {
       registros.push(Object.assign({ pedido_venda: Number(pedidoVenda) }, it));
@@ -714,6 +727,10 @@ async function upsertPedidoItens(itensPorPedido) {
     }
   });
   const registrosDedup = Array.from(dedupMap.values());
+
+  if (ignoradosSemPedido > 0) {
+    console.warn("upsertPedidoItens: " + ignoradosSemPedido + " item(ns) ignorado(s) — pedido_venda sem correspondência em pedidos.");
+  }
 
   // CORREÇÃO ANTI-DUPLICAÇÃO: antes de inserir, apaga os itens já
   // gravados desses mesmos pedidos. Sem isso, cada clique em "Atualizar"
