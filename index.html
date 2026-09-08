@@ -524,6 +524,7 @@ table.matrix tbody tr.total th {
     <div class="topbar-right">
       <div class="topbar-data" id="topbarData"></div>
       <div class="topbar-data" id="topbarPerfil"></div>
+      <button class="btn-tema" onclick="subirVersaoManual()" id="btnSubirVersao" style="display:none" title="Registra a versão atual de todas as telas como um checkpoint único">📸 Subir versão</button>
       <button class="btn-tema" onclick="alternarTema()" id="btnTema">☀ Claro</button>
       <button class="btn-tema" onclick="sair()" id="btnSair">🚪 Sair</button>
     </div>
@@ -1040,6 +1041,44 @@ const titulos = {
   abastecimento: { nome: 'Abastecimento',        sub: 'Atualização de bases — Acesso Admin' },
 };
 
+// Qual tela está aberta agora — usado pelo dropdown de histórico de versões
+// (carregarDatasHistorico/carregarSnapshot, ver REGISTRO_PAGINAS) pra saber
+// de qual `pagina` buscar e onde renderizar. Atualizado em mostrarSecao.
+let secaoAtual = 'outbound';
+
+// Uma entrada por tela que tem histórico de versões (dashboard_snapshots).
+// 'abastecimento' fica de fora de propósito — não é uma tela de relatório,
+// não tem payload próprio, então o dropdown de histórico fica escondido lá.
+const REGISTRO_PAGINAS = {
+  outbound: {
+    container: 'outbound-conteudo',
+    carregarAtual: function () { return carregarOutbound(); },
+    renderizarHistorico: function (payload) { renderizarOutbound(payload, null); },
+  },
+  inbound: {
+    container: 'inbound-conteudo',
+    carregarAtual: function () { return carregarInbound(); },
+    // Usa o Estoque já carregado (se houver) pra manter a Análise Automática
+    // funcionando também na visualização histórica.
+    renderizarHistorico: function (payload) { renderizarInbound(payload, window._estoquePayload || null); },
+  },
+  estoque: {
+    container: 'estoque-conteudo',
+    carregarAtual: function () { return carregarEstoque(); },
+    renderizarHistorico: function (payload) { renderizarEstoque(payload); },
+  },
+  balanco: {
+    container: 'balanco-conteudo',
+    carregarAtual: function () { return carregarBalanco(); },
+    renderizarHistorico: function (payload) { renderizarBalanco(payload); },
+  },
+  reversa: {
+    container: 'reversa-conteudo',
+    carregarAtual: function () { return carregarReversa(); },
+    renderizarHistorico: function (payload) { renderizarReversa(payload, 'Todas'); },
+  },
+};
+
 function mostrarSecao(secao) {
   // Bloqueio de defesa em profundidade: Reversa é restrita ao perfil Admin.
   // A visibilidade do item no menu já esconde essa opção pra quem não é
@@ -1047,6 +1086,13 @@ function mostrarSecao(secao) {
   // forçar a chamada manualmente (ex: console do navegador). A proteção
   // definitiva do dado continua sendo a RLS no Supabase.
   if (secao === 'reversa' && perfilAtual !== 'admin') return;
+
+  // Rastreia qual tela está ativa — o dropdown de histórico de versões (ver
+  // carregarDatasHistorico/carregarSnapshot) usa isso pra saber de qual
+  // `pagina` buscar e onde renderizar. Antes disso não existir, o dropdown
+  // sempre mostrava/recarregava o histórico do Outbound, não importa em
+  // qual tela você estivesse.
+  secaoAtual = secao;
 
   document.querySelectorAll('.secao').forEach(el => el.classList.remove('ativa'));
   document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('ativo'));
@@ -1067,6 +1113,9 @@ function mostrarSecao(secao) {
   if (secao === 'reversa')  carregarReversa();
   if (secao === 'estoque')  carregarEstoque();
   if (secao === 'balanco')  carregarBalanco();
+
+  // Atualiza o dropdown de histórico pra refletir a tela que acabou de abrir.
+  carregarDatasHistorico();
 }
 
 /* ============================================================
@@ -1178,10 +1227,17 @@ function formatarDataCalendario(valor) {
   return s ? formatarDataBR(s) : '-'; // formato inesperado: cai no tratamento de instante
 }
   async function carregarDatasHistorico() {
+  const dropdown = document.querySelector('.sidebar-historico');
+  const cfg = REGISTRO_PAGINAS[secaoAtual];
+  // 'abastecimento' (e qualquer tela futura sem payload próprio) não tem
+  // histórico — esconde o widget inteiro em vez de mostrar o de outra tela.
+  if (!cfg) { if (dropdown) dropdown.style.display = 'none'; return; }
+  if (dropdown) dropdown.style.display = '';
+
   const { data, error } = await supabaseClient
     .from('dashboard_snapshots')
     .select('id, data_snapshot, tipo_snapshot, gerado_em')
-    .eq('pagina', 'outbound')
+    .eq('pagina', secaoAtual)
     .order('gerado_em', { ascending: true }) // crescente para numerar do 01 em diante
     .limit(90);
 
@@ -1254,14 +1310,18 @@ function selecionarHistorico(id, label) {
   // Fecha o dropdown
   document.getElementById('histList').classList.remove('aberto');
 
-  // Carrega o snapshot
-  if (!id) { carregarOutbound(); }
+  // Carrega o snapshot — sempre relativo à tela que está aberta agora.
+  const cfg = REGISTRO_PAGINAS[secaoAtual];
+  if (!cfg) return;
+  if (!id) { cfg.carregarAtual(); }
   else { carregarSnapshot(id); }
 }
 
 async function carregarSnapshot(id) {
-  if (!id) { carregarOutbound(); return; }
-  document.getElementById('outbound-conteudo').innerHTML = '<div class="loading-msg">Carregando histórico...</div>';
+  const cfg = REGISTRO_PAGINAS[secaoAtual];
+  if (!cfg) return;
+  if (!id) { cfg.carregarAtual(); return; }
+  document.getElementById(cfg.container).innerHTML = '<div class="loading-msg">Carregando histórico...</div>';
   const { data, error } = await supabaseClient
     .from('dashboard_snapshots')
     .select('*')
@@ -1269,12 +1329,71 @@ async function carregarSnapshot(id) {
     .single();
 
   if (error || !data) {
-    document.getElementById('outbound-conteudo').innerHTML = '<div class="erro-msg">Erro ao carregar histórico.</div>';
+    document.getElementById(cfg.container).innerHTML = '<div class="erro-msg">Erro ao carregar histórico.</div>';
     return;
   }
-  renderizarOutbound(data.payload, null);
+  cfg.renderizarHistorico(data.payload);
   document.getElementById('topbarSub').textContent =
     'Histórico: ' + formatarDataBR(data.gerado_em);
+}
+
+// "📸 Subir versão" (topbar, só Admin) — registra um checkpoint sincronizado
+// em TODAS as telas de relatório de uma vez, mesmo elas sendo abastecidas em
+// horários diferentes ao longo do dia (Outbound é rápido, Estoque/Reversa
+// demoram mais por causa do tamanho do arquivo). Em vez de reprocessar nada,
+// só duplica o payload MAIS RECENTE que cada tela já tem — sem inventar
+// dado novo — com tipo_snapshot='manual' (o ★ que já aparece no dropdown) e
+// o MESMO gerado_em pras 5 linhas, marcando "isto é o que todas as telas
+// mostravam neste instante", como uma foto tirada de uma vez só.
+async function subirVersaoManual() {
+  if (!confirm('Isso vai registrar a versão atual de TODAS as telas (Outbound, Inbound, Estoque, Balanço, Reversa) como um checkpoint único no histórico. Continuar?')) return;
+  const btn = document.getElementById('btnSubirVersao');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Registrando...'; }
+  try {
+    const paginas = Object.keys(REGISTRO_PAGINAS);
+    const resultados = await Promise.all(paginas.map(function (pagina) {
+      return supabaseClient
+        .from('dashboard_snapshots')
+        .select('payload')
+        .eq('pagina', pagina)
+        .order('gerado_em', { ascending: false })
+        .limit(1);
+    }));
+
+    const agoraIso = new Date().toISOString();
+    const novasLinhas = [];
+    const paginasSemDado = [];
+    paginas.forEach(function (pagina, i) {
+      const r = resultados[i];
+      if (!r.error && r.data && r.data.length > 0) {
+        novasLinhas.push({
+          pagina: pagina,
+          tipo_snapshot: 'manual',
+          data_snapshot: agoraIso.slice(0, 10),
+          gerado_em: agoraIso,
+          payload: r.data[0].payload,
+        });
+      } else {
+        paginasSemDado.push(pagina);
+      }
+    });
+
+    if (novasLinhas.length === 0) { alert('Nenhuma tela tem dado carregado ainda — não há o que registrar.'); return; }
+
+    const { error } = await supabaseClient.from('dashboard_snapshots').insert(novasLinhas);
+    if (error) throw error;
+
+    let msg = '✓ Versão registrada em ' + novasLinhas.length + ' tela(s): ' + novasLinhas.map(function (l) { return l.pagina; }).join(', ') + '.';
+    if (paginasSemDado.length > 0) msg += '\n(Sem dado ainda, não incluídas: ' + paginasSemDado.join(', ') + '.)';
+    alert(msg);
+
+    carregarDatasHistorico(); // atualiza o dropdown da tela atual, se ela entrou no checkpoint
+  } catch (e) {
+    alert('Erro ao subir versão: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
 }
 
 /* ============================================================
@@ -2653,6 +2772,10 @@ function aplicarVisibilidadeMenu() {
   // "Operação" definiu pra esse item específico.
   const menuReversa = document.getElementById('menuReversa');
   if (menuReversa) menuReversa.style.display = (perfilAtual === 'admin') ? '' : 'none';
+
+  // "Subir versão" (topbar) — mesmo critério de acesso do resto do Admin.
+  const btnSubirVersao = document.getElementById('btnSubirVersao');
+  if (btnSubirVersao) btnSubirVersao.style.display = (perfilAtual === 'admin') ? '' : 'none';
 }
 
 function mostrarTelaLogin() {
