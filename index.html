@@ -1116,6 +1116,7 @@ function mostrarSecao(secao) {
 
   // Atualiza o dropdown de histórico pra refletir a tela que acabou de abrir.
   carregarDatasHistorico();
+  atualizarVisibilidadeBtnSubirVersao();
 }
 
 /* ============================================================
@@ -2773,9 +2774,17 @@ function aplicarVisibilidadeMenu() {
   const menuReversa = document.getElementById('menuReversa');
   if (menuReversa) menuReversa.style.display = (perfilAtual === 'admin') ? '' : 'none';
 
-  // "Subir versão" (topbar) — mesmo critério de acesso do resto do Admin.
-  const btnSubirVersao = document.getElementById('btnSubirVersao');
-  if (btnSubirVersao) btnSubirVersao.style.display = (perfilAtual === 'admin') ? '' : 'none';
+  atualizarVisibilidadeBtnSubirVersao();
+}
+
+// "Subir versão" (topbar) só faz sentido na tela de Abastecimento — é lá que
+// se decide "acabei de atualizar tudo que precisava, agora registro o
+// checkpoint". Chamado tanto no login (aplicarVisibilidadeMenu) quanto toda
+// vez que a tela muda (mostrarSecao), porque os dois motivos de esconder o
+// botão (perfil, seção) podem mudar em momentos diferentes.
+function atualizarVisibilidadeBtnSubirVersao() {
+  const btn = document.getElementById('btnSubirVersao');
+  if (btn) btn.style.display = (perfilAtual === 'admin' && secaoAtual === 'abastecimento') ? '' : 'none';
 }
 
 function mostrarTelaLogin() {
