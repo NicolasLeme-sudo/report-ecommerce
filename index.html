@@ -362,7 +362,10 @@ table.matrix tbody tr.total th {
 }
 .cell-0  { color: var(--text-muted) !important; }
 .cell-hi {
-  background: #DDEBF7 !important;
+  /* Azul translúcido em cima do accent (mais escuro e com transparência de
+     verdade, em vez de um bloco pastel opaco) — sempre no tom certo do
+     tema, já que deriva de var(--accent). */
+  background: color-mix(in srgb, var(--accent) 30%, transparent) !important;
   color: var(--accent) !important;
   font-weight: 700;
   border-radius: 4px;
