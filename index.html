@@ -892,23 +892,35 @@ async function exportarBacklogFifoXLSX() {
   const textoOriginal = btn ? btn.textContent : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
-    // Mesmo recorte que o gráfico já usa pra separar as faixas 03/04+ — os
-    // IDs vêm do array que desenha o donut na tela, não de um cálculo à parte.
-    let ids = idsPedidosDaTela(function(p) {
+    // Regra: "quais pedidos têm a situação mais feia em tela, independente
+    // da data" — sempre um volume "grandinho" pra tratar, nunca um arquivo
+    // de 1 ou 2 linhas num dia bom, e nunca um corte artificial num dia
+    // ruim de verdade.
+    //
+    // 1) Começa pelos genuinamente atrasados (backlog 03/04+, mesmo recorte
+    //    que o gráfico usa pra desenhar o donut).
+    // 2) Se isso já bate ou passa de 500, exporta TODOS eles — backlog real
+    //    nunca é cortado só pra caber num número redondo.
+    // 3) Se sobrar menos que 500, completa com os próximos pedidos mais
+    //    antigos em tela (por Importado em) que ainda não estão na lista —
+    //    ou seja, "o segundo pior grupo" vira o próximo alvo, e assim por
+    //    diante — até fechar 500 ou esgotar os pedidos em operação.
+    const MINIMO_EXPORT = 500;
+    const idsRuins = idsPedidosDaTela(function(p) {
       return p.backlog_fifo_bucket === '03' || p.backlog_fifo_bucket === '04+';
     });
-    // Fallback: sem ninguém em 03/04+ (dia bom), o arquivo não pode sair
-    // vazio nem virar "qualquer coisa" — pega os 500 pedidos mais antigos em
-    // tela (por Importado em), pra sempre ter volume comparável dia a dia.
-    let usouFallback500 = false;
-    if (ids.length === 0) {
+    let ids = idsRuins;
+    let qtdComplemento = 0;
+    if (idsRuins.length < MINIMO_EXPORT) {
       const detalhe = (outboundPayloadAtual && outboundPayloadAtual.pedidos_detalhe) || [];
-      ids = detalhe.slice()
-        .filter(function(p) { return p.importado_em; })
+      const jaIncluidos = new Set(idsRuins);
+      const complemento = detalhe.slice()
+        .filter(function(p) { return p.importado_em && !jaIncluidos.has(p.pedido_venda); })
         .sort(function(a, b) { return new Date(a.importado_em) - new Date(b.importado_em); })
-        .slice(0, 500)
+        .slice(0, MINIMO_EXPORT - idsRuins.length)
         .map(function(p) { return p.pedido_venda; });
-      usouFallback500 = true;
+      qtdComplemento = complemento.length;
+      ids = idsRuins.concat(complemento);
     }
     if (ids.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
     const pedidos = await buscarPedidosPorId(
@@ -920,7 +932,11 @@ async function exportarBacklogFifoXLSX() {
     );
     const linhas = pedidos.map(linhaAcompanhamentoOp);
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
-    if (usouFallback500) console.info('Backlog FIFO: nada em 03/04+ hoje — exportados os ' + ids.length + ' pedidos mais antigos em tela.');
+    console.info(
+      'Backlog FIFO: ' + idsRuins.length + ' pedido(s) em 03/04+' +
+      (qtdComplemento > 0 ? ' + ' + qtdComplemento + ' complementar(es) (próximos mais antigos) pra fechar ' + ids.length : '') +
+      '.'
+    );
     await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx', { colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
