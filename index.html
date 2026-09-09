@@ -361,7 +361,12 @@ table.matrix tbody tr.total th {
   font-weight: 700;
 }
 .cell-0  { color: var(--text-muted) !important; }
-.cell-hi { color: var(--red) !important; }
+.cell-hi {
+  background: #DDEBF7 !important;
+  color: var(--accent) !important;
+  font-weight: 700;
+  border-radius: 4px;
+}
 
 /* Barras horizontais (marketplace, segmento) */
 .bar-list { display: flex; flex-direction: column; gap: 9px; margin-top: 10px; }
@@ -1533,8 +1538,12 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="grid2">
       <div class="stack">
-        <div class="card"><div class="section-title">Status por etapa (Itens)</div><table class="matrix" id="matrixItens"></table></div>
-        <div class="card"><div class="section-title">Status por etapa (Pedidos)</div><table class="matrix" id="matrixPedidos"></table></div>
+        <div class="card"><div class="section-title">Status por etapa (Itens)</div><table class="matrix" id="matrixItens"></table>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: acima de 3.000 — maior volume parado na etapa</div>
+        </div>
+        <div class="card"><div class="section-title">Status por etapa (Pedidos)</div><table class="matrix" id="matrixPedidos"></table>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: acima de 3.000 — maior volume parado na etapa</div>
+        </div>
       </div>
       <div class="stack">
         <div class="card"><div class="section-title">Itens por Marketplace — Top 5</div><div class="bar-list" id="mktBars"></div></div>
