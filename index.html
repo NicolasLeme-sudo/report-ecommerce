@@ -779,7 +779,16 @@ async function buscarPedidosPorId(colunas, ids) {
     if (error) throw error;
     linhas.push(...(data || []));
   }
-  linhas.sort(function(a, b) { return a.pedido_venda - b.pedido_venda; });
+  // Ordena por Importado em (mais antigo primeiro) — é o campo que já rege o
+  // FIFO/backlog em toda a tela, então os dois exports (Backlog FIFO e
+  // Pedidos SAP) saem na mesma ordem de prioridade que o operador usa pra
+  // decidir o que tratar primeiro. Pedido sem Importado em (não deveria
+  // acontecer, mas por via das dúvidas) cai pro fim da lista, não pro topo.
+  linhas.sort(function(a, b) {
+    const da = a.importado_em ? new Date(a.importado_em).getTime() : Infinity;
+    const db = b.importado_em ? new Date(b.importado_em).getTime() : Infinity;
+    return da - db;
+  });
   return linhas;
 }
 
@@ -803,11 +812,16 @@ function nomeMarketplaceExport(acronimo, mapaAcronimos) {
 // opts.colunasMoeda: nomes de coluna (cabeçalho) a formatar como R$.
 // opts.colunasData: nomes de coluna cujo valor já vem como Date (ver
 // paraDataExcelBR) — aqui só aplica o numFmt de data/hora na coluna.
+// opts.colunasNumero: nomes de coluna numéricas (o valor já precisa ser um
+// Number de verdade, não string — ver paraNumeroExcel) — aplica numFmt
+// 'General', pra Excel tratar como número (alinhado à direita, ordenável,
+// sem risco de virar texto) em vez de herdar formatação de texto.
 // Título em negrito+itálico e todas as células centralizadas em toda exportação.
 async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
   opts = opts || {};
   const colunasMoeda = opts.colunasMoeda || [];
   const colunasData = opts.colunasData || [];
+  const colunasNumero = opts.colunasNumero || [];
   const colunas = Object.keys(linhas[0] || {});
 
   if (window.ExcelJS) {
@@ -833,6 +847,10 @@ async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
     colunasData.forEach(function(nomeCol) {
       const idx = colunas.indexOf(nomeCol) + 1;
       if (idx > 0) ws.getColumn(idx).numFmt = 'dd/mm/yyyy hh:mm';
+    });
+    colunasNumero.forEach(function(nomeCol) {
+      const idx = colunas.indexOf(nomeCol) + 1;
+      if (idx > 0) ws.getColumn(idx).numFmt = 'General';
     });
 
     const buffer = await wb.xlsx.writeBuffer();
@@ -863,12 +881,27 @@ const COLUNAS_DATA_ACOMPANHAMENTO_OP = [
   'Importado em', 'Separado em', 'Enviado para Faturamento', 'Faturado em',
   'Conferido em', 'Coletado em', 'Processado em', 'Data Esperada para Embarque',
 ];
+// Colunas numéricas do Acompanhamento Op — pra baixarComoXLSX aplicar numFmt
+// 'General' (ver COLUNAS_NUMERO_PEDIDOS_SAP abaixo pra Pedido VTEX, que só
+// existe no export de Pedidos SAP).
+const COLUNAS_NUMERO_ACOMPANHAMENTO_OP = ['Pedido de Venda', 'Nota Fiscal', 'Qtde. Total de Produto'];
+// Alguns campos vêm do banco como texto mesmo sendo puramente numéricos
+// (Nota Fiscal, Pedido VTEX) — sem converter pra Number de verdade aqui, o
+// numFmt 'General' não muda nada: Excel só respeita alinhamento/formato
+// numérico em célula que já É um número, não uma string com dígitos.
+// Se não for um número válido, mantém o valor original (nunca gera "NaN"
+// na planilha).
+function paraNumeroExcel(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = Number(v);
+  return Number.isFinite(n) ? n : v;
+}
 function linhaAcompanhamentoOp(p) {
   return {
-    'Pedido de Venda': p.pedido_venda,
-    'Nota Fiscal': p.nota_fiscal,
+    'Pedido de Venda': paraNumeroExcel(p.pedido_venda),
+    'Nota Fiscal': paraNumeroExcel(p.nota_fiscal),
     'Classificação Tipo Pedido': p.classificacao_tipo_pedido,
-    'Qtde. Total de Produto': p.qtd_total_produto,
+    'Qtde. Total de Produto': paraNumeroExcel(p.qtd_total_produto),
     'Status da Nota Fiscal': p.status_nf,
     'Cancelado Pelo ERP': p.cancelado_pelo_erp ? '1' : '',
     'Importado em': paraDataExcelBR(p.importado_em),
@@ -937,7 +970,10 @@ async function exportarBacklogFifoXLSX() {
       (qtdComplemento > 0 ? ' + ' + qtdComplemento + ' complementar(es) (próximos mais antigos) pra fechar ' + ids.length : '') +
       '.'
     );
-    await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx', { colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP });
+    await baixarComoXLSX(linhas, 'Backlog FIFO', 'Backlog_FIFO_' + hoje + '.xlsx', {
+      colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP,
+      colunasNumero: COLUNAS_NUMERO_ACOMPANHAMENTO_OP,
+    });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
   } finally {
@@ -969,7 +1005,7 @@ async function exportarPedidosSapXLSX() {
     ]);
     const linhas = pedidos.map(function(p) {
       return Object.assign({
-        'Pedido VTEX': p.pedido_vtex || '',
+        'Pedido VTEX': paraNumeroExcel(p.pedido_vtex),
         'Valor do Pedido': p.valor_pedido != null ? p.valor_pedido : '',
         'Marketplace': p.marketplace_acronimo || '',
         'Marketplace (Razão Social)': nomeMarketplaceExport(p.marketplace_acronimo, mapaAcronimos),
@@ -977,7 +1013,11 @@ async function exportarPedidosSapXLSX() {
       }, linhaAcompanhamentoOp(p));
     });
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
-    await baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx', { colunasMoeda: ['Valor do Pedido'], colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP });
+    await baixarComoXLSX(linhas, 'Pedidos SAP', 'Pedidos_SAP_' + hoje + '.xlsx', {
+      colunasMoeda: ['Valor do Pedido'],
+      colunasData: COLUNAS_DATA_ACOMPANHAMENTO_OP,
+      colunasNumero: COLUNAS_NUMERO_ACOMPANHAMENTO_OP.concat(['Pedido VTEX']),
+    });
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
   } finally {
