@@ -1048,7 +1048,48 @@ async function buscarSegmentos() {
   return resultado.data;
 }
 
-function computarIntegracao7Dias(pedidos) {
+// Teto fixo pro sparkline de "Integração de Itens no WMS": em vez de cada
+// render escalar a linha entre o próprio min e o próprio max dos 7 dias
+// visíveis (o que faz uma variação de 10% parecer do mesmo tamanho visual
+// que uma queda de 50%, e faz o teto/piso do gráfico pular toda semana),
+// busca o maior total diário de itens importados dos últimos 60 dias
+// direto na tabela pedidos (não só o que sobrou no Acompanhamento_Op/Exp
+// da rodada atual) e usa isso como teto fixo — o piso do eixo Y fica em
+// zero (escala absoluta, não relativa). Paginado por página vazia, nunca
+// por tamanho fixo (ver README 3.1).
+async function buscarTetoHistoricoIntegracao() {
+  const JANELA_DIAS = 60;
+  const desde = new Date();
+  desde.setDate(desde.getDate() - JANELA_DIAS);
+  const desdeISO = paraDataISOLocal(desde);
+
+  const porDia = {};
+  const LOTE = 1000;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabaseClient
+      .from("pedidos")
+      .select("importado_em, qtd_total_produto")
+      .gte("importado_em", desdeISO)
+      .range(offset, offset + LOTE - 1);
+    if (error) { console.error("Erro ao buscar teto histórico de integração:", error); break; }
+    if (!data || data.length === 0) break;
+
+    data.forEach(function(r) {
+      if (!r.importado_em) return;
+      const diaISO = paraDataISOLocal(new Date(r.importado_em));
+      porDia[diaISO] = (porDia[diaISO] || 0) + (Number(r.qtd_total_produto) || 0);
+    });
+
+    offset += data.length;
+    if (data.length < LOTE) break;
+  }
+
+  const totaisDiarios = Object.values(porDia);
+  return totaisDiarios.length ? Math.max(...totaisDiarios) : 0;
+}
+
+async function computarIntegracao7Dias(pedidos) {
   // CORREÇÃO: conta ITENS integrados (qtd_total_produto), não pedidos.
   // Itens são o que move o faturamento — dado mais relevante operacionalmente.
   const hoje = new Date();
@@ -1070,9 +1111,16 @@ function computarIntegracao7Dias(pedidos) {
     }
   });
 
+  const valoresDias = dias.map(function(d){ return itensPorDia[d]; });
+  const tetoHistorico = await buscarTetoHistoricoIntegracao();
+
   return {
     dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
-    itens_integrados: dias.map(function(d){ return itensPorDia[d]; }),
+    itens_integrados: valoresDias,
+    // Maior valor entre o teto histórico (60 dias) e os próprios 7 dias
+    // visíveis — nunca deixa a linha estourar o topo do gráfico caso a
+    // semana atual bata um recorde acima da janela histórica considerada.
+    escala_maxima: Math.max(tetoHistorico, ...valoresDias, 1),
   };
 }
 // Grava o dia D-1 (ontem, dia corrido, sem pular fim de semana/feriado) como
@@ -1275,7 +1323,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     await fecharExpedicaoDoDia(pedidos, paraDataISOLocal(dAlvo));
   }
   const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
-  const integracao_7dias = computarIntegracao7Dias(pedidos);
+  const integracao_7dias = await computarIntegracao7Dias(pedidos);
 
   // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria).
   // ATENÇÃO: fecharExpedicaoDoDia só fecha de "ontem" pra trás (loop diasAtras=1..7,

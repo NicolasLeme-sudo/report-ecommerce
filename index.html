@@ -2048,7 +2048,14 @@ function renderSparkline(dados) {
   const w=380,h=86,pL=8,pR=8,pT=18,pB=16;
   const vals = dados.itens_integrados;
   const dias = dados.dias;
-  const mx=Math.max(...vals,1), mn=Math.min(...vals), rng=(mx-mn)||1;
+  // Escala fixa (piso 0, teto calculado em cima dos últimos 60 dias de
+  // pedidos importados — ver buscarTetoHistoricoIntegracao em ingest.js),
+  // não mais relativa aos 7 pontos visíveis. Com escala relativa, uma
+  // variação de 10% entre dois dias "normais" ocupava visualmente o mesmo
+  // tanto que uma queda real de 50% — e o teto/piso do gráfico pulava toda
+  // semana. dados.escala_maxima pode faltar em snapshot antigo salvo antes
+  // dessa mudança — nesse caso cai de volta pro max dos 7 dias visíveis.
+  const mn=0, mx=Math.max(dados.escala_maxima || 0, ...vals, 1), rng=mx||1;
   const pts = vals.map((v,i) => [pL+i*((w-pL-pR)/(vals.length-1)), (h-pB)-((v-mn)/rng)*(h-pT-pB)]);
   const d = document.createElementNS('http://www.w3.org/2000/svg','path');
   d.setAttribute('d', pathSuave(pts));
