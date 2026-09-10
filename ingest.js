@@ -21,7 +21,13 @@
 // -------------------------------------------------------------------------
 const SUPABASE_URL = "https://tawliuofpmfohylqdnix.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__a5cJ6yFJIMgf505C4v7vQ_igDbuv5k";
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// persistSession: false — não guarda a sessão no localStorage. Sem isso o
+// Supabase Auth lembra o login entre recarregamentos/fechamentos de aba;
+// com isso, todo F5 (ou reabrir a página) cai na tela de login de novo,
+// mesmo com usuário/senha corretos guardados no navegador.
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false },
+});
 
 
 // -------------------------------------------------------------------------
