@@ -638,6 +638,22 @@ table.matrix tbody tr.total th {
         <div class="progress-box" id="progressBalanco"></div>
       </div>
 
+      <div class="upload-card">
+        <h2>Endereços Não Conformes do Balanço</h2>
+        <div class="freq">Endereço fora do gabarito (nem prefixo especial, nem A-J/S/K, nem PICKING) cai em "Outros" e some do balanço — gera divergência contra o SAP sem aviso.</div>
+        <button class="btn-upload" id="btnVerificarEnderecos" onclick="verificarEnderecosNaoConformes()">🔍 Verificar Endereços Não Conformes</button>
+        <div id="resultadoEnderecosNaoConformes"></div>
+        <button class="btn-upload" id="btnBaixarGabaritoExcecao" onclick="baixarGabaritoEnderecosNaoConformes()" style="display:none;margin-top:10px">⬇ Baixar Gabarito para Preencher</button>
+
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="file-row">
+            <div class="file-field"><label>Gabarito preenchido (.xlsx)</label><input type="file" id="fileGabaritoExcecao" accept=".xlsx"></div>
+          </div>
+          <button class="btn-upload" id="btnAplicarGabaritoExcecao" onclick="aplicarGabaritoEnderecosNaoConformes()">Aplicar Gabarito Preenchido</button>
+          <div class="progress-box" id="statusAplicarGabarito"></div>
+        </div>
+      </div>
+
       <div class="section-title" style="margin-top:24px">Relatórios Bases</div>
       <div class="upload-card">
         <h2>Atualizar Bases Gerais</h2>
@@ -1048,6 +1064,258 @@ function exportarEstoqueCSV() {
 function exportarBalancoCSV() {
   baixarArquivoOriginal('balanco/Estoque_completo_WMS.tsv', 'btnExportBalanco');
   setTimeout(() => baixarArquivoOriginal('balanco/Estoque_SAP.xlsx'), 400);
+}
+
+/* ============================================================
+   ENDEREÇOS NÃO CONFORMES DO BALANÇO
+   Endereço que não bate com nenhuma regra do gabarito (nem prefixo
+   especial, nem letra A-J/S/K, nem tipo PICKING) cai em "Outros" na
+   classificação WMS e some das linhas do balanço — gera divergência contra
+   o SAP sem nenhum aviso. Este bloco detecta esses endereços a partir de
+   balanco_wms_detalhado (grava o detalhe local/tipo_local/estoque por linha,
+   sem truncar entre execuções — sobrevive ao próximo Atualizar Balanço) e
+   deixa cadastrar, por prefixo, a classificação correta em
+   gabarito_endereco_excecao — a MESMA tabela que calcular_balanco_wms_final
+   (Postgres) passa a consultar antes do CASE fixo (ver migration
+   gabarito_endereco_excecao). classificarEnderecoWMS (ingest.js) é reusada
+   aqui como está — ela já é o espelho fiel da regra do Postgres.
+   ============================================================ */
+
+// Lista fechada de classificações válidas — as MESMAS strings que
+// calcular_balanco_wms_final usa nas linhas do balanço (não inventa nome
+// novo). "Vendável" (sem marca) deriva a marca automaticamente por SKU, do
+// mesmo jeito que já acontece pros endereços do gabarito padrão. "Outros"
+// serve pra confirmar "vi este endereço, é assim mesmo" sem reclassificar —
+// ele sai da lista de pendências sem mudar o resultado do balanço.
+const CLASSIFICACOES_VALIDAS_BALANCO = [
+  'Vendável Mizuno', 'Vendável Olympikus', 'Vendável Under Armour', 'Vendável',
+  'Avaria (Incineração)', 'Material em análise', 'Faltas de Recebimento',
+  'Integração de NFs Reversa', 'Material de 2° qualidade (Outlet)',
+  'Não Comercializável', 'Aguardando ação fiscal (Emissão NF-D)',
+  'DExPARA (Aguardando ação fiscal)', 'Outros',
+];
+
+// Varre balanco_wms_detalhado inteiro (paginado por página vazia — nunca por
+// tamanho fixo, ver README 3.1: o teto real do PostgREST pode ser menor que
+// o pedido), reclassifica cada linha com classificarEnderecoWMS e agrupa por
+// prefixo (3 chars) quem cai em "Outros" e ainda não tem exceção cadastrada.
+async function buscarEnderecosNaoConformes() {
+  const { data: excecoes, error: errExc } = await supabaseClient
+    .from('gabarito_endereco_excecao').select('prefixo');
+  if (errExc) throw errExc;
+  const prefixosComExcecao = new Set((excecoes || []).map(function(e) { return e.prefixo; }));
+
+  const porPrefixo = new Map();
+  const LOTE = 1000;
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabaseClient
+      .from('balanco_wms_detalhado')
+      .select('local, tipo_local, estoque_total')
+      .range(offset, offset + LOTE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    data.forEach(function(r) {
+      const classif = classificarEnderecoWMS(r.local, r.tipo_local);
+      if (classif !== 'Outros') return;
+      const prefixo = String(r.local || '').substring(0, 3).toUpperCase();
+      if (prefixosComExcecao.has(prefixo)) return; // já resolvido, não repete
+      if (!porPrefixo.has(prefixo)) {
+        porPrefixo.set(prefixo, {
+          prefixo: prefixo, exemplo_endereco: r.local, tipo_local: r.tipo_local || '',
+          enderecos: new Set(), qtde_total: 0,
+        });
+      }
+      const reg = porPrefixo.get(prefixo);
+      reg.enderecos.add(r.local);
+      reg.qtde_total += Number(r.estoque_total) || 0;
+    });
+
+    offset += data.length;
+    if (data.length < LOTE) break; // página não veio cheia = acabou
+  }
+
+  return Array.from(porPrefixo.values())
+    .map(function(r) {
+      return {
+        prefixo: r.prefixo, exemplo_endereco: r.exemplo_endereco, tipo_local: r.tipo_local,
+        enderecos_unicos: r.enderecos.size, qtde_total: r.qtde_total,
+      };
+    })
+    .sort(function(a, b) { return b.qtde_total - a.qtde_total; });
+}
+
+let _ultimosEnderecosNaoConformes = [];
+
+async function verificarEnderecosNaoConformes() {
+  const btn = document.getElementById('btnVerificarEnderecos');
+  const resultado = document.getElementById('resultadoEnderecosNaoConformes');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
+  resultado.innerHTML = '';
+  try {
+    const lista = await buscarEnderecosNaoConformes();
+    _ultimosEnderecosNaoConformes = lista;
+    if (lista.length === 0) {
+      resultado.innerHTML = '<div style="color:var(--olive);font-size:13px;margin-top:8px">✓ Nenhum endereço não conforme encontrado — todos os endereços do último Balanço processado batem com o gabarito.</div>';
+      document.getElementById('btnBaixarGabaritoExcecao').style.display = 'none';
+      return;
+    }
+    const totalEnderecos = lista.reduce(function(s, r) { return s + r.enderecos_unicos; }, 0);
+    const totalItens = lista.reduce(function(s, r) { return s + r.qtde_total; }, 0);
+    let html = '<div style="color:var(--amber);font-size:13px;margin-top:8px;font-weight:600">';
+    html += '⚠ ' + lista.length + ' prefixo(s) não conforme(s) — ' + totalEnderecos + ' endereço(s) único(s), ' + fmtInt(totalItens) + ' item(ns) fora das classificações do balanço.</div>';
+    html += '<table class="matrix" style="margin-top:8px;font-size:12px"><thead><tr><th>Prefixo</th><th>Exemplo de Endereço</th><th>Tipo Local</th><th>Endereços</th><th>Qtde</th></tr></thead><tbody>';
+    lista.forEach(function(r) {
+      html += '<tr><th>' + r.prefixo + '</th><td>' + r.exemplo_endereco + '</td><td>' + (r.tipo_local || '—') + '</td><td>' + r.enderecos_unicos + '</td><td>' + fmtInt(r.qtde_total) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    resultado.innerHTML = html;
+    document.getElementById('btnBaixarGabaritoExcecao').style.display = '';
+  } catch (err) {
+    resultado.innerHTML = '<div class="erro-msg">Erro ao verificar endereços: ' + (err.message || err) + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
+
+// Gera o .xlsx pra preencher: uma linha por prefixo não conforme, coluna
+// "Classificação Correta" em branco com dropdown (data validation) travado
+// na lista fechada de CLASSIFICACOES_VALIDAS_BALANCO — evita erro de
+// digitação que geraria uma classificação nova, fora do que o balanço
+// reconhece.
+async function baixarGabaritoEnderecosNaoConformes() {
+  const lista = _ultimosEnderecosNaoConformes;
+  if (!lista || lista.length === 0) { alert('Clique em "Verificar Endereços Não Conformes" primeiro.'); return; }
+  if (!window.ExcelJS) { alert('Biblioteca de exportação não carregou — recarregue a página e tente de novo.'); return; }
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet('Endereços Não Conformes');
+  ws.columns = [
+    { header: 'Prefixo', key: 'prefixo', width: 12 },
+    { header: 'Exemplo de Endereço', key: 'exemplo_endereco', width: 22 },
+    { header: 'Tipo Local', key: 'tipo_local', width: 16 },
+    { header: 'Endereços Únicos', key: 'enderecos_unicos', width: 16 },
+    { header: 'Qtde Total', key: 'qtde_total', width: 14 },
+    { header: 'Classificação Correta', key: 'classificacao', width: 32 },
+  ];
+  lista.forEach(function(r) { ws.addRow(r); });
+
+  ws.getRow(1).eachCell(function(cell) {
+    cell.font = { bold: true, italic: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle' };
+  });
+  ws.eachRow({ includeEmpty: false }, function(row, idx) {
+    if (idx === 1) return;
+    row.eachCell(function(cell) { cell.alignment = { horizontal: 'center', vertical: 'middle' }; });
+  });
+
+  // Aba de referência com os status possíveis — criada ANTES da validação
+  // porque o dropdown aponta pra ela. Lista concatenada (286 chars) estoura
+  // o limite de 255 do Excel pra lista inline em data validation, então em
+  // vez de listar os valores direto na fórmula, referencia o range de
+  // células desta aba (sem limite de tamanho).
+  const wsRef = wb.addWorksheet('Status Possíveis');
+  wsRef.columns = [{ header: 'Classificação', key: 'c', width: 32 }, { header: 'Quando usar', key: 'd', width: 60 }];
+  const explicacoes = {
+    'Vendável Mizuno': 'Estoque vendável da marca Mizuno.',
+    'Vendável Olympikus': 'Estoque vendável da marca Olympikus.',
+    'Vendável Under Armour': 'Estoque vendável da marca Under Armour.',
+    'Vendável': 'Vendável, mas deixa o sistema descobrir a marca automaticamente pelo SKU (mesma regra usada nos endereços A-J do gabarito padrão).',
+    'Avaria (Incineração)': 'Material avariado, destinado a incineração.',
+    'Material em análise': 'Em análise de qualidade/destinação.',
+    'Faltas de Recebimento': 'Falta identificada no recebimento.',
+    'Integração de NFs Reversa': 'Aguardando integração de NF de reversa.',
+    'Material de 2° qualidade (Outlet)': 'Material outlet.',
+    'Não Comercializável': 'Não pode ser vendido.',
+    'Aguardando ação fiscal (Emissão NF-D)': 'Aguardando emissão de NF-D.',
+    'DExPARA (Aguardando ação fiscal)': 'Aguardando ação fiscal, fluxo De-Para.',
+    'Outros': 'Confirma que o endereço é assim mesmo — sai da lista de pendências sem mudar o resultado do balanço.',
+  };
+  CLASSIFICACOES_VALIDAS_BALANCO.forEach(function(c) { wsRef.addRow({ c: c, d: explicacoes[c] || '' }); });
+  wsRef.getRow(1).eachCell(function(cell) { cell.font = { bold: true, italic: true }; });
+
+  // Dropdown na coluna F (Classificação Correta), do zero à última linha —
+  // aponta pra A2:A<N> da aba de referência (nome da aba entre aspas simples
+  // por causa do espaço e do acento).
+  const refRange = "'Status Possíveis'!$A$2:$A$" + (CLASSIFICACOES_VALIDAS_BALANCO.length + 1);
+  for (let i = 2; i <= lista.length + 1; i++) {
+    ws.getCell('F' + i).dataValidation = {
+      type: 'list', allowBlank: true,
+      formulae: [refRange],
+      showErrorMessage: true,
+      errorTitle: 'Classificação inválida',
+      error: 'Escolha uma opção da lista (aba "Status Possíveis").',
+    };
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+  a.href = url; a.download = 'Gabarito_Enderecos_Nao_Conformes_' + hoje + '.xlsx';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Lê o gabarito preenchido, valida cada linha (prefixo de 3 chars +
+// classificação dentro da lista fechada) e grava em
+// gabarito_endereco_excecao (upsert por prefixo — reenviar o mesmo prefixo
+// corrige, não duplica). Linha sem "Classificação Correta" preenchida é
+// pulada silenciosamente (ainda pendente).
+async function aplicarGabaritoEnderecosNaoConformes() {
+  const input = document.getElementById('fileGabaritoExcecao');
+  const btn = document.getElementById('btnAplicarGabaritoExcecao');
+  const status = document.getElementById('statusAplicarGabarito');
+  status.classList.add('show'); // .progress-box começa com display:none — precisa disso pra aparecer
+  const file = input.files[0];
+  if (!file) { status.innerHTML = '<div class="erro-msg">Selecione o arquivo preenchido antes de aplicar.</div>'; return; }
+
+  const textoOriginal = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Aplicando...';
+  status.innerHTML = '';
+  try {
+    const linhas = await parseXLSX(file); // ingest.js — lê a 1ª aba, header na 1ª linha
+    const validas = [];
+    const invalidas = [];
+    linhas.forEach(function(l) {
+      const prefixo = String(l['Prefixo'] || '').trim().toUpperCase();
+      const classificacao = String(l['Classificação Correta'] || '').trim();
+      if (!classificacao) return; // ainda não preenchida, ignora sem erro
+      if (prefixo.length !== 3) { invalidas.push({ prefixo: prefixo, motivo: 'prefixo precisa ter 3 caracteres' }); return; }
+      if (CLASSIFICACOES_VALIDAS_BALANCO.indexOf(classificacao) === -1) {
+        invalidas.push({ prefixo: prefixo, motivo: 'classificação "' + classificacao + '" não está na lista válida' });
+        return;
+      }
+      validas.push({ prefixo: prefixo, classificacao: classificacao });
+    });
+
+    if (validas.length === 0 && invalidas.length === 0) {
+      status.innerHTML = '<div class="erro-msg">Nenhuma linha com "Classificação Correta" preenchida foi encontrada no arquivo.</div>';
+      return;
+    }
+
+    let msg = '';
+    if (validas.length > 0) {
+      const { error } = await supabaseClient.from('gabarito_endereco_excecao')
+        .upsert(validas, { onConflict: 'prefixo' });
+      if (error) throw error;
+      msg += '<div style="color:var(--olive)">✓ ' + validas.length + ' prefixo(s) cadastrado(s)/atualizado(s). Rode "Atualizar Balanço" de novo pra aplicar no resultado.</div>';
+    }
+    if (invalidas.length > 0) {
+      msg += '<div class="erro-msg" style="margin-top:6px">⚠ ' + invalidas.length + ' linha(s) ignorada(s):<br>' +
+        invalidas.map(function(i) { return '• ' + (i.prefixo || '(sem prefixo)') + ' — ' + i.motivo; }).join('<br>') + '</div>';
+    }
+    status.innerHTML = msg;
+    input.value = '';
+    verificarEnderecosNaoConformes(); // atualiza a lista de pendências
+  } catch (err) {
+    status.innerHTML = '<div class="erro-msg">Erro ao aplicar gabarito: ' + (err.message || err) + '</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = textoOriginal;
+  }
 }
 
 // Suaviza uma sequência de pontos [x,y] em curva (Catmull-Rom -> Bézier cúbica)
