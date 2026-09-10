@@ -576,10 +576,9 @@ table.matrix tbody tr.total th {
       <div class="upload-card">
         <h2>Atualizar Relatórios da Operação</h2>
         <div class="freq">Frequência: diária</div>
-        <div class="freq">Acompanhamento_Exp é opcional — sem ele, pedidos que expediram desde a última rodada com Exp ficam temporariamente como "aberto" (falso backlog). Envie o Exp pelo menos 1x/dia pra corrigir isso.</div>
         <div class="file-row">
           <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
-          <div class="file-field"><label>Acompanhamento_Exp.tsv (opcional)</label><input type="file" id="fileExp"></div>
+          <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
           <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
           <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
         </div>
@@ -2269,10 +2268,10 @@ function ligarBotao(btnId, progressId, fn, getFiles) {
 
 ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () => {
   const o=document.getElementById('fileOp').files[0];
-  const e=document.getElementById('fileExp').files[0]; // opcional — ver processarRelatoriosDaOperacao
+  const e=document.getElementById('fileExp').files[0];
   const i=document.getElementById('fileItensNF').files[0];
   const p=document.getElementById('filePedidosEcomm').files[0];
-  return (o&&i&&p) ? {arquivoOp:o,arquivoExp:e||null,arquivoItensNF:i,arquivoPedidosEcomm:p} : null;
+  return (o&&e&&i&&p) ? {arquivoOp:o,arquivoExp:e,arquivoItensNF:i,arquivoPedidosEcomm:p} : null;
 });
 ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   const r = document.getElementById('fileRecebs').files[0];
