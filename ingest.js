@@ -399,9 +399,24 @@ async function processarRelatoriosDaOperacao(files, options) {
   const textoOp = await validarArquivoTSV(arquivoOp, "op", "Acompanhamento_Op");
   const linhasOp = parseTSVSelecionado(textoOp, CAMPOS_ACOMPANHAMENTO).map(function(r){ return Object.assign({}, r, {origem: "Acompanhamento_Op"}); });
 
-  onProgress("Validando e lendo Acompanhamento_Exp...");
-  const textoExp = await validarArquivoTSV(arquivoExp, "exp", "Acompanhamento_Exp");
-  const linhasExp = parseTSVSelecionado(textoExp, CAMPOS_ACOMPANHAMENTO).map(function(r){ return Object.assign({}, r, {origem: "Acompanhamento_Exp"}); });
+  // Acompanhamento_Exp é opcional — pode demorar demais pra extrair do
+  // sistema de origem (não é lentidão do site, é a extração no ERP/WMS) e
+  // travar o processo diário. Sem ele, nenhum pedido é marcado EXPEDIDO
+  // nesta rodada: quem já tinha expedido numa rodada anterior (com Exp)
+  // continua EXPEDIDO no banco (essa linha simplesmente não aparece nesta
+  // rodada, upsertPedidos não mexe nela); quem expedir ENTRE a última
+  // rodada com Exp e agora fica temporariamente como ABERTO (falso
+  // backlog) até a próxima rodada que inclua um Exp atualizado — ver
+  // README/conversa sobre essa janela. Vale rodar com Exp pelo menos uma
+  // vez por dia pra não deixar esse desvio acumular.
+  let linhasExp = [];
+  if (arquivoExp) {
+    onProgress("Validando e lendo Acompanhamento_Exp...");
+    const textoExp = await validarArquivoTSV(arquivoExp, "exp", "Acompanhamento_Exp");
+    linhasExp = parseTSVSelecionado(textoExp, CAMPOS_ACOMPANHAMENTO).map(function(r){ return Object.assign({}, r, {origem: "Acompanhamento_Exp"}); });
+  } else {
+    onProgress("Acompanhamento_Exp não enviado — pulando (nenhum pedido será marcado EXPEDIDO nesta rodada).");
+  }
 
   onProgress("Validando e lendo Itens de NF de Saída...");
   const textoItens = await validarArquivoTSV(arquivoItensNF, "itensNF", "Itens de NF de Saída");
