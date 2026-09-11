@@ -2110,14 +2110,29 @@ async function processarBalanco(files, options) {
   // Filtra só PICKING/PULMÃO com saldo, e agrega por barra+código+tipo_local no
   // próprio navegador — assim o banco recebe só ~50-60 mil linhas já prontas,
   // em vez de 400 mil+ linhas cruas (isso é o que evita o timeout da RPC).
+  //
+  // Qualquer linha cujo "Tipo do Local" não contenha PICKING nem PULM é
+  // descartada aqui, ANTES de qualquer classificação por prefixo de
+  // endereço (GABARITO_PREFIX/classificarEnderecoWMS) — mesmo que o Local
+  // seja um prefixo conhecido (ex: T07, sempre "Avaria (Incineração)"), se
+  // o Tipo do Local não bater literalmente com PICKING/PULMÃO no arquivo,
+  // o item nunca entra no balanço. Diferente de cair em "Outros" (que a
+  // tela "Endereços Não Conformes" pega), isso é descarte silencioso —
+  // some sem deixar rastro em nenhuma tabela. Por isso soma-se abaixo o
+  // total bruto do arquivo (por tipo_local) pra comparar com o que
+  // efetivamente entrou, e expor a diferença em vez de escondê-la.
+  const brutoPorTipo = new Map();
   const agregadoWMS = new Map();
   linhasWMS.forEach(function(r) {
     const tipoLoc = String(r["Tipo do Local"] || "").toUpperCase().trim();
+    const estoqueBruto = Number(r["Estoque (UN)"]) || 0;
+    brutoPorTipo.set(tipoLoc, (brutoPorTipo.get(tipoLoc) || 0) + estoqueBruto);
+
     const isPicking = tipoLoc.includes("PICKING");
     const isPulmao = tipoLoc.includes("PULM");
     if (!isPicking && !isPulmao) return;
 
-    const estoque = Number(r["Estoque (UN)"]) || 0;
+    const estoque = estoqueBruto;
     if (estoque === 0) return;
 
     const local = String(r["Local"] || "");
@@ -2132,6 +2147,21 @@ async function processarBalanco(files, options) {
   });
 
   const registrosStaging = Array.from(agregadoWMS.values());
+
+  // Diagnóstico: quanto do arquivo bruto ficou de fora por não ser
+  // PICKING/PULMÃO, detalhado por Tipo do Local — pra não descobrir isso só
+  // quando alguém bate um total manualmente contra o report, semanas depois.
+  const totalBrutoWMS = Array.from(brutoPorTipo.values()).reduce(function(s, v) { return s + v; }, 0);
+  const totalConsideradoWMS = registrosStaging.reduce(function(s, r) { return s + r.estoque_total; }, 0);
+  const excluidosPorTipo = Array.from(brutoPorTipo.entries())
+    .filter(function(e) { return !e[0].includes("PICKING") && !e[0].includes("PULM") && e[1] !== 0; })
+    .map(function(e) { return { tipo_local: e[0] || "(vazio)", qtde: e[1] }; })
+    .sort(function(a, b) { return b.qtde - a.qtde; });
+  if (excluidosPorTipo.length > 0) {
+    const totalExcluido = excluidosPorTipo.reduce(function(s, e) { return s + e.qtde; }, 0);
+    onProgress("⚠ " + totalExcluido.toLocaleString('pt-BR') + " itens do WMS ficaram de fora do balanço (Tipo do Local fora de PICKING/PULMÃO): " +
+      excluidosPorTipo.slice(0, 5).map(function(e) { return e.tipo_local + " (" + e.qtde.toLocaleString('pt-BR') + ")"; }).join(", "));
+  }
   onProgress("WMS: " + registrosStaging.length + " combinações agregadas. Enviando para staging...");
 
   // Guarda o detalhe completo (por SKU/local) pra exportação — a tabela
@@ -2140,8 +2170,8 @@ async function processarBalanco(files, options) {
   falharSeErro(resultadoDeleteWmsDet, "Erro ao limpar balanco_wms_detalhado");
   for (let iDet = 0; iDet < registrosStaging.length; iDet += 1000) {
     const loteDet = registrosStaging.slice(iDet, iDet + 1000);
-    const { error: errDet } = await supabaseClient.from("balanco_wms_detalhado").insert(loteDet);
-    if (errDet) console.error("Erro balanco_wms_detalhado:", errDet);
+    const resultadoDet = await supabaseClient.from("balanco_wms_detalhado").insert(loteDet);
+    falharSeErro(resultadoDet, "Erro ao gravar balanco_wms_detalhado (lote " + iDet + ")");
   }
 
   const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms_agg");
@@ -2312,13 +2342,13 @@ async function processarBalanco(files, options) {
   }
 
   // ==================== Snapshot ====================
-  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor, ajusteReversa);
+  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor, ajusteReversa, excluidosPorTipo);
   await salvarSnapshot("balanco", "auto", payload);
   await registrarLog("balanco", "Estoque_WMS.tsv + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
   onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " | SAP: " + totalSAPQtde.toLocaleString('pt-BR'));
 }
 
-function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa) {
+function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa, excluidosPorTipo) {
   function montarLinha(rotulo, bin, wmsClass, wmsD, sapD) {
     var dQ = wmsD.qtde - sapD.qtde;
     var dV = wmsD.valor - sapD.valor;
@@ -2401,6 +2431,13 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
     // Quanto do lado WMS da linha "Integração de NFs Reversa" veio do pendente
     // da Reversa (e de quando é esse número), para a tela poder informar.
     ajuste_reversa: ajusteReversa || null,
+    // Itens do arquivo WMS que nunca chegaram a ser classificados — Tipo do
+    // Local fora de PICKING/PULMÃO, descartados antes de qualquer regra de
+    // endereço (ver comentário em processarBalanco). Diferente de "Outros"
+    // (endereço reconhecido mas fora do gabarito, capturado em Abastecimento
+    // → Endereços Não Conformes), isso aqui nem chega a virar um endereço —
+    // é descarte por tipo de local, então mostra na própria tela do balanço.
+    exclusao_tipo_local: excluidosPorTipo && excluidosPorTipo.length ? excluidosPorTipo : null,
     total_wms: { qtde: totWMSQ, valor: Math.round(totWMSV * 100) / 100 },
     total_sap: { qtde: totSAPQ, valor: Math.round(totSAPV * 100) / 100 },
     estoque_wms: wmsReg, estoque_sap: sapReg,
