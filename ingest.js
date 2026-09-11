@@ -2271,6 +2271,25 @@ async function processarBalanco(files, options) {
 
   var totalWMSQtde  = Object.values(wmsPorClass).reduce(function(s,v){ return s + v.qtde; }, 0);
   var totalWMSValor = Object.values(wmsPorClass).reduce(function(s,v){ return s + v.valor; }, 0);
+
+  // Diagnóstico: compara o total agregado no navegador ANTES do cálculo
+  // (totalConsideradoWMS, o que realmente foi enviado pra stg_estoque_wms_agg)
+  // com o total que voltou de calcular_balanco_wms_final() — descontando o
+  // ajuste da Reversa, que é somado depois e não veio do arquivo WMS. Se o
+  // filtro de Tipo do Local (isPicking/isPulmao) já não explica uma
+  // divergência, isso localiza se a perda está do lado do cálculo em
+  // Postgres (que só existe como function no banco — sem acesso a ela por
+  // aqui, é só o "mirror" documentado em classificarEnderecoWMS/GABARITO_PREFIX).
+  var totalWMSAntesAjuste = totalWMSQtde - (ajusteReversa ? ajusteReversa.qtde : 0);
+  var diffCalculoRpc = totalConsideradoWMS - totalWMSAntesAjuste;
+  var perdaCalculoRpc = null;
+  if (diffCalculoRpc !== 0) {
+    perdaCalculoRpc = { agregado_navegador: totalConsideradoWMS, resultado_calculo: totalWMSAntesAjuste, diff: diffCalculoRpc };
+    onProgress("⚠ " + Math.abs(diffCalculoRpc).toLocaleString('pt-BR') + " itens de diferença entre o agregado no navegador (" +
+      totalConsideradoWMS.toLocaleString('pt-BR') + ") e o resultado do cálculo no banco (" +
+      totalWMSAntesAjuste.toLocaleString('pt-BR') + ") — perda dentro de calcular_balanco_wms_final().");
+  }
+
   var wmsRegistros = Object.keys(wmsPorClass).map(function(c) {
     return {
       classificacao: c,
@@ -2342,13 +2361,13 @@ async function processarBalanco(files, options) {
   }
 
   // ==================== Snapshot ====================
-  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor, ajusteReversa, excluidosPorTipo);
+  var payload = gerarPayloadBalanco(wmsRegistros, wmsPorClass, sapRegistros, sapPorBin, totalWMSQtde, totalWMSValor, totalSAPQtde, totalSAPValor, ajusteReversa, excluidosPorTipo, perdaCalculoRpc);
   await salvarSnapshot("balanco", "auto", payload);
   await registrarLog("balanco", "Estoque_WMS.tsv + Estoque_SAP", wmsRegistros.length + sapRegistros.length);
   onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " | SAP: " + totalSAPQtde.toLocaleString('pt-BR'));
 }
 
-function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa, excluidosPorTipo) {
+function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa, excluidosPorTipo, perdaCalculoRpc) {
   function montarLinha(rotulo, bin, wmsClass, wmsD, sapD) {
     var dQ = wmsD.qtde - sapD.qtde;
     var dV = wmsD.valor - sapD.valor;
@@ -2438,6 +2457,12 @@ function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, to
     // → Endereços Não Conformes), isso aqui nem chega a virar um endereço —
     // é descarte por tipo de local, então mostra na própria tela do balanço.
     exclusao_tipo_local: excluidosPorTipo && excluidosPorTipo.length ? excluidosPorTipo : null,
+    // Diferença entre o total agregado no navegador (o que foi enviado pra
+    // stg_estoque_wms_agg) e o total que voltou da function Postgres
+    // calcular_balanco_wms_final() — descontado o ajuste da Reversa. Se não
+    // for null, a perda acontece dentro do cálculo no banco, não no filtro
+    // de Tipo do Local (esse já é medido separadamente acima).
+    perda_calculo_rpc: perdaCalculoRpc,
     total_wms: { qtde: totWMSQ, valor: Math.round(totWMSV * 100) / 100 },
     total_sap: { qtde: totSAPQ, valor: Math.round(totSAPV * 100) / 100 },
     estoque_wms: wmsReg, estoque_sap: sapReg,
