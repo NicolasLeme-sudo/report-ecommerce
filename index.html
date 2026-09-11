@@ -3032,23 +3032,12 @@ function renderizarBalanco(p) {
   }
 
   // Itens do arquivo WMS descartados ANTES de qualquer classificação, por
-  // "Tipo do Local" não ser PICKING nem PULMÃO — mesmo que o endereço (Local)
-  // seja um prefixo conhecido do gabarito (ex: T07 = Avaria/Incineração), se
-  // o tipo do local no arquivo não bater literalmente, o item nunca entra no
-  // balanço. Diferente de "Outros" (ver Abastecimento → Endereços Não
-  // Conformes), isso não vira endereço nenhum — some do total geral sem
-  // deixar rastro em nenhuma tabela, por isso o aviso fica aqui.
-  var notaExclusao = '';
-  if (p.exclusao_tipo_local && p.exclusao_tipo_local.length) {
-    var totalExcl = p.exclusao_tipo_local.reduce(function(s, e){ return s + e.qtde; }, 0);
-    notaExclusao =
-      '<div style="font-size:11px;color:var(--red);margin:-8px 0 12px 2px;line-height:1.5">' +
-      '⚠ <strong>' + fmtInt(totalExcl) + '</strong> itens do arquivo WMS ficaram de fora do balanço — ' +
-      '"Tipo do Local" não é PICKING nem PULMÃO: ' +
-      p.exclusao_tipo_local.map(function(e){ return '<strong>' + (e.tipo_local || '(vazio)') + '</strong> (' + fmtInt(e.qtde) + ')'; }).join(', ') +
-      '. Esses itens não aparecem em nenhuma classificação do balanço, nem em "Outros".' +
-      '</div>';
-  }
+  // "Tipo do Local" não ser PICKING nem PULMÃO — o dado (p.exclusao_tipo_local)
+  // continua sendo calculado e gravado no payload (ver ingest.js), só não
+  // vira mais um aviso fixo na tela — a pedido do usuário, ficava poluindo
+  // a tela do Balanço. Ainda aparece no progresso durante o processamento
+  // (onProgress), e dá pra checar em window._balancoPayload.exclusao_tipo_local
+  // se precisar investigar de novo.
 
   // Perda dentro do cálculo em Postgres (calcular_balanco_wms_final): o
   // agregado no navegador (o que foi de fato enviado pro banco) não bate
@@ -3079,7 +3068,6 @@ function renderizarBalanco(p) {
       </table>
     </div>
     ${notaReversa}
-    ${notaExclusao}
     ${notaRpc}
 
     <div class="grid2">
