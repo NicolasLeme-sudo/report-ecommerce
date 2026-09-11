@@ -1810,10 +1810,10 @@ function renderizarOutbound(atual, anterior) {
     <div class="grid2">
       <div class="stack">
         <div class="card"><div class="section-title">Status por etapa (Itens)</div><table class="matrix" id="matrixItens"></table>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: acima de 3.000 — maior volume parado na etapa</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: maior volume em operação na tabela</div>
         </div>
         <div class="card"><div class="section-title">Status por etapa (Pedidos)</div><table class="matrix" id="matrixPedidos"></table>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: acima de 3.000 — maior volume parado na etapa</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#DDEBF7;vertical-align:middle;margin-right:5px"></span>Destaque em azul: maior volume em operação na tabela</div>
         </div>
       </div>
       <div class="stack">
@@ -2107,11 +2107,15 @@ function renderMatriz(tabela, elId) {
   h += '<th>Total</th></tr></thead><tbody>';
   const totMarca = marcas.map((_,i) => tabela.reduce((a,e) => a+e.valores[i], 0));
   const totGeral = tabela.reduce((a,e) => a+e.total, 0);
+  // Destaque acompanha o maior volume da tabela (não um limiar fixo) —
+  // marca a(s) célula(s) status x marca com o maior valor entre si, seja
+  // qual for o número. Empate no topo destaca todas as células empatadas.
+  const maiorValor = Math.max(0, ...tabela.flatMap(e => e.valores.map(v => v || 0)));
   tabela.forEach(e => {
     h += `<tr><th>${e.status}</th>`;
     e.valores.forEach(v => {
       v = v || 0;
-      const cls = v===0 ? 'cell-0' : v>3000 ? 'cell-hi' : '';
+      const cls = v===0 ? 'cell-0' : (maiorValor>0 && v===maiorValor) ? 'cell-hi' : '';
       h += `<td class="${cls}">${fmtInt(v)}</td>`;
     });
     h += `<td style="font-weight:700">${fmtInt(e.total)}</td></tr>`;
