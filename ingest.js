@@ -2107,9 +2107,26 @@ async function processarBalanco(files, options) {
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
   onProgress("WMS: " + linhasWMS.length + " linhas lidas. Agregando...");
 
-  // Filtra só PICKING/PULMÃO com saldo, e agrega por barra+código+tipo_local no
-  // próprio navegador — assim o banco recebe só ~50-60 mil linhas já prontas,
-  // em vez de 400 mil+ linhas cruas (isso é o que evita o timeout da RPC).
+  // Filtra só PICKING/PULMÃO com saldo, e agrega por prefixo do
+  // Local+barra+código+tipo_local no próprio navegador — assim o banco
+  // recebe bem menos linhas que os 400 mil+ linhas cruas do arquivo (isso é
+  // o que ajuda a evitar timeout na RPC).
+  //
+  // CORREÇÃO (11/09): a chave de agregação era só barra+código+tipo_local,
+  // SEM o Local — ou seja, o mesmo SKU parado em endereços de PREFIXOS
+  // DIFERENTES (ex: uma unidade numa PULMÃO comum e outra numa T07/Avaria)
+  // caía na MESMA linha agregada, que só guarda UM Local (o primeiro
+  // visto). A classificação inteira daquela linha (que decide se vira
+  // Avaria, Vendável, etc.) seguia o Local guardado — o resto silenciosamente
+  // "virava" a mesma classificação, mesmo vindo de um endereço diferente.
+  // Testado contra um arquivo real do usuário: 36.786 das 65.326 linhas
+  // agregadas (mais da metade) misturavam mais de um prefixo de Local, e
+  // isso bastava pra fazer o total de "Avaria (Incineração)" divergir do
+  // que a soma pura dos endereços T07/T02/T08 do arquivo dava. Como a
+  // classificação só depende dos 3 primeiros caracteres do Local (nunca do
+  // endereço completo), usar só esse prefixo na chave já resolve — sem
+  // voltar a gerar uma linha por endereço completo (que quase triplicaria
+  // o volume enviado pro banco à toa).
   //
   // Qualquer linha cujo "Tipo do Local" não contenha PICKING nem PULM é
   // descartada aqui, ANTES de qualquer classificação por prefixo de
@@ -2138,7 +2155,8 @@ async function processarBalanco(files, options) {
     const local = String(r["Local"] || "");
     const barra = String(r["Barra"] || "").trim();
     const codProd = String(r["Código do Produto"] || "").trim();
-    const chave = barra + "|" + codProd + "|" + tipoLoc;
+    const prefixoLocal = local.substring(0, 3).toUpperCase();
+    const chave = prefixoLocal + "|" + barra + "|" + codProd + "|" + tipoLoc;
 
     if (!agregadoWMS.has(chave)) {
       agregadoWMS.set(chave, { barra: barra, codigo_produto: codProd, local: local, tipo_local: tipoLoc, estoque_total: 0 });
