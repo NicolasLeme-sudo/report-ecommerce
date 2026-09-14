@@ -2546,6 +2546,7 @@ var embalasBarraMap = new Map();
   // transferência individual, o que também ajuda numa conexão fraca.
   var LOTE_EMBALAS_2 = 2000;
   var PAUSA_ENTRE_REQUISICOES_MS = 300;
+  var PAUSA_APOS_FALHA_MS = 2500;
   // Fallback de segurança: se a contagem exata falhar (não deveria — é só
   // um HEAD leve — mas por garantia), assume um teto generoso em vez de
   // não buscar nada. Páginas além do fim real simplesmente voltam vazias,
@@ -2593,7 +2594,12 @@ var embalasBarraMap = new Map();
       feitas++;
       onProgress(rotulo + ": " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (" + feitas + "/" + listaOffsets.length + " páginas" + (pendentesDaPassada.length ? ", " + pendentesDaPassada.length + " pendente(s)" : "") + ")...");
       if (idx < listaOffsets.length - 1) {
-        await new Promise(function(resolve){ setTimeout(resolve, PAUSA_ENTRE_REQUISICOES_MS); });
+        // Depois de uma falha, espera mais que o normal antes de seguir —
+        // "pular pra próxima" não pode virar "martelar a conexão sem
+        // pausa", que foi o mesmo problema do paralelo (falhas em rajada
+        // se alimentando umas das outras). Só o caminho feliz (sucesso)
+        // usa a pausa curta.
+        await new Promise(function(resolve){ setTimeout(resolve, data === null ? PAUSA_APOS_FALHA_MS : PAUSA_ENTRE_REQUISICOES_MS); });
       }
     }
     return pendentesDaPassada;
