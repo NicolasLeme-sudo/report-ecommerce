@@ -2555,16 +2555,23 @@ var embalasBarraMap = new Map();
   var offsets = [];
   for (var offIni = 0; offIni < totalConhecido; offIni += LOTE_EMBALAS_2) offsets.push(offIni);
 
+  // A pedido do usuário: prefere esperar mais a ter carregamento
+  // incompleto. Insiste bastante (30x) por página antes de desistir dela —
+  // espera crescente, mas com teto (nunca passa de 12s entre tentativas),
+  // pra não esperar uma eternidade numa única tentativa também.
+  var MAX_TENTATIVAS_PAGINA = 30;
   async function buscarPaginaEmbalasComRetry(off) {
-    for (var tentativaPagina = 1; tentativaPagina <= 5; tentativaPagina++) {
+    for (var tentativaPagina = 1; tentativaPagina <= MAX_TENTATIVAS_PAGINA; tentativaPagina++) {
       var resultadoPagina = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
       if (!resultadoPagina.error) return resultadoPagina.data || [];
-      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + " desta página):", resultadoPagina.error);
-      if (tentativaPagina < 5) {
-        await new Promise(function(resolve){ setTimeout(resolve, 1500 * tentativaPagina); });
+      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + "/" + MAX_TENTATIVAS_PAGINA + " desta página):", resultadoPagina.error);
+      if (tentativaPagina < MAX_TENTATIVAS_PAGINA) {
+        var espera = Math.min(1500 * tentativaPagina, 12000);
+        onProgress("⚠ Falha ao carregar página da embalagem (offset " + off + "), tentativa " + tentativaPagina + "/" + MAX_TENTATIVAS_PAGINA + " — tentando de novo em " + (espera/1000).toFixed(1) + "s...");
+        await new Promise(function(resolve){ setTimeout(resolve, espera); });
       }
     }
-    return null; // falhou de vez após 5 tentativas
+    return null; // falhou de vez após esgotar todas as tentativas
   }
 
   var falhouDeVez = false;
@@ -2586,7 +2593,7 @@ var embalasBarraMap = new Map();
     }
   }
   if (falhouDeVez) {
-    onProgress("✗ Uma ou mais páginas da embalagem falharam após 5 tentativas cada — seguindo com o que carregou.");
+    onProgress("✗ Uma ou mais páginas da embalagem falharam mesmo após " + MAX_TENTATIVAS_PAGINA + " tentativas cada — seguindo com o que carregou.");
   }
   if (totalEsperadoEmbalas && embalasSkuMap.size < totalEsperadoEmbalas * 0.99) {
     onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados" + (falhouDeVez ? " (uma página falhou mesmo após retentativas)" : "") + ". Os valores de marca podem estar incompletos.");
