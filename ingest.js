@@ -2525,52 +2525,56 @@ var embalasBarraMap = new Map();
     .from("dim_embalas")
     .select("*", { count: "exact", head: true });
 
-  var tentativaEmbalas = 0;
-  while (tentativaEmbalas < 3) {
-    tentativaEmbalas++;
-    embalasBarraMap.clear();
-    embalasSkuMap.clear();
-    var off = 0;
-    var falhou = false;
-    // Lote "pedido" maior (5000) reduz o número de requisições — mas o
-    // Supabase/PostgREST costuma limitar cada requisição a um teto próprio
-    // (comumente 1000 linhas) independente do range pedido. Por isso o fim
-    // da paginação é decidido só por página vazia, nunca por "devolveu menos
-    // que o pedido" — senão, se o teto do servidor for menor que o lote
-    // pedido, a paginação para na primeira página achando que acabou (foi
-    // exatamente essa a causa do carregamento incompleto original). O
-    // avanço do offset usa o tamanho REAL devolvido, não o tamanho pedido.
-    var LOTE_EMBALAS_2 = 5000;
-    while (true) {
-      const { data, error } = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
-      if (error) {
-        console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaEmbalas + "):", error);
-        onProgress("✗ Erro ao carregar embalagem (offset " + off + "), tentativa " + tentativaEmbalas + ": " + error.message);
-        falhou = true;
-        break;
+  // CORREÇÃO (14/09): antes, uma única página (de ~54, 5.000 linhas cada)
+  // falhando por soluço de rede jogava fora TODO o progresso da tentativa
+  // (embalasBarraMap.clear()) e reiniciava a paginação do zero — com 54
+  // requisições sequenciais, a chance de pelo menos uma falhar em algum
+  // momento já é considerável, e cada falha custava a tentativa inteira,
+  // sobrando só 3 no total. Isso explicava "nunca carrega 100%" melhor do
+  // que qualquer timeout. Agora cada PÁGINA tem sua própria retentativa
+  // (até 3x, com espera crescente) sem descartar o que já foi carregado —
+  // só reinicia tudo do zero se uma página específica falhar mesmo depois
+  // de insistir nela.
+  var off = 0;
+  var falhouDeVez = false;
+  // Lote "pedido" maior (5000) reduz o número de requisições — mas o
+  // Supabase/PostgREST costuma limitar cada requisição a um teto próprio
+  // (comumente 1000 linhas) independente do range pedido. Por isso o fim
+  // da paginação é decidido só por página vazia, nunca por "devolveu menos
+  // que o pedido" — senão, se o teto do servidor for menor que o lote
+  // pedido, a paginação para na primeira página achando que acabou (foi
+  // exatamente essa a causa do carregamento incompleto original). O
+  // avanço do offset usa o tamanho REAL devolvido, não o tamanho pedido.
+  var LOTE_EMBALAS_2 = 5000;
+  while (true) {
+    var data = null, error = null;
+    for (var tentativaPagina = 1; tentativaPagina <= 3; tentativaPagina++) {
+      var resultadoPagina = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
+      data = resultadoPagina.data; error = resultadoPagina.error;
+      if (!error) break;
+      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + " desta página):", error);
+      if (tentativaPagina < 3) {
+        onProgress("⚠ Falha ao carregar página da embalagem (offset " + off + "), tentando de novo (" + tentativaPagina + "/3)...");
+        await new Promise(function(resolve){ setTimeout(resolve, 1500 * tentativaPagina); });
       }
-      if (!data || data.length === 0) break;
-      data.forEach(function(e) {
-        if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
-        if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
-      });
-      onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (tentativa " + tentativaEmbalas + ")...");
-      off += data.length;
     }
-
-    // Considera completo se carregou pelo menos 99% do total esperado
-    if (!falhou && totalEsperadoEmbalas && embalasSkuMap.size >= totalEsperadoEmbalas * 0.99) {
+    if (error) {
+      console.error("dim_embalas: página em off=" + off + " falhou 3x seguidas, desistindo:", error);
+      onProgress("✗ Erro ao carregar embalagem (offset " + off + ") após 3 tentativas: " + error.message);
+      falhouDeVez = true;
       break;
     }
-    if (tentativaEmbalas < 3) {
-      onProgress("⚠ Carregamento incompleto (" + embalasSkuMap.size + "/" + totalEsperadoEmbalas + "). Tentando novamente em 2s...");
-      await new Promise(function(resolve){ setTimeout(resolve, 2000); });
-    }
+    if (!data || data.length === 0) break;
+    data.forEach(function(e) {
+      if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
+      if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
+    });
+    onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados...");
+    off += data.length;
   }
-
   if (totalEsperadoEmbalas && embalasSkuMap.size < totalEsperadoEmbalas * 0.99) {
-    onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados após 3 tentativas. Os valores de marca podem estar incompletos.");
-    console.error("Carregamento de dim_embalas permaneceu incompleto após 3 tentativas:", embalasSkuMap.size, "/", totalEsperadoEmbalas);
+    onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados" + (falhouDeVez ? " (uma página falhou mesmo após retentativas)" : "") + ". Os valores de marca podem estar incompletos.");
+    console.error("Carregamento de dim_embalas permaneceu incompleto:", embalasSkuMap.size, "/", totalEsperadoEmbalas);
   } else {
     onProgress("✓ Embalagem carregada completa: " + embalasSkuMap.size + " SKUs.");
   }
