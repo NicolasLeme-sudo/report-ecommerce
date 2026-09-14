@@ -2534,14 +2534,19 @@ var embalasBarraMap = new Map();
   // depois de um certo tempo/volume e NÃO se recupera dali pra frente numa
   // cadeia sequencial longa (então toda página seguinte também falhava).
   //
-  // SOLUÇÃO (14/09): buscar em PARALELO em vez de uma fila sequencial
-  // única — várias requisições simultâneas (limitadas por lote, pra não
-  // abrir conexão demais de uma vez) cortam o tempo total de execução
-  // várias vezes, o que ataca a causa (exposição prolongada) em vez de só
-  // insistir mais na mesma cadeia longa que já se mostrou frágil. Cada
-  // página individual mantém sua própria retentativa.
+  // TENTATIVA DESCARTADA (14/09): paralelizar (6 requisições simultâneas)
+  // pra cortar o tempo total de execução. Resultado real: PIOROU — caiu de
+  // ~62% pra ~39% carregado. Isso inverte o diagnóstico: não é duração
+  // prolongada que quebra essa conexão, é CARGA SIMULTÂNEA — a conexão
+  // dessa máquina sofre mais com várias requisições ao mesmo tempo do que
+  // com uma fila longa. Voltando pra sequencial (concorrência 1) e
+  // adicionando uma pequena pausa fixa entre cada requisição (mesmo as que
+  // deram certo), pra não saturar uma conexão que já se mostrou sensível a
+  // rajada. Lote menor (2000) mantido — reduz o tamanho de cada
+  // transferência individual, o que também ajuda numa conexão fraca.
   var LOTE_EMBALAS_2 = 2000;
-  var CONCORRENCIA_EMBALAS = 6; // requisições simultâneas por rodada
+  var CONCORRENCIA_EMBALAS = 1; // sequencial — paralelo piorou nessa rede
+  var PAUSA_ENTRE_REQUISICOES_MS = 300;
   // Fallback de segurança: se a contagem exata falhar (não deveria — é só
   // um HEAD leve — mas por garantia), assume um teto generoso em vez de
   // não buscar nada. Páginas além do fim real simplesmente voltam vazias,
@@ -2576,6 +2581,9 @@ var embalasBarraMap = new Map();
     });
     paginasFeitas += loteDeOffsets.length;
     onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (" + paginasFeitas + "/" + offsets.length + " páginas)...");
+    if (i + CONCORRENCIA_EMBALAS < offsets.length) {
+      await new Promise(function(resolve){ setTimeout(resolve, PAUSA_ENTRE_REQUISICOES_MS); });
+    }
   }
   if (falhouDeVez) {
     onProgress("✗ Uma ou mais páginas da embalagem falharam após 5 tentativas cada — seguindo com o que carregou.");
