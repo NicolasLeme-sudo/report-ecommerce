@@ -2530,41 +2530,46 @@ var embalasBarraMap = new Map();
   // (embalasBarraMap.clear()) e reiniciava a paginação do zero — com 54
   // requisições sequenciais, a chance de pelo menos uma falhar em algum
   // momento já é considerável, e cada falha custava a tentativa inteira,
-  // sobrando só 3 no total. Isso explicava "nunca carrega 100%" melhor do
-  // que qualquer timeout. Agora cada PÁGINA tem sua própria retentativa
-  // (até 3x, com espera crescente) sem descartar o que já foi carregado —
-  // só reinicia tudo do zero se uma página específica falhar mesmo depois
-  // de insistir nela.
+  // sobrando só 3 no total. Cada PÁGINA agora tem sua própria retentativa
+  // sem descartar o que já foi carregado nas páginas anteriores.
+  //
+  // REFORÇO (14/09, mesma investigação): em conexão persistentemente
+  // instável, mesmo 3 tentativas por página não bastavam pra fechar 100%
+  // — e pior, quando uma página falhava de vez, o `break` original parava
+  // a paginação inteira ali, perdendo TODAS as páginas seguintes também
+  // (mesmo que fossem carregar bem). Agora: (1) lote menor (2000 em vez de
+  // 5000 — requisição mais leve, menos chance de cair no meio numa conexão
+  // ruim), (2) 5 tentativas por página em vez de 3, com espera maior entre
+  // elas, e (3) se uma página falhar mesmo assim, PULA só ela (avança o
+  // offset) e continua tentando as próximas — uma página perdida não
+  // derruba o resto. Por isso o fim do loop passa a ser guiado pelo total
+  // esperado (contado no início), não só por "página veio vazia", já que
+  // pular uma página no meio nunca produz uma página vazia pra sinalizar o
+  // fim sozinho.
   var off = 0;
   var falhouDeVez = false;
-  // Lote "pedido" maior (5000) reduz o número de requisições — mas o
-  // Supabase/PostgREST costuma limitar cada requisição a um teto próprio
-  // (comumente 1000 linhas) independente do range pedido. Por isso o fim
-  // da paginação é decidido só por página vazia, nunca por "devolveu menos
-  // que o pedido" — senão, se o teto do servidor for menor que o lote
-  // pedido, a paginação para na primeira página achando que acabou (foi
-  // exatamente essa a causa do carregamento incompleto original). O
-  // avanço do offset usa o tamanho REAL devolvido, não o tamanho pedido.
-  var LOTE_EMBALAS_2 = 5000;
-  while (true) {
+  var LOTE_EMBALAS_2 = 2000;
+  var tetoOffset = totalEsperadoEmbalas || Infinity;
+  while (off < tetoOffset) {
     var data = null, error = null;
-    for (var tentativaPagina = 1; tentativaPagina <= 3; tentativaPagina++) {
+    for (var tentativaPagina = 1; tentativaPagina <= 5; tentativaPagina++) {
       var resultadoPagina = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
       data = resultadoPagina.data; error = resultadoPagina.error;
       if (!error) break;
       console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + " desta página):", error);
-      if (tentativaPagina < 3) {
-        onProgress("⚠ Falha ao carregar página da embalagem (offset " + off + "), tentando de novo (" + tentativaPagina + "/3)...");
-        await new Promise(function(resolve){ setTimeout(resolve, 1500 * tentativaPagina); });
+      if (tentativaPagina < 5) {
+        onProgress("⚠ Falha ao carregar página da embalagem (offset " + off + "), tentando de novo (" + tentativaPagina + "/5)...");
+        await new Promise(function(resolve){ setTimeout(resolve, 2000 * tentativaPagina); });
       }
     }
     if (error) {
-      console.error("dim_embalas: página em off=" + off + " falhou 3x seguidas, desistindo:", error);
-      onProgress("✗ Erro ao carregar embalagem (offset " + off + ") após 3 tentativas: " + error.message);
+      console.error("dim_embalas: página em off=" + off + " falhou 5x seguidas, pulando e seguindo pras próximas:", error);
+      onProgress("✗ Página da embalagem (offset " + off + ") falhou após 5 tentativas — pulando essa faixa e continuando.");
       falhouDeVez = true;
-      break;
+      off += LOTE_EMBALAS_2; // pula só essa página, não para tudo
+      continue;
     }
-    if (!data || data.length === 0) break;
+    if (!data || data.length === 0) break; // acabou de verdade (sem total esperado pra guiar, ou chegou nele)
     data.forEach(function(e) {
       if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
       if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
