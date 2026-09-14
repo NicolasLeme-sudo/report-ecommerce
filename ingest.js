@@ -2525,57 +2525,60 @@ var embalasBarraMap = new Map();
     .from("dim_embalas")
     .select("*", { count: "exact", head: true });
 
-  // CORREÇÃO (14/09): antes, uma única página (de ~54, 5.000 linhas cada)
-  // falhando por soluço de rede jogava fora TODO o progresso da tentativa
-  // (embalasBarraMap.clear()) e reiniciava a paginação do zero — com 54
-  // requisições sequenciais, a chance de pelo menos uma falhar em algum
-  // momento já é considerável, e cada falha custava a tentativa inteira,
-  // sobrando só 3 no total. Cada PÁGINA agora tem sua própria retentativa
-  // sem descartar o que já foi carregado nas páginas anteriores.
+  // HISTÓRICO (14/09): primeiro, retry por página em vez de reiniciar tudo
+  // do zero a cada falha. Depois, reforçado pra não parar a paginação
+  // inteira quando uma página falhasse de vez. Nenhum dos dois mudou o
+  // resultado final (ficava sempre perto de 61-63% carregado, mesmo com
+  // mais tentativas e lotes menores) — sinal de que não é uma falha
+  // aleatória por página: é algo que quebra a conexão de forma consistente
+  // depois de um certo tempo/volume e NÃO se recupera dali pra frente numa
+  // cadeia sequencial longa (então toda página seguinte também falhava).
   //
-  // REFORÇO (14/09, mesma investigação): em conexão persistentemente
-  // instável, mesmo 3 tentativas por página não bastavam pra fechar 100%
-  // — e pior, quando uma página falhava de vez, o `break` original parava
-  // a paginação inteira ali, perdendo TODAS as páginas seguintes também
-  // (mesmo que fossem carregar bem). Agora: (1) lote menor (2000 em vez de
-  // 5000 — requisição mais leve, menos chance de cair no meio numa conexão
-  // ruim), (2) 5 tentativas por página em vez de 3, com espera maior entre
-  // elas, e (3) se uma página falhar mesmo assim, PULA só ela (avança o
-  // offset) e continua tentando as próximas — uma página perdida não
-  // derruba o resto. Por isso o fim do loop passa a ser guiado pelo total
-  // esperado (contado no início), não só por "página veio vazia", já que
-  // pular uma página no meio nunca produz uma página vazia pra sinalizar o
-  // fim sozinho.
-  var off = 0;
-  var falhouDeVez = false;
+  // SOLUÇÃO (14/09): buscar em PARALELO em vez de uma fila sequencial
+  // única — várias requisições simultâneas (limitadas por lote, pra não
+  // abrir conexão demais de uma vez) cortam o tempo total de execução
+  // várias vezes, o que ataca a causa (exposição prolongada) em vez de só
+  // insistir mais na mesma cadeia longa que já se mostrou frágil. Cada
+  // página individual mantém sua própria retentativa.
   var LOTE_EMBALAS_2 = 2000;
-  var tetoOffset = totalEsperadoEmbalas || Infinity;
-  while (off < tetoOffset) {
-    var data = null, error = null;
+  var CONCORRENCIA_EMBALAS = 6; // requisições simultâneas por rodada
+  // Fallback de segurança: se a contagem exata falhar (não deveria — é só
+  // um HEAD leve — mas por garantia), assume um teto generoso em vez de
+  // não buscar nada. Páginas além do fim real simplesmente voltam vazias,
+  // sem problema.
+  var totalConhecido = totalEsperadoEmbalas || 500000;
+  var offsets = [];
+  for (var offIni = 0; offIni < totalConhecido; offIni += LOTE_EMBALAS_2) offsets.push(offIni);
+
+  async function buscarPaginaEmbalasComRetry(off) {
     for (var tentativaPagina = 1; tentativaPagina <= 5; tentativaPagina++) {
       var resultadoPagina = await supabaseClient.from("dim_embalas").select("codigo_barra,sku,marca").range(off, off + LOTE_EMBALAS_2 - 1);
-      data = resultadoPagina.data; error = resultadoPagina.error;
-      if (!error) break;
-      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + " desta página):", error);
+      if (!resultadoPagina.error) return resultadoPagina.data || [];
+      console.error("Erro ao paginar dim_embalas em off=" + off + " (tentativa " + tentativaPagina + " desta página):", resultadoPagina.error);
       if (tentativaPagina < 5) {
-        onProgress("⚠ Falha ao carregar página da embalagem (offset " + off + "), tentando de novo (" + tentativaPagina + "/5)...");
-        await new Promise(function(resolve){ setTimeout(resolve, 2000 * tentativaPagina); });
+        await new Promise(function(resolve){ setTimeout(resolve, 1500 * tentativaPagina); });
       }
     }
-    if (error) {
-      console.error("dim_embalas: página em off=" + off + " falhou 5x seguidas, pulando e seguindo pras próximas:", error);
-      onProgress("✗ Página da embalagem (offset " + off + ") falhou após 5 tentativas — pulando essa faixa e continuando.");
-      falhouDeVez = true;
-      off += LOTE_EMBALAS_2; // pula só essa página, não para tudo
-      continue;
-    }
-    if (!data || data.length === 0) break; // acabou de verdade (sem total esperado pra guiar, ou chegou nele)
-    data.forEach(function(e) {
-      if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
-      if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
+    return null; // falhou de vez após 5 tentativas
+  }
+
+  var falhouDeVez = false;
+  var paginasFeitas = 0;
+  for (var i = 0; i < offsets.length; i += CONCORRENCIA_EMBALAS) {
+    var loteDeOffsets = offsets.slice(i, i + CONCORRENCIA_EMBALAS);
+    var resultados = await Promise.all(loteDeOffsets.map(buscarPaginaEmbalasComRetry));
+    resultados.forEach(function(data) {
+      if (data === null) { falhouDeVez = true; return; }
+      data.forEach(function(e) {
+        if (e.codigo_barra) embalasBarraMap.set(String(e.codigo_barra).trim(), e.marca);
+        if (e.sku)          embalasSkuMap.set(String(e.sku).trim(), e.marca);
+      });
     });
-    onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados...");
-    off += data.length;
+    paginasFeitas += loteDeOffsets.length;
+    onProgress("Embalagem: " + embalasSkuMap.size + " de " + (totalEsperadoEmbalas || "?") + " SKUs carregados (" + paginasFeitas + "/" + offsets.length + " páginas)...");
+  }
+  if (falhouDeVez) {
+    onProgress("✗ Uma ou mais páginas da embalagem falharam após 5 tentativas cada — seguindo com o que carregou.");
   }
   if (totalEsperadoEmbalas && embalasSkuMap.size < totalEsperadoEmbalas * 0.99) {
     onProgress("✗ ATENÇÃO: só " + embalasSkuMap.size + " de " + totalEsperadoEmbalas + " SKUs de embalagem foram carregados" + (falhouDeVez ? " (uma página falhou mesmo após retentativas)" : "") + ". Os valores de marca podem estar incompletos.");
