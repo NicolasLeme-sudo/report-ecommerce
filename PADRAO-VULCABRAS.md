@@ -73,20 +73,25 @@ repositórios é bug.
 Todos os logos oficiais são **brancos/monocromáticos com fundo transparente**.
 Funcionam apenas sobre fundo escuro ou colorido sólido.
 
+> **Preferência oficial: a marca minimalista.** Sempre que a peça permitir, usar
+> apenas o "V" isolado (`favicon.png`). A versão horizontal com tagline fica
+> reservada para quando a peça precisa se apresentar a alguém de fora e o nome
+> por extenso é necessário.
+
 | Arquivo | Uso |
 |---|---|
-| `logo_vulcabras.png` | Logo institucional horizontal, com a tagline "vivemos para o esporte". Header principal de dashboards e capa de apresentação. |
-| `favicon.png` | Ícone isolado (o "V"). Favicon da aba, marca discreta, canto de slide interno. |
+| `favicon.png` | **Padrão.** O "V" isolado. Capa e slides internos de apresentação, header de dashboard, favicon da aba, marca d'água discreta. |
+| `logo_vulcabras.png` | Logo institucional horizontal, com a tagline "vivemos para o esporte". Só quando o nome por extenso for necessário — material externo, capa institucional. |
 | `logo_MIZ.png` | Mizuno — usar em card com header/fundo `--brand-miz`. |
 | `logo_OLY.png` | Olympikus — usar em card com header/fundo `--brand-oly`. |
 | `logo_UA.png` | Under Armour — usar em card com header/fundo `--brand-ua`. |
 
 ### Posicionamento padrão
 
-- **Dashboard**: logo Vulcabras no canto superior esquerdo do header; toggle
-  de tema ao lado dela.
-- **Slide de capa**: logo Vulcabras em destaque.
-- **Slide interno**: logo pequena no canto superior direito.
+- **Dashboard**: o "V" no canto superior esquerdo do header; toggle de tema ao
+  lado dele.
+- **Slide de capa**: o "V" em destaque no topo esquerdo, ~1,15" de lado.
+- **Slide interno**: o "V" pequeno no canto superior direito, ~0,46" de lado.
 - **Aba do navegador**: `favicon.png`.
 
 ### Área de respiro
@@ -669,7 +674,7 @@ do HTML, mesma tipografia, mesma lógica de cor.
 - Título em Segoe UI Black, branco, grande.
 - Régua dourada fina abaixo do título.
 - Subtítulo com período e autor em `93A5B8`.
-- Logo Vulcabras em destaque.
+- Marca minimalista (o "V") em destaque no topo esquerdo.
 
 **Abertura de seção**
 - Fundo `031F44`.
@@ -678,7 +683,7 @@ do HTML, mesma tipografia, mesma lógica de cor.
 - Régua dourada.
 
 **Conteúdo / KPI**
-- Fundo `142032`, logo pequena no canto superior direito.
+- Fundo `142032`, marca minimalista (o "V") no canto superior direito.
 - Kicker dourado + título + régua no topo.
 - Corpo: cards neutros, cards de marca ou KPI hero.
 - KPI hero em Segoe UI Light (44–60pt), legenda pequena em `93A5B8`, variação
@@ -702,6 +707,7 @@ do HTML, mesma tipografia, mesma lógica de cor.
   gerado automaticamente.
 - Verde ou vermelho como enfeite, fora do significado de KPI.
 - Logo branca sobre fundo claro sem o filtro institucional.
+- Logo horizontal com tagline onde o "V" isolado resolve.
 - Fonte diferente de Segoe UI.
 - Gradiente, sombra pesada, ícone 3D, clipart.
 - Slide com texto corrido em parágrafo longo.
@@ -749,7 +755,7 @@ Rodar antes de publicar qualquer peça.
 
 - [ ] 16:9, fundo institucional, Segoe UI.
 - [ ] Capa, aberturas de seção e slides de conteúdo no padrão do capítulo 10.
-- [ ] Logo no canto superior direito dos slides internos.
+- [ ] Marca minimalista (o "V") no canto superior direito dos slides internos.
 - [ ] Nenhum item da lista de proibições do 10.4.
 - [ ] Cada slide entrega um insight.
 
