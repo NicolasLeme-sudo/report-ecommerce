@@ -304,12 +304,21 @@ body {
 
 /* KPI cards */
 .kpi-row { display: grid; grid-template-columns: repeat(3,1fr) 2.1fr; gap: 14px; margin-bottom: 16px; }
-/* Mesma proporção de colunas do .kpi-row (3 cards normais + 1 largo pro
-   sparkline, sempre 2.1fr — é isso que garante a mesma largura do card de
-   sparkline entre Outbound e Inbound), só que em 2 linhas de indicadores:
-   o card da 4ª coluna ocupa as duas linhas (grid-row: 1 / span 2, aplicado
-   direto no elemento) pra ficar com a altura de 2 cards. */
-.kpi-row-2x3 { display: grid; grid-template-columns: repeat(3,1fr) 2.1fr; grid-template-rows: repeat(2,1fr); gap: 14px; margin-bottom: 16px; }
+/* Mesma proporção de largura do .kpi-row (3 cards normais : 1 largo pro
+   sparkline = 3 : 2.1, igual ao Outbound), só que com 2 linhas de
+   indicadores à esquerda. Usa flexbox, não CSS Grid com linhas 1fr — um
+   item que ocupa várias linhas ("grid-row: span 2") pode forçar as linhas
+   do grid a crescerem pra caber o CONTEÚDO dele (foi o que inflou a
+   altura dos 6 cards pequenos quando o gráfico entrou). Com flex
+   (align-items: flex-start, sem stretch) os dois lados ficam totalmente
+   independentes — a altura dos 6 cards nunca muda por causa do gráfico.
+   O gráfico recebe sua altura via JS (renderSparklineInbound mede a
+   altura real da pilha de cards e aplica no card do gráfico), garantindo
+   "exatamente a altura de 2 cards", sem depender de nenhum comportamento
+   implícito de layout. */
+.kpi-row-2x3 { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
+.kpi-row-2x3-cards { flex: 3 1 0; min-width: 0; }
+.kpi-row-2x3 > .kpi-card.spark { flex: 2.1 1 0; min-width: 0; }
 .kpi-card {
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 10px; padding: 14px 15px 12px;
@@ -2388,13 +2397,19 @@ function renderizarInbound(p, estoquePayload) {
       <button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button>
     </div>
     <div class="kpi-row-2x3">
-      <div class="kpi-card" style="grid-column:1;grid-row:1"><div class="bar bar-info"></div><div class="tag">NFs Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.nfs_pend_recebimento)}</div></div>
-      <div class="kpi-card" style="grid-column:2;grid-row:1"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.itens_pend_recebimento)}</div></div>
-      <div class="kpi-card" style="grid-column:3;grid-row:1"><div class="bar bar-ok"></div><div class="tag">Acumulado Recebimento Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_recebimento_mes)}</div></div>
-      <div class="kpi-card" style="grid-column:1;grid-row:2"><div class="bar bar-info"></div><div class="tag">NFs Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.nfs_pend_armazenagem)}</div></div>
-      <div class="kpi-card" style="grid-column:2;grid-row:2"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.itens_pend_armazenagem)}</div></div>
-      <div class="kpi-card" style="grid-column:3;grid-row:2"><div class="bar bar-ok"></div><div class="tag">Acumulado Armazenagem Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_armazenagem_mes)}</div></div>
-      <div class="kpi-card spark" id="cardIntegracaoInbound" style="grid-column:4;grid-row:1 / span 2"></div>
+      <div class="kpi-row-2x3-cards">
+        <div class="grid3" style="margin-bottom:14px;">
+          <div class="kpi-card"><div class="bar bar-info"></div><div class="tag">NFs Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.nfs_pend_recebimento)}</div></div>
+          <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Recebimento</div><div class="value">${fmtInt(p.kpis.itens_pend_recebimento)}</div></div>
+          <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Recebimento Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_recebimento_mes)}</div></div>
+        </div>
+        <div class="grid3" style="margin-bottom:0;">
+          <div class="kpi-card"><div class="bar bar-info"></div><div class="tag">NFs Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.nfs_pend_armazenagem)}</div></div>
+          <div class="kpi-card"><div class="bar bar-warn"></div><div class="tag">Itens Pendentes Armazenagem</div><div class="value">${fmtInt(p.kpis.itens_pend_armazenagem)}</div></div>
+          <div class="kpi-card"><div class="bar bar-ok"></div><div class="tag">Acumulado Armazenagem Mensal</div><div class="value">${fmtInt(p.kpis.acumulado_armazenagem_mes)}</div></div>
+        </div>
+      </div>
+      <div class="kpi-card spark" id="cardIntegracaoInbound"></div>
     </div>
 
     <div class="grid2">
@@ -2577,13 +2592,18 @@ function renderGraficoLinhaInbound(svgId, dados) {
    Réplica do sparkline "Integração de Itens no WMS" do Outbound
    (renderSparkline, mesma estrutura/formatação: escala fixa piso 0 +
    teto calculado no back — ver escala_maxima em gerarPayloadInbound),
-   só que em verde (mesmo verde de "Expedição × Forecast", var(--olive))
-   e esticando pra ocupar a altura de 2 cards via CSS Grid (o elemento
-   #cardIntegracaoInbound já nasce posicionado em grid-row:1 / span 2 no
-   template — aqui só preenche o conteúdo dele). */
+   só que em verde (mesmo verde de "Expedição × Forecast", var(--olive)).
+   Altura: NÃO usa CSS Grid/flex-stretch pra isso (um item que ocupa
+   várias linhas/cresce pra caber o SVG acabava inflando a altura dos 6
+   cards pequenos ao lado — reportado pelo usuário). Em vez disso, mede a
+   altura real já renderizada da pilha de 6 cards (.kpi-row-2x3-cards) e
+   aplica esse valor exato no card do gráfico — garante "altura de 2
+   cards" sem nunca alterar a altura dos cards pequenos. */
 function renderSparklineInbound(dados) {
   const card = document.getElementById('cardIntegracaoInbound');
   if (!card) return;
+  const pilhaCards = document.querySelector('.kpi-row-2x3-cards');
+  if (pilhaCards) card.style.height = pilhaCards.offsetHeight + 'px';
   if (!dados || !dados.itens_integrados || dados.itens_integrados.every(v => v === 0)) {
     card.innerHTML = `<div class="tag">Integração de Itens no Inbound</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
     return;
@@ -2591,7 +2611,11 @@ function renderSparklineInbound(dados) {
   card.innerHTML = `<div class="tag">Integração de Itens no Inbound (últimos 7 dias)</div><svg width="100%" style="flex:1;min-height:0" viewBox="0 0 380 190" preserveAspectRatio="none" id="sparkSvgInbound"></svg>`;
 
   const svg = card.querySelector('#sparkSvgInbound');
-  const w=380,h=190,pL=8,pR=8,pT=22,pB=22;
+  // pL/pR maiores que o do Outbound (8) — o rótulo do primeiro/último
+  // ponto (chip com o número, largura proporcional ao nº de dígitos)
+  // estourava a borda do SVG e ficava cortado com números de 4+ dígitos
+  // (reportado pelo usuário). 26 dá margem confortável até uns 6 dígitos.
+  const w=380,h=190,pL=26,pR=26,pT=22,pB=22;
   const vals = dados.itens_integrados;
   const dias = dados.dias;
   // Mesma escala fixa (piso 0, teto do back) do sparkline do Outbound —
