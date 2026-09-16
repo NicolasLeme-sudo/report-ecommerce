@@ -2608,14 +2608,27 @@ function renderSparklineInbound(dados) {
     card.innerHTML = `<div class="tag">Integração de Itens no Inbound</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
     return;
   }
-  card.innerHTML = `<div class="tag">Integração de Itens no Inbound (últimos 7 dias)</div><svg width="100%" style="flex:1;min-height:0" viewBox="0 0 380 190" preserveAspectRatio="none" id="sparkSvgInbound"></svg>`;
+  // Sem preserveAspectRatio="none" — isso esticava o desenho (texto, chip,
+  // pontos) de forma não-uniforme pra preencher a caixa, distorcendo tudo.
+  // Em vez de chutar uma proporção fixa de viewBox (que sobraria margem
+  // vazia nas laterais se não bater com o formato real, bem largo, deste
+  // card), mede o tamanho real já renderizado do SVG (svg.clientWidth/
+  // Height, depois de inserido no DOM) e usa isso como viewBox — a caixa
+  // de coordenadas passa a ter exatamente a mesma proporção da caixa
+  // visual, preenchendo 100% sem sobra e sem distorcer nada. Continua
+  // 100% vetorial/responsivo a zoom (o viewBox não precisa "acompanhar"
+  // o zoom — é só o sistema de coordenadas interno).
+  card.innerHTML = `<div class="tag">Integração de Itens no Inbound (últimos 7 dias)</div><svg width="100%" style="flex:1;min-height:0" id="sparkSvgInbound"></svg>`;
 
   const svg = card.querySelector('#sparkSvgInbound');
+  const w = Math.round(svg.clientWidth) || 380;
+  const h = Math.round(svg.clientHeight) || 100;
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
   // pL/pR maiores que o do Outbound (8) — o rótulo do primeiro/último
   // ponto (chip com o número, largura proporcional ao nº de dígitos)
   // estourava a borda do SVG e ficava cortado com números de 4+ dígitos
   // (reportado pelo usuário). 26 dá margem confortável até uns 6 dígitos.
-  const w=380,h=190,pL=26,pR=26,pT=22,pB=22;
+  const pL=26,pR=26,pT=Math.round(h*0.14),pB=Math.round(h*0.14);
   const vals = dados.itens_integrados;
   const dias = dados.dias;
   // Mesma escala fixa (piso 0, teto do back) do sparkline do Outbound —
@@ -2639,6 +2652,29 @@ function renderSparklineInbound(dados) {
     dt.textContent=dias[i]; svg.appendChild(dt);
   });
 }
+
+// Altura e viewBox do card acima são calculados UMA VEZ, no momento em
+// que os dados chegam — não se readaptam sozinhos se o zoom do navegador
+// mudar depois (diferente dos 6 cards normais, que são só CSS e sempre
+// recalculam). Reportado pelo usuário: mudar o zoom deixava o card do
+// gráfico "menor e maior" fora de sincronia com o resto. Reagenda o
+// mesmo render no evento "resize" da janela (a maioria dos navegadores
+// dispara resize ao mudar o zoom de página) — debounced pra não recalcular
+// a cada pixel durante um zoom contínuo.
+let _ultimoPayloadIntegracaoInbound = null;
+const _renderSparklineInboundOriginal = renderSparklineInbound;
+renderSparklineInbound = function(dados) {
+  _ultimoPayloadIntegracaoInbound = dados;
+  _renderSparklineInboundOriginal(dados);
+};
+let _resizeTimerIntegracaoInbound = null;
+window.addEventListener('resize', function() {
+  if (!document.getElementById('cardIntegracaoInbound')) return; // não está na tela do Inbound agora
+  clearTimeout(_resizeTimerIntegracaoInbound);
+  _resizeTimerIntegracaoInbound = setTimeout(function() {
+    _renderSparklineInboundOriginal(_ultimoPayloadIntegracaoInbound);
+  }, 150);
+});
 
 function renderTabelaFifo(nfs) {
   const el = document.getElementById('tabelaFifo');
