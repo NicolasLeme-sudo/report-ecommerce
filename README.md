@@ -1,5 +1,9 @@
 # Report E-commerce — Vulcabras
 
+> **Padrão visual da empresa:** cores, logos, componentes HTML, estrutura de
+> projeto e padrão de apresentações estão em [`PADRAO-VULCABRAS.md`](PADRAO-VULCABRAS.md)
+> — documento único, idêntico nos três repositórios do time.
+
 Dashboard executivo de operação de armazém (CD Vulcabras — Extrema/MG) para
 acompanhamento de Outbound, Inbound, Estoque, Reversa e Balanço WMS×SAP do
 e-commerce. Este documento não é só um manual de uso: é o registro do
