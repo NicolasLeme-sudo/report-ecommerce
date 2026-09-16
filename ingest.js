@@ -1715,6 +1715,43 @@ async function processarRelatoriosInbound(files, options) {
     if (error) console.error("Erro armazenagem_diario:", error);
   }
 
+  // ---- 4.5) Integração diária (NF cadastrada x soma de itens da NF) ----
+  // Equivalente ao "Integração de Itens no WMS" do Outbound, mas com a
+  // data de IMPORTAÇÃO da NF (data_cadastro, quando ela entrou no nosso
+  // sistema) em vez de data de conferência/alocação física — é essa a
+  // pergunta "quanto entrou no fluxo por dia", não "quanto foi processado".
+  // ATENÇÃO com fuso: data_cadastro já é uma string yyyy-mm-dd LOCAL
+  // (paraDataISOLocal aplicado no parse, lá em cima) — nunca comparar/
+  // gerar essa chave via toISOString() (UTC), mesmo bug de fuso já
+  // corrigido antes no Top 10 NFs FIFO.
+  const integracaoPorDia = {};
+  nfRegistros.forEach(function(n){
+    if (!n.data_cadastro) return;
+    const qtde = idNFParaItens.get(String(n.id_nota_fiscal)) || 0;
+    integracaoPorDia[n.data_cadastro] = (integracaoPorDia[n.data_cadastro] || 0) + qtde;
+  });
+  const integracaoRegistros = Object.keys(integracaoPorDia).map(function(d){
+    return { data_cadastro: d, itens_integrados: integracaoPorDia[d] };
+  });
+  const cutoffIntegracaoIso = paraDataISOLocal(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 7));
+  const integracaoRecentes = integracaoRegistros.filter(function(r){ return r.data_cadastro >= cutoffIntegracaoIso; });
+  const integracaoAntigos  = integracaoRegistros.filter(function(r){ return r.data_cadastro <  cutoffIntegracaoIso; });
+
+  if (integracaoRecentes.length > 0) {
+    const { error } = await supabaseClient.from("inbound_integracao_diaria")
+      .upsert(integracaoRecentes, { onConflict: "data_cadastro" });
+    if (error) console.error("Erro integracao_diaria (upsert últimos 7 dias):", error);
+  }
+  const { data: integracaoExistentes } = await supabaseClient
+    .from("inbound_integracao_diaria").select("data_cadastro");
+  const diasIntegracaoExistentes = new Set((integracaoExistentes || []).map(function(r){ return r.data_cadastro; }));
+  const integracaoAntigosNovos = integracaoAntigos.filter(function(r){ return !diasIntegracaoExistentes.has(r.data_cadastro); });
+  for (let i = 0; i < integracaoAntigosNovos.length; i += 200) {
+    const { error } = await supabaseClient.from("inbound_integracao_diaria")
+      .insert(integracaoAntigosNovos.slice(i, i + 200));
+    if (error) console.error("Erro integracao_diaria:", error);
+  }
+
   // ---- 5) Stage pendente (Recebimento Stage — endereços H, I, J) ----
   const stageRegistros = linhasStage
     .filter(function(r){
@@ -1812,6 +1849,33 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   (arm7diasDB || []).forEach(function(r){ armDBMap[r.data_alocacao] = r.itens_armazenados; });
   const arm7dias = dias7.map(function(d){ return armDBMap[d] || 0; });
 
+  // "Integração de Itens no Inbound" — mesmo conceito e mesmo desenho do
+  // sparkline "Integração de Itens no WMS" do Outbound: NF cadastrada
+  // (importada) x soma de itens da NF, últimos 7 dias. Lê de
+  // inbound_integracao_diaria (ver bloco 4.5 em processarRelatoriosInbound)
+  // em vez de nfRegistros em memória, pelo mesmo motivo do Recebimento e
+  // da Armazenagem acima: nfRegistros só tem NFs pendentes/recentes do
+  // arquivo de hoje, não o histórico de dias já fechados.
+  const { data: integracao7diasDB } = await supabaseClient
+    .from("inbound_integracao_diaria")
+    .select("data_cadastro, itens_integrados")
+    .in("data_cadastro", dias7);
+  const integracaoDBMap = {};
+  (integracao7diasDB || []).forEach(function(r){ integracaoDBMap[r.data_cadastro] = r.itens_integrados; });
+  const integracaoInbound7dias = dias7.map(function(d){ return integracaoDBMap[d] || 0; });
+
+  // Teto fixo pro sparkline (piso 0, escala absoluta — mesmo raciocínio do
+  // buscarTetoHistoricoIntegracao do Outbound): maior total diário dos
+  // últimos 60 dias já registrados em inbound_integracao_diaria. Como essa
+  // tabela é nova, no início não tem 60 dias de histórico — nesse caso o
+  // teto cai pro próprio máximo dos 7 dias visíveis (calculado no front).
+  const desde60 = paraDataISOLocal(new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 60));
+  const { data: integracaoHistorico } = await supabaseClient
+    .from("inbound_integracao_diaria")
+    .select("itens_integrados")
+    .gte("data_cadastro", desde60);
+  const tetoIntegracaoInbound = (integracaoHistorico || []).reduce(function(m, r){ return Math.max(m, r.itens_integrados || 0); }, 0);
+
   // Acumulado mensal (soma do histórico completo do mês)
   const { data: acumReceb } = await supabaseClient
     .from("inbound_recebimento_diario")
@@ -1902,6 +1966,7 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
     },
     recebimento_7dias: { dias: labelsDias, itens: receb7dias },
     armazenagem_7dias: { dias: labelsDias, itens: arm7dias },
+    integracao_inbound_7dias: { dias: labelsDias, itens_integrados: integracaoInbound7dias, escala_maxima: Math.max(tetoIntegracaoInbound, ...integracaoInbound7dias, 1) },
     top10_nfs_fifo:    nfsPendentes,
     matriz_pendente:   matrizPendente,
     analise_automatica: null, // depende do Estoque — implementar depois
