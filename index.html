@@ -310,19 +310,25 @@ body {
    item que ocupa várias linhas ("grid-row: span 2") pode forçar as linhas
    do grid a crescerem pra caber o CONTEÚDO dele (foi o que inflou a
    altura dos 6 cards pequenos quando o gráfico entrou).
-   align-items: stretch (não flex-start): flexbox de UMA linha só não tem
-   o problema de "item ocupando várias linhas" que o Grid tinha — aqui são
-   só 2 itens irmãos na mesma linha, então stretch simplesmente iguala a
-   altura dos dois ao maior natural entre eles, 100% via CSS/engine de
-   layout do navegador, sem JavaScript nenhum. O card do gráfico
-   (kpi-card.spark) não tem altura própria — só o SVG com flex:1 dentro
-   dele, que não pesa na conta (flex-basis:0) — então quem sempre dita a
-   altura da linha é a pilha de 6 cards, nunca o gráfico. Resultado:
-   reage a zoom/resize instantaneamente, na mesma hora que os outros
-   cards (nada de JS medindo depois de um evento — foi exatamente esse
-   delay que o usuário notou numa primeira versão via JS, e que o
-   sparkline do Outbound nunca tinha por não precisar casar com nada). */
-.kpi-row-2x3 { display: flex; align-items: stretch; gap: 14px; margin-bottom: 16px; }
+   TENTATIVA DESCARTADA: align-items: stretch puro (sem JS nenhum) —
+   parecia a solução ideal (2 itens irmãos numa única linha flex, sem o
+   problema de "item ocupando várias linhas" que o Grid tinha), mas na
+   prática criou um "degrau" pior ainda: o <svg> sem altura própria
+   definida (só flex:1) tem um tamanho padrão nativo de elemento
+   substituído (algo como 300x150), e esse tamanho "vaza" pro cálculo de
+   altura natural do card ANTES do stretch resolver — como é maior que a
+   pilha de 6 cards, o stretch esticava a LINHA INTEIRA pra caber o
+   gráfico, mas só o wrapper .kpi-row-2x3-cards crescia (invisível, sem
+   borda) — os 6 cards visíveis ficavam do tamanho normal, sobrando um
+   vão embaixo do gráfico. Voltou pra altura medida via JS (comprovada
+   sem degrau), só que agora usando ResizeObserver em vez de um listener
+   de "resize" da janela com debounce de 150ms — reage a QUALQUER mudança
+   real de tamanho quase instantaneamente (a própria API foi desenhada
+   pra esse caso de uso: casar o tamanho de um elemento com outro), sem
+   a espera artificial que causava o delay que o usuário notou antes. O
+   sparkline do Outbound nunca tem esse problema por não precisar casar
+   com nada — altura fixa, ponto. */
+.kpi-row-2x3 { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; }
 .kpi-row-2x3-cards { flex: 3 1 0; min-width: 0; }
 .kpi-row-2x3 > .kpi-card.spark { flex: 2.1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .kpi-card {
@@ -2599,16 +2605,38 @@ function renderGraficoLinhaInbound(svgId, dados) {
    (renderSparkline, mesma estrutura/formatação: escala fixa piso 0 +
    teto calculado no back — ver escala_maxima em gerarPayloadInbound),
    só que em verde (mesmo verde de "Expedição × Forecast", var(--olive)).
-   Altura: 100% CSS (.kpi-row-2x3 { align-items: stretch }, ver CSS) — o
-   card do gráfico não tem altura própria pra defender, então a pilha de
-   6 cards sempre dita a altura da linha e o card do gráfico só acompanha,
-   nativamente, sem JavaScript nenhum medindo nada. Reage a zoom/resize
-   na mesma hora que o resto do layout (era via JS antes — media a altura
-   depois de um evento de resize — e isso causava um delay visível que o
-   sparkline do Outbound nunca tinha, reportado pelo usuário). */
+   Altura: medida via JS (pilhaCards.offsetHeight) e aplicada direto no
+   card — align-items:stretch puro foi tentado e descartado (ver CSS,
+   .kpi-row-2x3): o SVG sem altura própria "vazava" um tamanho padrão de
+   elemento substituído pro cálculo de altura natural do card, maior que
+   a pilha de 6 cards, e o stretch esticava a linha toda pra caber o
+   gráfico — só que os 6 cards visíveis (dentro de um wrapper sem borda)
+   não acompanhavam, sobrando um vão visível ("degrau") embaixo do
+   gráfico. JS medindo resolve isso de vez. Pra reagir a zoom sem o delay
+   perceptível de antes (era um listener de "resize" da janela com
+   debounce de 150ms), usa ResizeObserver — reage a qualquer mudança real
+   de tamanho quase instantaneamente, é a API feita pra exatamente esse
+   caso de uso (ver registro logo abaixo desta function). */
+// ResizeObserver único, reaproveitado a cada render — dispara quase
+// instantaneamente sempre que a ALTURA REAL da pilha de 6 cards mudar de
+// verdade (zoom, texto quebrando linha, etc.), sem esperar nenhum evento
+// "de fora". Só reajusta a altura do card (barato) — o desenho do SVG já
+// escala sozinho (width:100%, sem atributo height fixo) conforme o card
+// muda de tamanho, sem precisar redesenhar os pontos/rótulos de novo.
+let _roIntegracaoInbound = null;
 function renderSparklineInbound(dados) {
   const card = document.getElementById('cardIntegracaoInbound');
   if (!card) return;
+  const pilhaCards = document.querySelector('.kpi-row-2x3-cards');
+  function sincronizarAlturaCard() {
+    if (pilhaCards) card.style.height = pilhaCards.offsetHeight + 'px';
+  }
+  sincronizarAlturaCard();
+  if (_roIntegracaoInbound) _roIntegracaoInbound.disconnect();
+  if (pilhaCards && window.ResizeObserver) {
+    _roIntegracaoInbound = new ResizeObserver(sincronizarAlturaCard);
+    _roIntegracaoInbound.observe(pilhaCards);
+  }
   if (!dados || !dados.itens_integrados || dados.itens_integrados.every(v => v === 0)) {
     card.innerHTML = `<div class="tag">Integração de Itens no Inbound</div><div class="value" style="font-size:14px;color:var(--text-muted)">Sem dados</div>`;
     return;
