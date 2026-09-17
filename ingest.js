@@ -2559,10 +2559,24 @@ async function processarBaseCusto(file, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Lendo Base de Custo...");
   const linhas = await parseXLSX(file);
+  // Usa "Préço médio" (não "Custo") — a pedido do usuário, que sempre
+  // valoriza o estoque por esse campo. Antes o sistema lia "Custo", que é
+  // uma coluna diferente na mesma planilha (Item / Préço médio / Custo) —
+  // achado ao investigar uma divergência de valor de ~R$ 89M entre o
+  // report e uma extração externa: as QUANTIDADES batiam, só o valor não;
+  // recalculando a extração externa com o campo "Custo" o total batia
+  // exatamente com o report (confirmando que os dois liam essa coluna),
+  // mas quem reflete o valor real usado pela empresa é "Préço médio".
+  // coluna()/montarKeyMap() tolera variação de acentuação/maiúsculas no
+  // cabeçalho (ex.: "Preço médio" sem acento no É, export diferente).
+  const km = montarKeyMap(linhas);
   const registros = linhas
-    .filter(function(r){ return r["Item"] && r["Custo"]; })
+    .filter(function(r){
+      return coluna(r, km, "Item") && (coluna(r, km, "Préço médio") || coluna(r, km, "Preço médio"));
+    })
     .map(function(r){
-      return { sku: String(r["Item"]).trim(), custo_unitario: Number(r["Custo"]) || 0 };
+      var preco = coluna(r, km, "Préço médio") || coluna(r, km, "Preço médio");
+      return { sku: String(coluna(r, km, "Item")).trim(), custo_unitario: Number(preco) || 0 };
     });
   onProgress("Gravando " + registros.length + " SKUs de custo...");
   const LOTE = 1000;
