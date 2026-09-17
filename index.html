@@ -3175,17 +3175,14 @@ function renderizarBalanco(p) {
   // com o que voltou já classificado. Diferente da exclusão por Tipo do
   // Local acima, essa perda acontece DEPOIS de já ter passado pelo filtro
   // PICKING/PULMÃO — ou seja, é dentro da function do banco, fora do
-  // alcance do que dá pra inspecionar só pelo ingest.js.
+  // alcance do que dá pra inspecionar só pelo ingest.js. Era útil enquanto
+  // se investigava a divergência do T07/Avaria (já corrigida — ver colisão
+  // na chave de agregação); a pedido do usuário, o resíduo pequeno que
+  // sobrou (dezenas de itens) não vira mais aviso fixo, poluía a tela do
+  // Balanço. O dado continua calculado e gravado no payload
+  // (p.perda_calculo_rpc), dá pra checar em window._balancoPayload se
+  // precisar investigar de novo.
   var notaRpc = '';
-  if (p.perda_calculo_rpc) {
-    var pr = p.perda_calculo_rpc;
-    notaRpc =
-      '<div style="font-size:11px;color:var(--red);margin:-8px 0 12px 2px;line-height:1.5">' +
-      '⚠ <strong>' + fmtInt(Math.abs(pr.diff)) + '</strong> itens de diferença entre o que foi enviado pro cálculo (' +
-      fmtInt(pr.agregado_navegador) + ') e o resultado que voltou já classificado (' + fmtInt(pr.resultado_calculo) + ') — ' +
-      'já passou pelo filtro Tipo do Local (PICKING/PULMÃO), a perda está dentro do cálculo no banco.' +
-      '</div>';
-  }
 
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
