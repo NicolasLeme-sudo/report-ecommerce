@@ -2682,6 +2682,7 @@ function renderSparklineInbound(dados) {
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-5); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
+    dt.setAttribute('font-size','11.5');
     dt.textContent=dias[i]; svg.appendChild(dt);
   });
 }
