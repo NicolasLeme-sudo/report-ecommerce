@@ -2674,6 +2674,17 @@ function renderSparklineInbound(dados) {
   d.setAttribute('fill','none'); d.setAttribute('stroke','var(--olive)'); d.setAttribute('stroke-width','2.5');
   d.setAttribute('stroke-linecap','round'); d.setAttribute('stroke-linejoin','round');
   svg.appendChild(d);
+  // Tamanho da fonte das datas "igual" ao dos gráficos de linha abaixo
+  // (renderGraficoLinhaInbound) não pode ser o mesmo número de font-size:
+  // aquele SVG tem viewBox FIXO (560x160) escalado pelo navegador pra
+  // caber no card (card mais estreito que este, de 2 colunas) — 10
+  // unidades de viewBox lá viram bem menos que 10px reais na tela. Aqui o
+  // viewBox já é 1:1 com o tamanho real do card (ver comentário acima),
+  // então usar "10" direto ficava maior. Mede o svgReceb real (clientWidth
+  // / 560 = fator de escala da viewBox dele pra tela) e aplica o mesmo
+  // fator sobre 10 pra chegar no tamanho VISUAL equivalente em px.
+  const svgReceb = document.getElementById('svgReceb');
+  const fontSizeData = (svgReceb && svgReceb.clientWidth) ? (10 * svgReceb.clientWidth / 560) : 10;
   pts.forEach((p,i) => {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
@@ -2682,7 +2693,7 @@ function renderSparklineInbound(dados) {
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
     dt.setAttribute('x',p[0]); dt.setAttribute('y',h-5); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
-    dt.setAttribute('font-size','10');
+    dt.setAttribute('font-size', fontSizeData.toFixed(2));
     dt.textContent=dias[i]; svg.appendChild(dt);
   });
 }
