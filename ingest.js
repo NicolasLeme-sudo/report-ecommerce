@@ -2163,18 +2163,20 @@ async function processarBalanco(files, options) {
   }
   onProgress("Custo: " + custoMap.size + " itens carregados.");
 
-  // ==================== WMS (TSV ou XLSX) ====================
-  // Aceita os dois formatos — decide pela extensão do arquivo. XLSX é
-  // binário (zip); lido como texto puro (.text()) via parseTSVSelecionado
-  // vira lixo (nenhuma linha bate "PICKING"/"PULM"), o balanço processa
-  // "com sucesso" e sai tudo zerado do lado WMS sem erro nenhum — foi
-  // exatamente o que aconteceu quando um Estoque_WMS.xlsx foi enviado no
-  // campo que só esperava .tsv. parseXLSX (SheetJS) já é usado pro SAP.
+  // ==================== WMS (TSV, XLSX ou XLSB) ====================
+  // Aceita os três formatos — decide pela extensão do arquivo. XLSX/XLSB são
+  // binários (zip / BIFF12); lidos como texto puro (.text()) via
+  // parseTSVSelecionado viram lixo (nenhuma linha bate "PICKING"/"PULM"), o
+  // balanço processa "com sucesso" e sai tudo zerado do lado WMS sem erro
+  // nenhum — foi exatamente o que aconteceu duas vezes: primeiro com um
+  // Estoque_WMS.xlsx (campo só esperava .tsv), depois com um .xlsb (esse
+  // fix só cobria .xlsx/.xls ainda). parseXLSX (SheetJS) já lê .xlsb com o
+  // mesmo método do .xlsx — ver comentário em processarForecastMensal.
   const nomeArquivoWMS = (files.arquivoWMS && files.arquivoWMS.name || "").toLowerCase();
-  const wmsEhXLSX = nomeArquivoWMS.endsWith(".xlsx") || nomeArquivoWMS.endsWith(".xls");
-  onProgress("Lendo Estoque WMS (" + (wmsEhXLSX ? "XLSX" : "TSV") + ")...");
+  const wmsEhBinario = /\.(xlsx|xls|xlsb)$/.test(nomeArquivoWMS);
+  onProgress("Lendo Estoque WMS (" + (wmsEhBinario ? "XLSX/XLSB" : "TSV") + ")...");
   let linhasWMS;
-  if (wmsEhXLSX) {
+  if (wmsEhBinario) {
     linhasWMS = await parseXLSX(files.arquivoWMS);
   } else {
     const textoWMS = await files.arquivoWMS.text();
