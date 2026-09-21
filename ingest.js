@@ -2163,12 +2163,25 @@ async function processarBalanco(files, options) {
   }
   onProgress("Custo: " + custoMap.size + " itens carregados.");
 
-  // ==================== WMS (TSV) ====================
-  onProgress("Lendo Estoque WMS (TSV)...");
-  const textoWMS = await files.arquivoWMS.text();
-  const linhasWMS = parseTSVSelecionado(textoWMS, [
-    "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
-  ]);
+  // ==================== WMS (TSV ou XLSX) ====================
+  // Aceita os dois formatos — decide pela extensão do arquivo. XLSX é
+  // binário (zip); lido como texto puro (.text()) via parseTSVSelecionado
+  // vira lixo (nenhuma linha bate "PICKING"/"PULM"), o balanço processa
+  // "com sucesso" e sai tudo zerado do lado WMS sem erro nenhum — foi
+  // exatamente o que aconteceu quando um Estoque_WMS.xlsx foi enviado no
+  // campo que só esperava .tsv. parseXLSX (SheetJS) já é usado pro SAP.
+  const nomeArquivoWMS = (files.arquivoWMS && files.arquivoWMS.name || "").toLowerCase();
+  const wmsEhXLSX = nomeArquivoWMS.endsWith(".xlsx") || nomeArquivoWMS.endsWith(".xls");
+  onProgress("Lendo Estoque WMS (" + (wmsEhXLSX ? "XLSX" : "TSV") + ")...");
+  let linhasWMS;
+  if (wmsEhXLSX) {
+    linhasWMS = await parseXLSX(files.arquivoWMS);
+  } else {
+    const textoWMS = await files.arquivoWMS.text();
+    linhasWMS = parseTSVSelecionado(textoWMS, [
+      "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
+    ]);
+  }
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
   onProgress("WMS: " + linhasWMS.length + " linhas lidas. Agregando...");
 
@@ -2230,6 +2243,17 @@ async function processarBalanco(files, options) {
   });
 
   const registrosStaging = Array.from(agregadoWMS.values());
+
+  // Guarda contra o mesmo silêncio que já mordeu uma vez: um arquivo lido
+  // com sucesso (linhasWMS.length > 0) mas que não gera NENHUMA linha
+  // PICKING/PULMÃO válida (formato errado, delimitador errado, arquivo do
+  // tipo errado no campo) passava batido — o balanço processava "com
+  // sucesso" e saía tudo zerado do lado WMS, sem aviso nenhum. Aborta aqui,
+  // antes de limpar/gravar staging ou balanco_wms_detalhado.
+  if (registrosStaging.length === 0) {
+    onProgress("✗ Nenhuma linha PICKING/PULMÃO válida encontrada no arquivo WMS — confira se o arquivo e o formato (.tsv/.xlsx) estão corretos.");
+    return;
+  }
 
   // Diagnóstico: quanto do arquivo bruto ficou de fora por não ser
   // PICKING/PULMÃO, detalhado por Tipo do Local — pra não descobrir isso só
