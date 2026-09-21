@@ -784,7 +784,17 @@ async function uploadArquivoOriginal(caminho, file) {
   const { error } = await supabaseClient.storage
     .from("arquivos-abastecimento")
     .upload(caminho, corpo, { upsert: true, contentType: tipo });
-  if (error) console.error("Erro ao guardar arquivo original (" + caminho + "):", error);
+  if (error) {
+    // "exceeded the maximum allowed size" acontece com arquivos WMS muito
+    // grandes (centenas de milhares de linhas) — é só a cópia de backup do
+    // arquivo bruto (pro botão "Exportar Arquivo") que falha, não afeta o
+    // cálculo do balanço em si. Mensagem mais clara pra não parecer que
+    // travou tudo quando só essa parte não-crítica falhou.
+    var mensagemAmigavel = String(error.message || "").includes("maximum allowed size")
+      ? "arquivo grande demais pra guardar a cópia de backup — segue processando normal"
+      : error.message;
+    console.error("Aviso: não guardou cópia de backup de " + caminho + " (" + mensagemAmigavel + ")");
+  }
 }
 
 // Carimbo de versão do ingest.js. Serve para saber QUAL código gerou um
@@ -2174,6 +2184,18 @@ async function processarBalanco(files, options) {
   // mesmo método do .xlsx — ver comentário em processarForecastMensal.
   const nomeArquivoWMS = (files.arquivoWMS && files.arquivoWMS.name || "").toLowerCase();
   const wmsEhBinario = /\.(xlsx|xls|xlsb)$/.test(nomeArquivoWMS);
+  const wmsEhXLSXGrande = /\.(xlsx|xls)$/.test(nomeArquivoWMS) &&
+    files.arquivoWMS && files.arquivoWMS.size > 25 * 1024 * 1024;
+  if (wmsEhXLSXGrande) {
+    // .xlsx é XML (texto) — um arquivo WMS de centenas de milhares de
+    // linhas nesse formato fica grande demais pro navegador processar em
+    // tempo razoável (trava a aba, sem erro nenhum pra avisar). .xlsb é
+    // binário, bem mais compacto pro mesmo dado — mesma leitura, muito mais
+    // rápida. Aviso ANTES de tentar o parse, já que se travar não sobra
+    // chance de avisar depois.
+    onProgress("⚠ Arquivo .xlsx de " + (files.arquivoWMS.size / 1024 / 1024).toFixed(0) +
+      "MB — pode travar o navegador. Se travar, exporte como .xlsb (mesmos dados, bem mais leve) e tente de novo.");
+  }
   onProgress("Lendo Estoque WMS (" + (wmsEhBinario ? "XLSX/XLSB" : "TSV") + ")...");
   let linhasWMS;
   if (wmsEhBinario) {
