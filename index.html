@@ -170,7 +170,7 @@ body {
 }
 .sidebar-brand .mark {
   width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
-  background: #132043;
+  background: var(--bg-sidebar);
   display: flex; align-items: center; justify-content: center;
   font-weight: 700; font-size: 14px; color: #132043;
 }
@@ -444,6 +444,12 @@ table.matrix tbody tr.total th {
   width: 100%; font-size: 12.5px; border: 1px solid var(--border);
   border-radius: 7px; padding: 7px; background: var(--bg-input); color: var(--text);
 }
+.file-field input[type=file]::file-selector-button {
+  margin-right: 10px; padding: 6px 13px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg-card); color: var(--text); font-weight: 600; font-size: 12px;
+  cursor: pointer; font-family: inherit; transition: background .15s, border-color .15s, color .15s;
+}
+.file-field input[type=file]::file-selector-button:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .btn-upload {
   padding: 9px 18px; border-radius: 7px; border: 1px solid var(--accent);
   background: var(--accent); color: #fff; font-size: 13px; font-weight: 600;
@@ -490,7 +496,7 @@ table.matrix tbody tr.total th {
 
 <div class="login-overlay" id="loginOverlay">
   <div class="login-box">
-    <img src="/favicon.png" alt="Logo" class="login-logo">
+    <img src="/logo-mark.png" alt="Logo" class="login-logo">
     <h1>Report E-commerce</h1>
     <p class="login-sub">Vulcabras · Extrema</p>
     <form id="loginForm">
