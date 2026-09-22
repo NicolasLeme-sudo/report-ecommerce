@@ -1116,12 +1116,19 @@ function exportarEstoqueCSV() {
 
 // Busca todas as linhas de uma tabela, paginando por página cheia/vazia
 // (nunca por tamanho fixo — o teto real do PostgREST pode ser menor).
+// .order('id') é essencial aqui: sem uma ordenação explícita, o Postgres/
+// PostgREST não garante a mesma ordem de linhas entre requisições .range()
+// separadas — o que pode pular ou repetir linhas entre uma página e a
+// próxima. Foi a causa real do gap de ~95 unidades isolado em Mizuno (BIN
+// com 14 mil linhas só do lado SAP): a classificação e os totais batiam
+// exatos numa consulta SQL direta, só a paginação client-side perdia
+// linhas de forma inconsistente.
 async function buscarTudoPaginado(tabela, colunas) {
   const LOTE = 1000;
   let offset = 0;
   const todos = [];
   while (true) {
-    const { data, error } = await supabaseClient.from(tabela).select(colunas).range(offset, offset + LOTE - 1);
+    const { data, error } = await supabaseClient.from(tabela).select(colunas).order('id', { ascending: true }).range(offset, offset + LOTE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     todos.push.apply(todos, data);
