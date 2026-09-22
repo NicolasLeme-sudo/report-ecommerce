@@ -43,7 +43,8 @@ const FERIADOS_2026 = new Set([
   "2026-05-01", // Dia do Trabalho
   "2026-05-22", // Dia de Santa Rita (municipal — Extrema/MG)
   "2026-09-07", // Independência do Brasil
-  "2026-09-16", // Aniversário de Extrema (municipal)
+  "2026-09-18", // Aniversário de Extrema (municipal) — remanejado de 16/09
+                // (quarta) pra 18/09 (sexta) a pedido da operação.
   "2026-10-12", // Nossa Senhora Aparecida
   "2026-11-02", // Finados
   "2026-11-15", // Proclamação da República
