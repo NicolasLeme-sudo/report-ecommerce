@@ -1094,11 +1094,154 @@ function exportarEstoqueCSV() {
   baixarArquivoOriginal('estoque/Estoque_Picking.tsv', 'btnExportEstoque');
 }
 
-function exportarBalancoCSV() {
-  baixarArquivoOriginal('balanco/Estoque_completo_WMS.tsv', 'btnExportBalanco');
-  setTimeout(() => baixarArquivoOriginal('balanco/Estoque_SAP.xlsx'), 400);
+/* ============================================================
+   SALDO A MAIS NO SAP / WMS — export SKU-a-SKU
+   Cruza balanco_wms_detalhado (por linha/endereço) com
+   balanco_sap_detalhado (já agrupado por BIN+SKU), somando o WMS por
+   BIN+SKU (equivalente a um SOMASES) usando a MESMA classificação de
+   endereço (gabarito_endereco_excecao + classificarEnderecoWMS, ingest.js)
+   e o mesmo mapa BIN×classificação (CROSS_MAP) que o cálculo oficial do
+   Balanço já usa — pra não inventar uma segunda fonte de verdade.
+   BINs sem contrapartida no cruzamento oficial (ex: 009-02, ver comentário
+   em CROSS_MAP) ficam fora, mesma regra da tela principal.
+   ============================================================ */
+
+// Busca todas as linhas de uma tabela, paginando por página cheia/vazia
+// (nunca por tamanho fixo — o teto real do PostgREST pode ser menor).
+async function buscarTudoPaginado(tabela, colunas) {
+  const LOTE = 1000;
+  let offset = 0;
+  const todos = [];
+  while (true) {
+    const { data, error } = await supabaseClient.from(tabela).select(colunas).range(offset, offset + LOTE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    todos.push.apply(todos, data);
+    offset += data.length;
+    if (data.length < LOTE) break;
+  }
+  return todos;
 }
 
+async function gerarDivergenciaBalancoSkus() {
+  const { data: excecoesData, error: errExc } = await supabaseClient
+    .from('gabarito_endereco_excecao').select('prefixo, classificacao');
+  if (errExc) throw errExc;
+  const excecoes = new Map((excecoesData || []).map(function(e) { return [e.prefixo, e.classificacao]; }));
+
+  const wmsLinhas = await buscarTudoPaginado('balanco_wms_detalhado', 'local, tipo_local, barra, codigo_produto, estoque_total');
+
+  // Marca (pra virar "Vendável Mizuno/Olympikus/Under Armour") só é
+  // buscada pros candidatos que realmente vão precisar — evita carregar
+  // dim_embalas inteira (265 mil linhas) a cada export.
+  function classifBaseDaLinha(r) {
+    const prefixo = String(r.local || '').substring(0, 3).toUpperCase();
+    return excecoes.get(prefixo) || classificarEnderecoWMS(r.local, r.tipo_local);
+  }
+  const candidatosVendavel = wmsLinhas.filter(function(r) { return classifBaseDaLinha(r) === 'Vendável'; });
+  const barrasUnicas = [...new Set(candidatosVendavel.map(function(r) { return r.barra; }).filter(Boolean))];
+  const skusUnicos = [...new Set(candidatosVendavel.map(function(r) { return r.codigo_produto; }).filter(Boolean))];
+  const marcaPorBarra = new Map();
+  const marcaPorSku = new Map();
+  const LOTE_IN = 500;
+  for (let i = 0; i < barrasUnicas.length; i += LOTE_IN) {
+    const { data } = await supabaseClient.from('dim_embalas').select('codigo_barra, marca').in('codigo_barra', barrasUnicas.slice(i, i + LOTE_IN));
+    (data || []).forEach(function(e) { if (e.marca) marcaPorBarra.set(e.codigo_barra, e.marca); });
+  }
+  for (let i = 0; i < skusUnicos.length; i += LOTE_IN) {
+    const { data } = await supabaseClient.from('dim_embalas').select('sku, marca').in('sku', skusUnicos.slice(i, i + LOTE_IN));
+    (data || []).forEach(function(e) { if (e.marca) marcaPorSku.set(e.sku, e.marca); });
+  }
+
+  // wms-classificação -> {bin, sap, wms} (CROSS_MAP, ingest.js)
+  const crossPorClassifWms = new Map(CROSS_MAP.map(function(c) { return [c.wms, c]; }));
+  const crossPorBin = new Map(CROSS_MAP.map(function(c) { return [c.bin, c]; }));
+
+  // Agrupa WMS por BIN+SKU (SOMASES) — mesma classificação da regra oficial.
+  const wmsAgrupado = new Map();
+  wmsLinhas.forEach(function(r) {
+    let classif = classifBaseDaLinha(r);
+    if (classif === 'Vendável') {
+      const marca = marcaPorBarra.get(r.barra) || marcaPorSku.get(r.codigo_produto) || 'Under Armour';
+      classif = 'Vendável ' + marca;
+    }
+    const cross = crossPorClassifWms.get(classif);
+    if (!cross) return; // sem contrapartida no cruzamento oficial (Outros, DExPARA etc.)
+    const sku = String(r.codigo_produto || '').trim();
+    if (!sku) return;
+    const chave = cross.bin + '|' + sku;
+    wmsAgrupado.set(chave, (wmsAgrupado.get(chave) || 0) + (Number(r.estoque_total) || 0));
+  });
+
+  // SAP já vem agrupado por BIN+SKU (soma defensiva, caso não esteja).
+  const sapLinhas = await buscarTudoPaginado('balanco_sap_detalhado', 'bin, sku, quantidade');
+  const sapAgrupado = new Map();
+  sapLinhas.forEach(function(r) {
+    const sku = String(r.sku || '').trim();
+    if (!sku || !crossPorBin.has(r.bin)) return; // fora do cruzamento oficial
+    const chave = r.bin + '|' + sku;
+    sapAgrupado.set(chave, (sapAgrupado.get(chave) || 0) + (Number(r.quantidade) || 0));
+  });
+
+  // União das duas chaves — SKU que só existe de um lado entra com 0 do outro.
+  const todasChaves = new Set([].concat([...wmsAgrupado.keys()], [...sapAgrupado.keys()]));
+  const linhas = [];
+  todasChaves.forEach(function(chave) {
+    const i = chave.indexOf('|');
+    const bin = chave.slice(0, i);
+    const sku = chave.slice(i + 1);
+    const qtdeWms = wmsAgrupado.get(chave) || 0;
+    const qtdeSap = sapAgrupado.get(chave) || 0;
+    const diferenca = qtdeWms - qtdeSap;
+    if (diferenca === 0) return;
+    const cross = crossPorBin.get(bin);
+    linhas.push({
+      bin: bin,
+      classificacao: cross ? cross.sap : bin,
+      sku: sku,
+      qtdeSap: qtdeSap,
+      qtdeWms: qtdeWms,
+      diferenca: diferenca,
+    });
+  });
+  return linhas;
+}
+
+// tipo: 'sap' (Saldo a mais no SAP — diferença negativa, WMS < SAP) ou
+// 'wms' (Saldo a mais no WMS — diferença positiva, WMS > SAP).
+async function exportarSaldoDivergente(tipo) {
+  const btn = document.getElementById(tipo === 'sap' ? 'btnExportSaldoSap' : 'btnExportSaldoWms');
+  const textoOriginal = btn ? btn.textContent : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  try {
+    const todas = await gerarDivergenciaBalancoSkus();
+    const filtradas = todas.filter(function(l) { return tipo === 'sap' ? l.diferenca < 0 : l.diferenca > 0; });
+    if (filtradas.length === 0) { alert('Nenhuma divergência encontrada nesse sentido no momento.'); return; }
+    filtradas.sort(function(a, b) {
+      if (a.bin !== b.bin) return a.bin < b.bin ? -1 : 1;
+      return tipo === 'sap' ? (a.diferenca - b.diferenca) : (b.diferenca - a.diferenca);
+    });
+    const linhasExport = filtradas.map(function(l) {
+      return {
+        'BIN': l.bin,
+        'Diferença (Qtde)': l.diferenca,
+        'Classificação do BIN': l.classificacao,
+        'SKU': l.sku,
+        'Qtde SAP': l.qtdeSap,
+        'Qtde WMS': l.qtdeWms,
+      };
+    });
+    const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+    const nomeAba = tipo === 'sap' ? 'Saldo a mais no SAP' : 'Saldo a mais no WMS';
+    await baixarComoXLSX(linhasExport, nomeAba, nomeAba + '_' + hoje + '.xlsx', {
+      colunasNumero: ['Diferença (Qtde)', 'Qtde SAP', 'Qtde WMS'],
+    });
+  } catch (err) {
+    alert('Não foi possível gerar o arquivo.\n\nDetalhe: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+  }
+}
 /* ============================================================
    ENDEREÇOS NÃO CONFORMES DO BALANÇO
    Endereço que não bate com nenhuma regra do gabarito (nem prefixo
@@ -3193,7 +3336,10 @@ function renderizarBalanco(p) {
   document.getElementById('balanco-conteudo').innerHTML = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Estoque Geral WMS × SAP
-      <button class="btn-tema" id="btnExportBalanco" onclick="exportarBalancoCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo (WMS + SAP)</button>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-tema" id="btnExportSaldoSap" onclick="exportarSaldoDivergente('sap')" style="font-size:11px;padding:4px 10px;">⬇ Saldo a mais no SAP</button>
+        <button class="btn-tema" id="btnExportSaldoWms" onclick="exportarSaldoDivergente('wms')" style="font-size:11px;padding:4px 10px;">⬇ Saldo a mais no WMS</button>
+      </div>
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
