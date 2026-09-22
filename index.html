@@ -1104,6 +1104,14 @@ function exportarEstoqueCSV() {
    Balanço já usa — pra não inventar uma segunda fonte de verdade.
    BINs sem contrapartida no cruzamento oficial (ex: 009-02, ver comentário
    em CROSS_MAP) ficam fora, mesma regra da tela principal.
+
+   009-24 (Integração de NFs Reversa) TAMBÉM fica fora daqui: o total que
+   aparece na tela pra esse BIN inclui o "pendente de integração" da
+   Reversa (NFs já no SAP mas sem endereço físico no WMS ainda) — um
+   ajuste agregado, sem detalhamento por SKU persistido em tabela nenhuma
+   (o stg_reversa_itens de onde ele vem é limpo logo depois de calculado).
+   Incluir esse BIN aqui daria um número de WMS sistematicamente menor que
+   o real, criando divergência falsa em toda a Reversa.
    ============================================================ */
 
 // Busca todas as linhas de uma tabela, paginando por página cheia/vazia
@@ -1121,6 +1129,25 @@ async function buscarTudoPaginado(tabela, colunas) {
     if (data.length < LOTE) break;
   }
   return todos;
+}
+
+// Busca marca em dim_embalas por lotes pequenos (150) — lotes de 500 numa
+// query .in() viram uma URL longa demais e podem falhar (414/URI too
+// long); o bug real do primeiro export era esse: a falha não era checada
+// (só `const { data } = ...`), o lote inteiro virava vazio em silêncio, e
+// SKUs de verdade Mizuno/Olympikus caíam no fallback "Under Armour" por
+// engano — daí o monte de divergência falsa concentrada em "Vendável
+// Under Armour". Agora falha alto (throw) se algum lote der erro.
+async function buscarMarcasPorLote(coluna, valores) {
+  const LOTE_IN = 150;
+  const mapa = new Map();
+  for (let i = 0; i < valores.length; i += LOTE_IN) {
+    const lote = valores.slice(i, i + LOTE_IN);
+    const { data, error } = await supabaseClient.from('dim_embalas').select(coluna + ', marca').in(coluna, lote);
+    if (error) throw error;
+    (data || []).forEach(function(e) { if (e.marca) mapa.set(e[coluna], e.marca); });
+  }
+  return mapa;
 }
 
 async function gerarDivergenciaBalancoSkus() {
@@ -1141,21 +1168,14 @@ async function gerarDivergenciaBalancoSkus() {
   const candidatosVendavel = wmsLinhas.filter(function(r) { return classifBaseDaLinha(r) === 'Vendável'; });
   const barrasUnicas = [...new Set(candidatosVendavel.map(function(r) { return r.barra; }).filter(Boolean))];
   const skusUnicos = [...new Set(candidatosVendavel.map(function(r) { return r.codigo_produto; }).filter(Boolean))];
-  const marcaPorBarra = new Map();
-  const marcaPorSku = new Map();
-  const LOTE_IN = 500;
-  for (let i = 0; i < barrasUnicas.length; i += LOTE_IN) {
-    const { data } = await supabaseClient.from('dim_embalas').select('codigo_barra, marca').in('codigo_barra', barrasUnicas.slice(i, i + LOTE_IN));
-    (data || []).forEach(function(e) { if (e.marca) marcaPorBarra.set(e.codigo_barra, e.marca); });
-  }
-  for (let i = 0; i < skusUnicos.length; i += LOTE_IN) {
-    const { data } = await supabaseClient.from('dim_embalas').select('sku, marca').in('sku', skusUnicos.slice(i, i + LOTE_IN));
-    (data || []).forEach(function(e) { if (e.marca) marcaPorSku.set(e.sku, e.marca); });
-  }
+  const marcaPorBarra = await buscarMarcasPorLote('codigo_barra', barrasUnicas);
+  const marcaPorSku = await buscarMarcasPorLote('sku', skusUnicos);
 
-  // wms-classificação -> {bin, sap, wms} (CROSS_MAP, ingest.js)
-  const crossPorClassifWms = new Map(CROSS_MAP.map(function(c) { return [c.wms, c]; }));
-  const crossPorBin = new Map(CROSS_MAP.map(function(c) { return [c.bin, c]; }));
+  // wms-classificação -> {bin, sap, wms} (CROSS_MAP, ingest.js), excluindo
+  // 009-24/Integração de NFs Reversa (ver comentário no topo do bloco).
+  const crossValido = CROSS_MAP.filter(function(c) { return c.bin !== '009-24'; });
+  const crossPorClassifWms = new Map(crossValido.map(function(c) { return [c.wms, c]; }));
+  const crossPorBin = new Map(crossValido.map(function(c) { return [c.bin, c]; }));
 
   // Agrupa WMS por BIN+SKU (SOMASES) — mesma classificação da regra oficial.
   const wmsAgrupado = new Map();
@@ -1166,7 +1186,7 @@ async function gerarDivergenciaBalancoSkus() {
       classif = 'Vendável ' + marca;
     }
     const cross = crossPorClassifWms.get(classif);
-    if (!cross) return; // sem contrapartida no cruzamento oficial (Outros, DExPARA etc.)
+    if (!cross) return; // sem contrapartida no cruzamento oficial (Outros, DExPARA, Reversa etc.)
     const sku = String(r.codigo_produto || '').trim();
     if (!sku) return;
     const chave = cross.bin + '|' + sku;
@@ -1224,11 +1244,11 @@ async function exportarSaldoDivergente(tipo) {
     const linhasExport = filtradas.map(function(l) {
       return {
         'BIN': l.bin,
-        'Diferença (Qtde)': l.diferenca,
         'Classificação do BIN': l.classificacao,
         'SKU': l.sku,
         'Qtde SAP': l.qtdeSap,
         'Qtde WMS': l.qtdeWms,
+        'Diferença (Qtde)': l.diferenca,
       };
     });
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
