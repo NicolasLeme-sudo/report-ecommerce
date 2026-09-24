@@ -1166,6 +1166,74 @@ async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
 
   return { data: diaISO, itens: itens, pedidos: qtdPedidos };
 }
+// Expedição por dia (itens e pedidos) a partir da tabela pedidos do banco,
+// que acumula TODOS os uploads — não só o arquivo da rodada atual. Antes o
+// fechamento dos últimos 7 dias usava apenas os pedidos do upload atual: se
+// o Acompanhamento_Exp da rodada não cobria a semana inteira, os dias mais
+// antigos eram regravados com menos pedidos do que tiveram, e o acumulado do
+// mês ficava abaixo do real. Critério igual ao anterior: situacao EXPEDIDO,
+// não cancelado, dia local de "Processado em".
+async function expedicaoPorDiaDoBanco(desdeISO) {
+  const inicio = new Date(desdeISO + "T00:00:00");
+  const porDia = {};
+  const PAGINA = 1000;
+  for (let de = 0; ; de += PAGINA) {
+    const { data, error } = await supabaseClient
+      .from("pedidos")
+      .select("pedido_venda, processado_em, qtd_total_produto, status_calculado")
+      .eq("situacao", "EXPEDIDO")
+      .gte("processado_em", inicio.toISOString())
+      .order("pedido_venda", { ascending: true })
+      .range(de, de + PAGINA - 1);
+    if (error) throw new Error("Erro ao ler pedidos expedidos: " + error.message);
+    (data || []).forEach(function(p) {
+      if (!p.processado_em || p.status_calculado === "Cancelado") return;
+      const dia = paraDataISOLocal(new Date(p.processado_em));
+      if (!porDia[dia]) porDia[dia] = { itens: 0, pedidos: 0 };
+      porDia[dia].itens += Number(p.qtd_total_produto) || 0;
+      porDia[dia].pedidos += 1;
+    });
+    if (!data || data.length < PAGINA) break;
+  }
+  return porDia;
+}
+
+// Refecha em expedicao_diaria todos os dias do mês atual até ontem (e os
+// últimos 7 dias, se o mês acabou de virar) usando o histórico do banco.
+// Nunca REDUZ um dia já gravado: se o banco tem menos pedidos que o
+// registro existente (dia anterior ao histórico que o banco guarda), o
+// registro existente é mantido.
+async function refecharExpedicaoDoMesPeloBanco() {
+  const hoje = new Date();
+  const hojeISO = paraDataISOLocal(hoje);
+  const seteDias = new Date(hoje); seteDias.setDate(hoje.getDate() - 7);
+  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const inicio = seteDias < inicioMes ? seteDias : inicioMes;
+  const inicioISO = paraDataISOLocal(inicio);
+
+  const porDia = await expedicaoPorDiaDoBanco(inicioISO);
+  const { data: existentes, error } = await supabaseClient
+    .from("expedicao_diaria")
+    .select("data, itens_expedidos, pedidos_expedidos")
+    .gte("data", inicioISO);
+  if (error) throw new Error("Erro ao ler expedicao_diaria: " + error.message);
+  const existentePorDia = {};
+  (existentes || []).forEach(function(r){ existentePorDia[r.data] = r; });
+
+  const linhas = [];
+  for (let d = new Date(inicio); paraDataISOLocal(d) < hojeISO; d.setDate(d.getDate() + 1)) {
+    const dia = paraDataISOLocal(d);
+    const banco = porDia[dia] || { itens: 0, pedidos: 0 };
+    const atual = existentePorDia[dia];
+    if (atual && (atual.pedidos_expedidos || 0) > banco.pedidos) continue;
+    linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
+  }
+  if (linhas.length > 0) {
+    const resultado = await supabaseClient.from("expedicao_diaria").upsert(linhas, { onConflict: "data" });
+    falharSeErro(resultado, "Erro ao gravar expedicao_diaria");
+  }
+  console.log("Expedição refechada pelo banco:", linhas);
+}
 async function computarExpedicaoSemana(pedidos, forecastRows) {
   const hoje = new Date();
   const hojeISO = paraDataISOLocal(hoje);
@@ -1327,12 +1395,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // tenha ficado sem registro em expedicao_diaria — por exemplo, um dia que
   // caiu num fim de semana em que ninguém rodou o abastecimento, e que por
   // isso nunca foi fechado como "ontem" de nenhuma execução.
-  const hojeExpedFechamento = new Date();
-  for (let diasAtras = 1; diasAtras <= 7; diasAtras++) {
-    const dAlvo = new Date(hojeExpedFechamento);
-    dAlvo.setDate(hojeExpedFechamento.getDate() - diasAtras);
-    await fecharExpedicaoDoDia(pedidos, paraDataISOLocal(dAlvo));
-  }
+  await refecharExpedicaoDoMesPeloBanco();
   const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
   const integracao_7dias = await computarIntegracao7Dias(pedidos);
 
@@ -1353,17 +1416,17 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     .from("expedicao_diaria")
     .select("itens_expedidos, pedidos_expedidos, data")
     .gte("data", anoAtualExped + "-" + String(mesAtualExped + 1).padStart(2, "0") + "-01");
-  const hojeJaFechado = (acumExpedRows || []).some(function(r){ return r.data === hojeExpedISO; });
-  const expedidosHojeAoVivo = hojeJaFechado ? [] : pedidos.filter(function(p){
-    return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado" &&
-           p.processado_em && paraDataISOLocal(p.processado_em) === hojeExpedISO;
-  });
+  // Hoje ao vivo também vem do banco (tabela pedidos), que já inclui o
+  // upload atual E os anteriores do dia — não só o arquivo desta rodada.
+  // (a linha de hoje em expedicao_diaria, se existir, é ignorada abaixo e
+  // substituída por esse valor ao vivo)
+  const hojeAoVivo = (await expedicaoPorDiaDoBanco(hojeExpedISO))[hojeExpedISO] || { itens: 0, pedidos: 0 };
   kpis.acumulado_expedicao_mes =
-    (acumExpedRows || []).reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0) +
-    expedidosHojeAoVivo.reduce(function(s, p){ return s + (p.qtd_total_produto || 0); }, 0);
+    (acumExpedRows || []).filter(function(r){ return r.data !== hojeExpedISO; })
+      .reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0) + hojeAoVivo.itens;
   kpis.acumulado_expedicao_mes_pedidos =
-    (acumExpedRows || []).reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) +
-    expedidosHojeAoVivo.length;
+    (acumExpedRows || []).filter(function(r){ return r.data !== hojeExpedISO; })
+      .reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) + hojeAoVivo.pedidos;
 
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
   // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de
