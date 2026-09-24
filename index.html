@@ -614,6 +614,7 @@ table.matrix tbody tr.total th {
           <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
           <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
           <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
+          <div class="file-field"><label>Controle_de_NF_Saída (opcional — .tsv, .xlsx ou .xlsb)</label><input type="file" id="fileControleNFSaida" accept=".tsv,.txt,.xlsx,.xls,.xlsb"></div>
         </div>
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
@@ -2486,7 +2487,8 @@ ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () 
   const e=document.getElementById('fileExp').files[0];
   const i=document.getElementById('fileItensNF').files[0];
   const p=document.getElementById('filePedidosEcomm').files[0];
-  return (o&&e&&i&&p) ? {arquivoOp:o,arquivoExp:e,arquivoItensNF:i,arquivoPedidosEcomm:p} : null;
+  const c=document.getElementById('fileControleNFSaida').files[0];
+  return (o&&e&&i&&p) ? {arquivoOp:o,arquivoExp:e,arquivoItensNF:i,arquivoPedidosEcomm:p,arquivoControleNFSaida:c||null} : null;
 });
 ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   const r = document.getElementById('fileRecebs').files[0];

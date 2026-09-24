@@ -388,12 +388,82 @@ function calcularBucketFifo(importadoEm, hoje) {
 // -------------------------------------------------------------------------
 // 8) TRANSFORMAÇÃO PRINCIPAL — Acompanhamento_Op + Exp + Pedidos_E-comm_Geral
 // -------------------------------------------------------------------------
+// Dias cuja expedição foi gravada nesta rodada a partir do Controle de NF de
+// Saída (fonte oficial). refecharExpedicaoDoMesPeloBanco não mexe neles.
+let diasExpedicaoOficiais = new Set();
+
+// Controle de NF de Saída (exportação do WMS, mesma tela do "Exportacao_*"):
+// uma linha por NF, com "Pedido de Venda", "Qtde Itens" e "Data de
+// Processamento". É a mesma base do relatório manual de processados do mês,
+// então quando é enviada ela define a expedição de cada dia do arquivo:
+// pedidos = pedidos distintos, itens = soma de "Qtde Itens", só NFs de saída
+// PROCESSADA e não canceladas, no dia da Data de Processamento.
+async function processarControleNFSaida(arquivo, onProgress) {
+  onProgress("Lendo Controle de NF de Saída...");
+  let linhas;
+  if (/\.(xlsx|xls|xlsb)$/i.test(arquivo.name)) {
+    const wb = XLSX.read(await arquivo.arrayBuffer(), { type: "array", cellDates: true });
+    // pega a aba que tem a coluna de data (a base manual pode ter uma aba de
+    // tabela dinâmica antes da aba com os dados)
+    const aba = wb.SheetNames.find(function(n) {
+      const ws = wb.Sheets[n];
+      const cab = XLSX.utils.sheet_to_json(ws, { header: 1, range: 0 })[0] || [];
+      return cab.indexOf("Data de Processamento") !== -1;
+    });
+    if (!aba) throw new Error("Controle de NF de Saída: não achei a coluna \"Data de Processamento\" em nenhuma aba.");
+    linhas = XLSX.utils.sheet_to_json(wb.Sheets[aba], { defval: "" });
+  } else {
+    const texto = (await arquivo.text()).replace(/\r/g, "");
+    linhas = parseTSVSelecionado(texto, ["Tipo", "Pedido de Venda", "Qtde Itens", "Status",
+      "Data de Processamento", "Data de Cancelamento", "Cancelado Pelo ERP"]);
+  }
+  if (linhas.length === 0 || !("Data de Processamento" in linhas[0]) || !("Qtde Itens" in linhas[0]) || !("Pedido de Venda" in linhas[0])) {
+    throw new Error("Controle de NF de Saída: arquivo sem as colunas \"Pedido de Venda\", \"Qtde Itens\" e \"Data de Processamento\".");
+  }
+
+  function paraData(v) {
+    if (v instanceof Date) return v;
+    if (typeof v === "number") return new Date(Math.round((v - 25569) * 86400000) + new Date().getTimezoneOffset() * 60000);
+    return parseDataBR(String(v || ""));
+  }
+
+  const porDia = {};
+  let ignoradas = 0;
+  linhas.forEach(function(r) {
+    const tipo = String(r["Tipo"] || "SAIDA").trim().toUpperCase();
+    const status = String(r["Status"] || "PROCESSADA").trim().toUpperCase();
+    const cancelado = String(r["Cancelado Pelo ERP"] || "0").trim() === "1" || String(r["Data de Cancelamento"] || "").trim() !== "";
+    const data = paraData(r["Data de Processamento"]);
+    if (tipo !== "SAIDA" || status !== "PROCESSADA" || cancelado || !data || isNaN(data)) { ignoradas++; return; }
+    const dia = paraDataISOLocal(data);
+    if (!porDia[dia]) porDia[dia] = { itens: 0, pedidos: new Set() };
+    porDia[dia].itens += Number(String(r["Qtde Itens"]).replace(",", ".")) || 0;
+    porDia[dia].pedidos.add(String(r["Pedido de Venda"]));
+  });
+
+  const registros = Object.keys(porDia).sort().map(function(dia) {
+    return { data: dia, itens_expedidos: Math.round(porDia[dia].itens), pedidos_expedidos: porDia[dia].pedidos.size };
+  });
+  if (registros.length === 0) throw new Error("Controle de NF de Saída: nenhuma NF de saída PROCESSADA com data válida.");
+  const resultado = await supabaseClient.from("expedicao_diaria").upsert(registros, { onConflict: "data" });
+  falharSeErro(resultado, "Erro ao gravar expedicao_diaria (Controle de NF de Saída)");
+  diasExpedicaoOficiais = new Set(registros.map(function(r){ return r.data; }));
+
+  const totItens = registros.reduce(function(s, r){ return s + r.itens_expedidos; }, 0);
+  const totPed = registros.reduce(function(s, r){ return s + r.pedidos_expedidos; }, 0);
+  onProgress("Controle de NF de Saída: " + registros.length + " dias gravados (" + registros[0].data + " a " +
+    registros[registros.length - 1].data + ") — " + totPed + " pedidos, " + totItens + " itens" +
+    (ignoradas ? " (" + ignoradas + " linhas ignoradas: canceladas/não processadas)" : "") + ".");
+}
+
 async function processarRelatoriosDaOperacao(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
   const arquivoOp = files.arquivoOp;
   const arquivoExp = files.arquivoExp;
   const arquivoItensNF = files.arquivoItensNF;
   const arquivoPedidosEcomm = files.arquivoPedidosEcomm;
+  diasExpedicaoOficiais = new Set();
+  if (files.arquivoControleNFSaida) await processarControleNFSaida(files.arquivoControleNFSaida, onProgress);
   await uploadArquivoOriginal("outbound/Acompanhamento_Op.tsv", arquivoOp);
 
   onProgress("Validando e lendo Acompanhamento_Op...");
@@ -1225,6 +1295,7 @@ async function refecharExpedicaoDoMesPeloBanco() {
     const dia = paraDataISOLocal(d);
     const banco = porDia[dia] || { itens: 0, pedidos: 0 };
     const atual = existentePorDia[dia];
+    if (diasExpedicaoOficiais.has(dia)) continue;
     if (atual && (atual.pedidos_expedidos || 0) > banco.pedidos) continue;
     linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
   }
@@ -1421,12 +1492,17 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // (a linha de hoje em expedicao_diaria, se existir, é ignorada abaixo e
   // substituída por esse valor ao vivo)
   const hojeAoVivo = (await expedicaoPorDiaDoBanco(hojeExpedISO))[hojeExpedISO] || { itens: 0, pedidos: 0 };
+  // Se hoje já tem linha gravada (ex.: veio do Controle de NF de Saída), fica
+  // com a maior das duas contagens.
+  const hojeGravado = (acumExpedRows || []).find(function(r){ return r.data === hojeExpedISO; });
+  const hojeFinal = hojeGravado && (hojeGravado.pedidos_expedidos || 0) > hojeAoVivo.pedidos
+    ? { itens: hojeGravado.itens_expedidos || 0, pedidos: hojeGravado.pedidos_expedidos || 0 } : hojeAoVivo;
   kpis.acumulado_expedicao_mes =
     (acumExpedRows || []).filter(function(r){ return r.data !== hojeExpedISO; })
-      .reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0) + hojeAoVivo.itens;
+      .reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0) + hojeFinal.itens;
   kpis.acumulado_expedicao_mes_pedidos =
     (acumExpedRows || []).filter(function(r){ return r.data !== hojeExpedISO; })
-      .reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) + hojeAoVivo.pedidos;
+      .reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) + hojeFinal.pedidos;
 
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
   // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de
