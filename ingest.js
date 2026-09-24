@@ -1202,9 +1202,10 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
 
 // Refecha em expedicao_diaria todos os dias do mês atual até ontem (e os
 // últimos 7 dias, se o mês acabou de virar) usando o histórico do banco.
-// Nunca REDUZ um dia já gravado: se o banco tem menos pedidos que o
-// registro existente (dia anterior ao histórico que o banco guarda), o
-// registro existente é mantido.
+// O banco é a fonte de verdade: o dia é sempre regravado com o valor dele,
+// inclusive para baixo — registros antigos em expedicao_diaria podiam estar
+// inflados (gravados antes da deduplicação de pedidos), e manter o maior
+// valor deixava o acumulado do mês acima do real.
 async function refecharExpedicaoDoMesPeloBanco() {
   const hoje = new Date();
   const hojeISO = paraDataISOLocal(hoje);
@@ -1214,20 +1215,10 @@ async function refecharExpedicaoDoMesPeloBanco() {
   const inicioISO = paraDataISOLocal(inicio);
 
   const porDia = await expedicaoPorDiaDoBanco(inicioISO);
-  const { data: existentes, error } = await supabaseClient
-    .from("expedicao_diaria")
-    .select("data, itens_expedidos, pedidos_expedidos")
-    .gte("data", inicioISO);
-  if (error) throw new Error("Erro ao ler expedicao_diaria: " + error.message);
-  const existentePorDia = {};
-  (existentes || []).forEach(function(r){ existentePorDia[r.data] = r; });
-
   const linhas = [];
   for (let d = new Date(inicio); paraDataISOLocal(d) < hojeISO; d.setDate(d.getDate() + 1)) {
     const dia = paraDataISOLocal(d);
     const banco = porDia[dia] || { itens: 0, pedidos: 0 };
-    const atual = existentePorDia[dia];
-    if (atual && (atual.pedidos_expedidos || 0) > banco.pedidos) continue;
     linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
   }
   if (linhas.length > 0) {
