@@ -1193,7 +1193,9 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
       porDia[dia].itens += Number(p.qtd_total_produto) || 0;
       porDia[dia].pedidos += 1;
     });
-    if (!data || data.length < PAGINA) break;
+    // para só na página vazia: se o servidor limitar max-rows abaixo de
+    // PAGINA, "data.length < PAGINA" pararia na primeira página
+    if (!data || data.length === 0) break;
   }
   return porDia;
 }
@@ -1232,7 +1234,8 @@ async function refecharExpedicaoDoMesPeloBanco() {
     const resultado = await supabaseClient.from("expedicao_diaria").upsert(linhas, { onConflict: "data" });
     falharSeErro(resultado, "Erro ao gravar expedicao_diaria");
   }
-  console.log("Expedição refechada pelo banco:", linhas);
+  console.log("Expedição refechada pelo banco (dia, itens, pedidos):");
+  console.table(Object.keys(porDia).sort().map(function(d){ return { dia: d, itens: porDia[d].itens, pedidos: porDia[d].pedidos }; }));
 }
 async function computarExpedicaoSemana(pedidos, forecastRows) {
   const hoje = new Date();
