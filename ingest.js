@@ -1351,17 +1351,19 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   const hojeExpedISO = paraDataISOLocal(hojeExped);
   const { data: acumExpedRows } = await supabaseClient
     .from("expedicao_diaria")
-    .select("itens_expedidos, data")
+    .select("itens_expedidos, pedidos_expedidos, data")
     .gte("data", anoAtualExped + "-" + String(mesAtualExped + 1).padStart(2, "0") + "-01");
   const hojeJaFechado = (acumExpedRows || []).some(function(r){ return r.data === hojeExpedISO; });
-  const itensExpedidosHojeAoVivo = hojeJaFechado ? 0 : pedidos
-    .filter(function(p){
-      return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado" &&
-             p.processado_em && paraDataISOLocal(p.processado_em) === hojeExpedISO;
-    })
-    .reduce(function(s, p){ return s + (p.qtd_total_produto || 0); }, 0);
+  const expedidosHojeAoVivo = hojeJaFechado ? [] : pedidos.filter(function(p){
+    return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado" &&
+           p.processado_em && paraDataISOLocal(p.processado_em) === hojeExpedISO;
+  });
   kpis.acumulado_expedicao_mes =
-    (acumExpedRows || []).reduce(function(s, r){ return s + r.itens_expedidos; }, 0) + itensExpedidosHojeAoVivo;
+    (acumExpedRows || []).reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0) +
+    expedidosHojeAoVivo.reduce(function(s, p){ return s + (p.qtd_total_produto || 0); }, 0);
+  kpis.acumulado_expedicao_mes_pedidos =
+    (acumExpedRows || []).reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) +
+    expedidosHojeAoVivo.length;
 
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
   // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de

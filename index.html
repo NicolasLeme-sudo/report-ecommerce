@@ -303,7 +303,7 @@ body {
 .stack  { display: flex; flex-direction: column; gap: 16px; }
 
 /* KPI cards */
-.kpi-row { display: grid; grid-template-columns: repeat(3,1fr) 2.1fr; gap: 14px; margin-bottom: 16px; }
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr) 2.1fr; gap: 14px; margin-bottom: 16px; }
 /* Mesma proporção de largura do .kpi-row (3 cards normais : 1 largo pro
    sparkline = 3 : 2.1, igual ao Outbound), só que com 2 linhas de
    indicadores à esquerda. Usa flexbox, não CSS Grid com linhas 1fr — um
@@ -2087,7 +2087,7 @@ function renderizarOutbound(atual, anterior) {
     aplicarFiltrosOutbound(anterior);
   });
 
-  renderKpis(atual, anterior, atual.kpis.acumulado_expedicao_mes);
+  renderKpis(atual, anterior, atual.kpis.acumulado_expedicao_mes, atual.kpis.acumulado_expedicao_mes_pedidos);
   renderSparkline(atual.integracao_7dias);
   renderMatriz(atual.status_por_etapa_itens, 'matrixItens');
   renderMatriz(atual.status_por_etapa_pedidos, 'matrixPedidos');
@@ -2209,7 +2209,7 @@ function aplicarFiltrosOutbound(anterior) {
   const recalculado = recalcularOutboundFiltrado(pedidosFiltrados);
 
   document.getElementById('kpiRow').innerHTML = '';
-  renderKpis(recalculado, anterior, outboundPayloadAtual.kpis.acumulado_expedicao_mes);
+  renderKpis(recalculado, anterior, outboundPayloadAtual.kpis.acumulado_expedicao_mes, outboundPayloadAtual.kpis.acumulado_expedicao_mes_pedidos);
   renderSparkline(outboundPayloadAtual.integracao_7dias);
   renderMatriz(recalculado.status_por_etapa_itens, 'matrixItens');
   renderMatriz(recalculado.status_por_etapa_pedidos, 'matrixPedidos');
@@ -2219,11 +2219,12 @@ function aplicarFiltrosOutbound(anterior) {
 }
 
 /* ---------- KPIs ---------- */
-function renderKpis(atual, anterior, acumuladoMes) {
+function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos) {
   const kpis = [
     { tag: 'Pedidos em fluxo', val: fmtInt(atual.kpis.pedidos_em_fluxo), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: fmtInt(atual.kpis.itens_em_fluxo),   delta: '—', bar: 'bar-info', dc: 'delta-flat' },
-    { tag: 'Expedição acumulada do Mês', val: fmtInt(acumuladoMes), delta: '—', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', bar: 'bar-ok', dc: 'delta-flat' },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
