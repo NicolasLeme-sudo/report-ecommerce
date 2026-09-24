@@ -1088,7 +1088,7 @@ async function buscarTetoHistoricoIntegracao() {
 
     data.forEach(function(r) {
       if (!r.importado_em) return;
-      const diaISO = paraDataISOLocal(new Date(r.importado_em));
+      const diaISO = paraDataISOLocal(dataDoBanco(r.importado_em));
       porDia[diaISO] = (porDia[diaISO] || 0) + (Number(r.qtd_total_produto) || 0);
     });
 
@@ -1166,6 +1166,19 @@ async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
 
   return { data: diaISO, itens: itens, pedidos: qtdPedidos };
 }
+// As colunas de data de pedidos são "timestamp without time zone" e recebem
+// o Date do navegador serializado em UTC (toISOString) — ou seja, o valor
+// gravado é o horário UTC, sem o "Z". Lido de volta, "2026-09-05T02:05:49"
+// seria interpretado como horário LOCAL e ficaria 3h adiantado: tudo que foi
+// processado depois das 21h caía no dia seguinte (movimento em sábado e
+// feriado, 31/08 à noite contando em setembro). Aqui o texto é lido como UTC.
+function dataDoBanco(valor) {
+  if (!valor) return null;
+  if (valor instanceof Date) return valor;
+  const txt = String(valor).replace(" ", "T");
+  return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(txt) ? txt : txt + "Z");
+}
+
 // Expedição por dia (itens e pedidos) a partir da tabela pedidos do banco,
 // que acumula TODOS os uploads — não só o arquivo da rodada atual. Antes o
 // fechamento dos últimos 7 dias usava apenas os pedidos do upload atual: se
@@ -1188,7 +1201,7 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
     if (error) throw new Error("Erro ao ler pedidos expedidos: " + error.message);
     (data || []).forEach(function(p) {
       if (!p.processado_em || p.status_calculado === "Cancelado") return;
-      const dia = paraDataISOLocal(new Date(p.processado_em));
+      const dia = paraDataISOLocal(dataDoBanco(p.processado_em));
       if (!porDia[dia]) porDia[dia] = { itens: 0, pedidos: 0 };
       porDia[dia].itens += Number(p.qtd_total_produto) || 0;
       porDia[dia].pedidos += 1;
