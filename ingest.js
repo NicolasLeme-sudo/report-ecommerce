@@ -2571,6 +2571,65 @@ async function processarBalanco(files, options) {
   onProgress("✓ Balanço atualizado! WMS: " + totalWMSQtde.toLocaleString('pt-BR') + " | SAP: " + totalSAPQtde.toLocaleString('pt-BR'));
 }
 
+// Gera uma nova versão do balanço com o pendente da Reversa recém-publicado,
+// sem precisar reenviar WMS e SAP. A Reversa costuma ser a última base
+// carregada (é a mais demorada de extrair), então o balanço gerado antes dela
+// ficava com o pendente da Reversa ANTERIOR. Aqui o lado WMS da linha
+// "Integração de NFs Reversa" troca o ajuste antigo pelo novo e o resto (WMS,
+// SAP, exclusões) é reaproveitado do último snapshot do balanço. Só grava um
+// snapshot novo — as tabelas de estoque não são tocadas.
+async function recalcularBalancoComReversa(pendente, onProgress) {
+  onProgress = onProgress || function(){};
+  if (!pendente || !Number(pendente.qtde)) return;
+  if (!Number(pendente.valor)) {
+    // cálculo local de fallback (sem R$) — não sobrescreve o balanço com valor zerado
+    onProgress("⚠ Balanço não recalculado: pendente da Reversa veio sem valor em R$.");
+    return;
+  }
+  const resBal = await supabaseClient.from("dashboard_snapshots")
+    .select("payload").eq("pagina", "balanco")
+    .order("gerado_em", { ascending: false }).limit(1);
+  const antigo = resBal.data && resBal.data[0] && resBal.data[0].payload;
+  if (resBal.error || !antigo || !antigo.estoque_wms || !antigo.estoque_sap) {
+    onProgress("⚠ Balanço não recalculado com a Reversa nova (sem balanço anterior para reaproveitar).");
+    return;
+  }
+  const resRev = await supabaseClient.from("dashboard_snapshots")
+    .select("gerado_em").eq("pagina", "reversa")
+    .order("gerado_em", { ascending: false }).limit(1);
+
+  const CLASSE_REVERSA = "Integração de NFs Reversa";
+  const wmsPorClass = {};
+  antigo.estoque_wms.forEach(function(r) { wmsPorClass[r.classificacao] = { qtde: Number(r.qtde) || 0, valor: Number(r.valor) || 0 }; });
+  if (!wmsPorClass[CLASSE_REVERSA]) wmsPorClass[CLASSE_REVERSA] = { qtde: 0, valor: 0 };
+  const ajAntigo = antigo.ajuste_reversa || { qtde: 0, valor: 0 };
+  const ajusteReversa = {
+    qtde: Number(pendente.qtde) || 0,
+    valor: Number(pendente.valor) || 0,
+    origem_gerado_em: resRev.data && resRev.data[0] ? resRev.data[0].gerado_em : new Date().toISOString(),
+  };
+  wmsPorClass[CLASSE_REVERSA].qtde  += ajusteReversa.qtde  - (Number(ajAntigo.qtde)  || 0);
+  wmsPorClass[CLASSE_REVERSA].valor += ajusteReversa.valor - (Number(ajAntigo.valor) || 0);
+
+  const sapPorBin = {};
+  antigo.estoque_sap.forEach(function(r) { sapPorBin[r.bin] = { classificacao: r.classificacao, qtde: Number(r.qtde) || 0, valor: Number(r.valor) || 0 }; });
+
+  const totWMSQ = Object.values(wmsPorClass).reduce(function(s, v){ return s + v.qtde; }, 0);
+  const totWMSV = Object.values(wmsPorClass).reduce(function(s, v){ return s + v.valor; }, 0);
+  const totSAPQ = Object.values(sapPorBin).reduce(function(s, v){ return s + v.qtde; }, 0);
+  const totSAPV = Object.values(sapPorBin).reduce(function(s, v){ return s + v.valor; }, 0);
+  const wmsReg = Object.keys(wmsPorClass).map(function(c) {
+    return { classificacao: c, qtde: wmsPorClass[c].qtde, valor: Math.round(wmsPorClass[c].valor * 100) / 100,
+             pct: totWMSQ > 0 ? (wmsPorClass[c].qtde / totWMSQ * 100) : 0 };
+  }).sort(function(a, b){ return b.qtde - a.qtde; });
+
+  const payload = gerarPayloadBalanco(wmsReg, wmsPorClass, antigo.estoque_sap, sapPorBin,
+    totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa, antigo.exclusao_tipo_local, antigo.perda_calculo_rpc);
+  await salvarSnapshot("balanco", "auto", payload);
+  onProgress("✓ Balanço de estoque atualizado com o pendente da Reversa nova: " +
+    ajusteReversa.qtde.toLocaleString('pt-BR') + " itens (antes " + (Number(ajAntigo.qtde) || 0).toLocaleString('pt-BR') + ").");
+}
+
 function gerarPayloadBalanco(wmsReg, wmsPorClass, sapReg, sapPorBin, totWMSQ, totWMSV, totSAPQ, totSAPV, ajusteReversa, excluidosPorTipo, perdaCalculoRpc) {
   function montarLinha(rotulo, bin, wmsClass, wmsD, sapD) {
     var dQ = wmsD.qtde - sapD.qtde;
@@ -3314,6 +3373,12 @@ var embalasBarraMap = new Map();
 
   await salvarSnapshot("reversa", "auto", payload);
   await registrarLog("reversa", "Controle_NF_Reversa + Itens_NF_Entrada + Troca_Ecomm", nfsPendentes.size);
+  try {
+    await recalcularBalancoComReversa(pendenteIntegracao, onProgress);
+  } catch (e) {
+    console.error("Erro ao atualizar o balanço com a Reversa nova:", e);
+    onProgress("⚠ Reversa atualizada, mas o balanço não foi recalculado: " + e.message);
+  }
 
   onProgress("✓ Reversa atualizada! " + nfsPendentes.size + " NFs pendentes | " + (itensVinc+itensArm).toLocaleString('pt-BR') + " itens.");
 }
