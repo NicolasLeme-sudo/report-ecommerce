@@ -992,3 +992,56 @@ determinam o schema e as seções do dashboard:
 - Arquivos do repositório: `index.html` (render), `ingest.js` (processa),
   `favicon.png` / `MIZ.png` / `OLY.png` / `UA.png` (logos), `mapa-brasil.js`
   (dado geográfico auxiliar), `relatorio.html` (relatório correlato).
+
+---
+
+## 9. Fluxo de Processos — E-commerce
+
+Fluxograma do processo operacional do CD (Recebimento → Armazenagem →
+Separação → Packing → Expedição, mais o fluxo à parte de Reversa), no menu
+**Processos → Fluxo de Processos**, visível a **todos os perfis** — é
+material de treinamento, não só de gestão. Quem tem perfil **admin** também
+edita, ao vivo, no navegador.
+
+É a **mesma página do report-DISTR** (seção 10 do README de lá): mesmo motor
+de desenho, mesmo editor, mesmo CSS, mesmo modelo de dados. Só muda o
+conteúdo do processo.
+
+| Arquivo | O que é |
+|---|---|
+| `ecom-fluxo.js` | Renderizador + editor. Cópia do `distr-fluxo.js`. |
+| `index.html` | Menu "Processos", seção `#secao-fluxo`, CSS `#dfRoot`, busca na topbar. |
+| `migracao_rls_ecom_fluxo.sql` | Libera leitura de `ecom_fluxo` ao operador. |
+| `seed_ecom_fluxo.sql` | Primeira versão publicada (esqueleto das fases). |
+
+### Diferenças em relação à DISTR
+
+- **Chave no banco:** `dashboard_snapshots.pagina = 'ecom_fluxo'`.
+- **Colunas obrigatórias:** aqui `tipo_snapshot` e `data_snapshot` são
+  `NOT NULL`, então o "Salvar alterações" grava `tipo_snapshot='manual'`,
+  `data_snapshot` e `gerado_em` (UTC, mesmo padrão do `ingest.js`).
+- **RLS:** na DISTR a leitura já era aberta a qualquer página. Aqui a policy
+  `leitura_por_perfil` lista as páginas do operador — `ecom_fluxo` foi
+  adicionada (`migracao_rls_ecom_fluxo.sql`). A escrita continua só admin
+  (`escrita_somente_admin`). Checklist da seção 5.2 aplicado.
+- **Tabela "Armazéns"** no rodapé só aparece se o payload tiver armazéns
+  (nasce sem).
+- **Histórico de versões** (dropdown da sidebar) não se aplica a esta tela:
+  cada "Salvar" já vira uma linha nova no banco, recuperável por SQL.
+- **Barra de rolagem:** as linhas full-bleed das fases (`left/right:-9999px`)
+  são recortadas com `.conteudo:has(#secao-fluxo.ativa) { overflow-x: hidden }`,
+  porque aqui quem rola é o `.conteudo` (na DISTR era o `<html>`).
+
+### Editando (admin)
+
+Botão **✏️ Editar fluxo** → clicar numa seta insere etapa/quebra/B.O.;
+clicar numa etapa ou losango abre o painel de edição; **Setores**, **+ Nova
+fase**, **Salvar alterações** / **Descartar**. Detalhes completos no README
+do report-DISTR, seção 10.
+
+### Publicar a primeira versão
+
+Rodar uma vez, no SQL Editor do projeto "Report - Operacional":
+`migracao_rls_ecom_fluxo.sql` e depois `seed_ecom_fluxo.sql`. O seed publica
+o esqueleto (5 fases + Reversa, uma "Primeira etapa" em cada); o conteúdo real
+é montado na tela pelo admin.

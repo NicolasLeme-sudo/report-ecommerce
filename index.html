@@ -489,6 +489,465 @@ table.matrix tbody tr.total th {
   border: 1px solid var(--border); background: var(--bg-input); color: var(--text-muted); cursor: pointer;
 }
 .chip.ativo { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ============================================================
+   BUSCA DO FLUXO NA TOPBAR — só aparece (classe .ativa, alternada em
+   mostrarSecao) na seção Fluxo de Processos. O <input> é criado uma vez
+   pelo ecom-fluxo.js e nunca destruído, só escondido/mostrado.
+   ============================================================ */
+.topbar-busca { display: none; flex: 1 1 auto; justify-content: center; min-width: 0; }
+.topbar-busca.ativa { display: flex; align-items: center; gap: 10px; }
+.topbar-busca input[type=search] {
+  flex: 1 1 240px; max-width: 420px; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font: inherit; font-size: 13px; padding: 7px 11px;
+}
+.topbar-busca input::placeholder { color: var(--text-muted); }
+.topbar-busca .df-qhint { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+/* As linhas "full-bleed" do fluxo (.df-lane-h::before, .df-phase-div::before)
+   usam left/right:-9999px. Aqui o .conteudo tem overflow-y:auto (o que força
+   overflow-x:auto também), então essa sobra invisível virava uma barra de
+   rolagem horizontal vazia. Só na tela do fluxo, recorta a sobra. */
+.conteudo:has(#secao-fluxo.ativa) { overflow-x: hidden; }
+
+/* ============================================================
+   FLUXO DE PROCESSOS - E-COMMERCE — CSS do diagrama (ecom-fluxo.js)
+   Copiado 1:1 do report-DISTR (mesmo desenho, mesmas cores).
+   Tudo prefixado df- e escopado sob #dfRoot (nunca em :root/html/body),
+   pra não vazar nem colidir com as variáveis e classes acima. Cores
+   reagem ao [data-tema] do próprio app, sem toggle de tema próprio.
+   ============================================================ */
+#dfRoot {
+  --df-bg:#142032; --df-bg-deep:#031F44; --df-card:#2C3E52; --df-card-2:#243444; --df-bd:#44576C;
+  --df-tx:#FFFFFF; --df-tx2:#93A5B8; --df-gold:#F6BD00; --df-blue:#297ADF; --df-red:#C8102E; --df-green:#45C645;
+  --df-r:8px;
+  --df-f:"Segoe UI","Segoe UI Semibold",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* ── ajustes de layout — controláveis pelo painel (canto inferior direito) ── */
+  --df-gap-lane: 46px;      /* espaço vertical entre etapas do tronco */
+  --df-gap-branch-x: 130px; /* espaço horizontal entre o losango e o ramo lateral */
+  --df-gap-chain-y: 46px;   /* espaço vertical entre itens empilhados de um mesmo ramo */
+  --df-box-w: 222px;        /* largura dos retângulos de etapa */
+  --df-box-h: 54px;         /* ALTURA FIXA das etapas — é o que garante o ritmo vertical */
+  --df-dia-size: 210px;     /* losango: medida VISUAL de ponta a ponta (= caixa de layout) */
+}
+[data-tema="claro"] #dfRoot {
+  --df-bg:#F4F6F9; --df-bg-deep:#E9EDF2; --df-card:#FFFFFF; --df-card-2:#EDF1F6; --df-bd:#C7D1DB;
+  --df-tx:#1A3A6B; --df-tx2:#5B6B7C; --df-gold:#B07F05; --df-blue:#1A6FC4; --df-red:#C0392B; --df-green:#2E9E2E;
+}
+#dfRoot * {box-sizing:border-box}
+
+
+#dfRoot .df-wrap {max-width:1180px;margin:0 auto;padding:0 24px 96px}
+#dfRoot h1, #dfRoot h2 {text-wrap:balance;margin:0}
+#dfRoot p {margin:0}
+#dfRoot code {font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;font-size:.92em}
+#dfRoot button {font-family:inherit}
+
+/* header */
+#dfRoot header {background:var(--bg);border-bottom:1px solid var(--df-bd);padding:26px 0 0}
+#dfRoot .df-hd {max-width:1180px;margin:0 auto;padding:0 24px;display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap}
+#dfRoot .df-hd img {height:32px;width:auto;flex:none}
+[data-tema="claro"] #dfRoot .df-hd img {filter:brightness(0) saturate(100%) invert(14%) sepia(46%)
+ saturate(1878%) hue-rotate(190deg) brightness(94%) contrast(93%)}
+#dfRoot .df-kick {font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--df-gold);font-weight:700;margin:0 0 6px}
+#dfRoot h1 {font-size:clamp(24px,3.2vw,34px);font-weight:700;letter-spacing:-.015em;line-height:1.12}
+#dfRoot .df-sub {color:var(--df-tx2);max-width:66ch;margin-top:10px;font-size:14.5px}
+#dfRoot .df-rule {height:2px;background:var(--df-gold);width:56px;margin:16px 0 0}
+#dfRoot .df-tgl {margin-left:auto;background:transparent;border:1px solid var(--df-bd);color:var(--df-tx2);
+ border-radius:99px;padding:7px 14px;font:inherit;font-size:12.5px;cursor:pointer;display:flex;gap:7px;align-items:center}
+#dfRoot .df-tgl:hover {color:var(--df-tx);border-color:var(--df-gold)}
+#dfRoot .df-tgl svg {width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.9}
+
+#dfRoot .df-stats {max-width:1180px;margin:24px auto 0;padding:0 24px;display:grid;
+ grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:1px;background:var(--df-bd);
+ border:1px solid var(--df-bd);border-bottom:none;border-radius:var(--df-r) var(--df-r) 0 0;overflow:hidden}
+#dfRoot .df-stat {background:var(--df-bg-deep);padding:12px 16px}
+#dfRoot .df-stat b {display:block;font-size:23px;font-weight:300;line-height:1.15;font-variant-numeric:tabular-nums}
+#dfRoot .df-stat span {font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--df-tx2)}
+#dfRoot .df-stat.df-a b {color:var(--df-blue)} #dfRoot .df-stat.df-b b {color:var(--df-red)} #dfRoot .df-stat.df-c b {color:var(--df-gold)}
+
+#dfRoot .df-blk {margin-top:40px}
+#dfRoot .df-blk>h2 {font-size:18px;font-weight:700;margin-bottom:14px}
+
+/* legend */
+#dfRoot .df-legend-blk {margin-top:28px}
+#dfRoot .df-legs {display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px 22px;
+ background:var(--df-card);border:1px solid var(--df-bd);border-radius:var(--df-r);padding:16px 18px}
+#dfRoot .df-lg {display:flex;align-items:center;gap:11px}
+#dfRoot .df-lg b {font-size:12.5px;font-weight:700;display:block}
+#dfRoot .df-lg p {font-size:12px;color:var(--df-tx2);margin-top:1px}
+#dfRoot .df-sw {flex:none;width:20px;height:16px;border-radius:3px;border:2px solid var(--df-bd)}
+#dfRoot .df-sw-step {border-color:var(--df-bd)}
+#dfRoot .df-sw-dev {border-color:var(--df-red)}
+#dfRoot .df-sw-bif {border-color:var(--df-gold)}
+#dfRoot .df-sw-dia {width:16px;height:16px;border-radius:2px;transform:rotate(45deg);border-color:var(--df-gold)}
+#dfRoot .df-ln {flex:none;width:26px;height:0;border-top:2px solid var(--df-bd)}
+#dfRoot .df-ln-n {border-color:var(--df-tx2)}
+#dfRoot .df-ln-ok {border-color:var(--df-green)}
+#dfRoot .df-ln-e {border-color:var(--df-red);border-top-style:dashed}
+#dfRoot .df-ln-f {border-color:var(--df-gold);border-top-style:dashed}
+
+/* search: a barra em si mora agora na topbar do app (.topbar-busca, fora de
+   #dfRoot) — ver comentário em montarBuscaNaTopbar() no distr-fluxo.js. */
+
+/* lanes */
+#dfRoot .df-lane-wrap {margin-top:44px}
+/* Cabeçalho da lane (Fluxo principal / Fluxo de Reversa) com o mesmo
+   tratamento visual dos divisores de fase dentro da lane (.df-phase-div):
+   linha fina + selo dourado — pra virada de setor ficar tão sinalizada
+   quanto virada de fase. */
+#dfRoot .df-lane-h {position:relative;display:flex;align-items:center;justify-content:center;
+ margin:0 0 6px;overflow:visible}
+#dfRoot .df-lane-h::before {content:'';display:block;position:absolute;left:-9999px;right:-9999px;top:50%;height:1px;background:var(--gelo)}
+#dfRoot .df-lane-h span {position:relative;background:var(--df-bg);padding:8px 22px;
+ border:1.5px solid var(--df-gold);border-radius:999px;font-size:15px;font-weight:700;color:var(--df-gold)}
+#dfRoot .df-lane-sub {color:var(--df-tx2);font-size:13.5px;margin-top:12px;max-width:70ch;text-align:center}
+/* Área do diagrama: ocupa a largura inteira da janela DISPONÍVEL (sai da
+   coluna de texto de 1180px) e é reduzida por JS até caber.
+   --df-vw (largura) e --df-vw-inicio (posição do início, em px) são escritos
+   pelo JS medindo de verdade onde a área de conteúdo começa NESTA tela —
+   não dá pra usar o truque genérico de "breakout" (margin-left:calc(50% -
+   vw/2)) porque ele assume a página inteira centralizada, sem sidebar.
+   Com a sidebar fixa de 260px a página não é simétrica: aquele cálculo
+   centralizava o diagrama relativo à LARGURA TOTAL da janela (sidebar
+   incluída), sobrando ~130px de sidebar de um lado sem nada do outro —
+   bug relatado como "os fluxos não estão centralizados". margin-left aqui
+   vira um valor em px já calculado (não um calc%), então funciona igual
+   não importa a largura da sidebar. */
+#dfRoot .df-lane-fit {--df-pad:24px;width:var(--df-vw,100%);margin-left:var(--df-vw-inicio,0px);
+ padding:0 var(--df-pad);margin-top:26px;text-align:center;
+ overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
+ scrollbar-width:none;-webkit-overflow-scrolling:touch}
+#dfRoot .df-lane-fit::-webkit-scrollbar {display:none}
+
+#dfRoot .df-lane {position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:var(--df-gap-lane);
+ padding:10px 10px;min-width:100%}
+
+/* boxes */
+#dfRoot .df-box {position:relative;font:inherit;color:var(--df-tx);cursor:default;z-index:2}
+#dfRoot button.df-box {border:0;text-align:left;cursor:pointer}
+#dfRoot .df-step {width:var(--df-box-w);height:var(--df-box-h);background:var(--df-card);border:2px solid var(--df-bd);
+ border-radius:7px;display:flex;align-items:center;gap:9px;padding:8px 12px 8px 11px;
+ transition:border-color .15s,transform .1s}
+#dfRoot .df-step:hover {border-color:var(--df-gold);transform:translateY(-1px)}
+#dfRoot .df-step:focus-visible {outline:2px solid var(--df-gold);outline-offset:2px}
+#dfRoot .df-step.df-t-d {border-color:var(--df-red)}
+#dfRoot .df-step.df-t-b {border-color:var(--df-gold)}
+#dfRoot .df-step.df-t-g {border-color:var(--df-gold);border-style:dashed;background:var(--df-card-2)}
+#dfRoot .df-s-num {position:absolute;top:-9px;left:11px;background:var(--df-bg);padding:0 6px;
+ font-size:10px;font-weight:700;color:var(--df-tx2);font-style:normal;font-variant-numeric:tabular-nums;
+ letter-spacing:.02em}
+[data-tema="claro"] #dfRoot .df-s-num {background:var(--df-bg)}
+#dfRoot .df-s-ico {flex:none;width:26px;height:26px;border-radius:6px;display:grid;place-items:center;
+ border:1.5px solid var(--df-bd);position:relative}
+#dfRoot .df-step.df-t-d .df-s-ico {border-color:var(--df-red)}
+#dfRoot .df-step.df-t-b .df-s-ico {border-color:var(--df-gold)}
+#dfRoot .df-step.df-t-g .df-s-ico {border-color:var(--df-gold)}
+#dfRoot .df-s-ico .df-ic {width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.7;
+ stroke-linecap:round;stroke-linejoin:round;color:var(--df-tx2)}
+#dfRoot .df-s-t {font-size:12.5px;font-weight:600;line-height:1.26;
+ display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+#dfRoot .df-mk {position:absolute;top:-6px;right:-6px;width:15px;height:15px;border-radius:50%;
+ font-style:normal;font-size:10px;font-weight:800;display:grid;place-items:center;
+ background:var(--df-bg);border:1.5px solid var(--df-red);color:var(--df-red)}
+#dfRoot .df-mk-al {border-color:var(--df-gold);color:var(--df-gold)}
+#dfRoot .df-mk-ms {border-color:var(--df-green);color:var(--df-green)}
+#dfRoot .df-mk-lp {border-color:var(--df-blue);color:var(--df-blue)}
+#dfRoot .df-mk:nth-of-type(2) {right:12px}
+#dfRoot .df-mk:nth-of-type(3) {right:30px}
+/* Selo ".df-mk-nv" ("NOVO") removido de vista a pedido do usuário — CSS
+   junto, já que nada mais o desenha (ver comentário em rect(), distr-fluxo.js). */
+
+/* divisor entre fases dentro da mesma lane */
+#dfRoot .df-phase-div {position:relative;width:100%;display:flex;align-items:center;justify-content:center;
+ min-height:1px;overflow:visible}
+#dfRoot .df-phase-div::before {content:'';display:block;position:absolute;left:-9999px;right:-9999px;top:50%;height:1px;background:var(--gelo)}
+#dfRoot .df-phase-div span {position:relative;background:var(--df-bg);padding:7px 20px;border:1.5px solid var(--df-gold);
+ border-radius:999px;color:var(--df-gold);font-weight:700;font-size:11.5px;text-transform:uppercase;
+ letter-spacing:.06em;white-space:nowrap}
+
+/* explicação da regra de numeração */
+#dfRoot .df-rule-box {display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;
+ background:var(--df-bd);border:1px solid var(--df-bd);border-radius:var(--df-r);overflow:hidden}
+#dfRoot .df-rule-box>div {background:var(--df-card);padding:15px 16px}
+#dfRoot .df-rule-box b {display:block;font-size:15px;color:var(--df-gold);font-weight:700;margin-bottom:5px;
+ font-variant-numeric:tabular-nums}
+#dfRoot .df-rule-box p {font-size:12.5px;color:var(--df-tx2);line-height:1.4}
+#dfRoot .df-sw-gate {border-color:var(--df-gold);border-style:dashed}
+
+#dfRoot .df-pill {width:150px;height:44px;border-radius:999px;display:flex;align-items:center;justify-content:center;
+ background:var(--df-card);border:2px solid var(--df-blue);font-size:13px;font-weight:700;text-align:center}
+#dfRoot .df-pill.df-end {border-color:var(--df-green)}
+/* pill-sub, não "sub": a classe genérica .df-sub é o subtítulo do cabeçalho e carrega
+   margin-top:10px, que vazava para esta pílula e quebrava o gap da cadeia (56 em vez de 46). */
+#dfRoot .df-pill.df-end.df-pill-sub {width:var(--df-box-w);height:36px;border-color:var(--df-red);border-style:dashed;
+ background:var(--df-card-2);color:var(--df-tx2);font-weight:600;font-size:12px;margin:0;max-width:none}
+
+/* Losango. O elemento .df-dia NÃO é rotacionado: ele é um quadrado normal de --df-dia-size,
+   então sua caixa de layout é idêntica à caixa visual e os espaçamentos do flex valem
+   de verdade. O formato vem do ::before, um quadrado menor (lado = --df-dia-size/√2)
+   rotacionado 45°, que ao girar ocupa exatamente --df-dia-size de ponta a ponta.
+   (Antes o .df-dia era rotacionado direto: caixa de layout 168px, caixa visual 237,6px —
+   as pontas vazavam ~35px para fora e engoliam o gap de 46px, deixando 11px reais.)
+   Bônus: o texto não precisa de contra-rotação, e os pontos de ancoragem das linhas
+   (meio da borda direita, meio da borda de baixo) caem exatamente nos vértices. */
+#dfRoot .df-dia {width:var(--df-dia-size);height:var(--df-dia-size);position:relative;
+ display:grid;place-items:center}
+#dfRoot .df-dia::before {content:'';position:absolute;top:50%;left:50%;
+ width:calc(var(--df-dia-size) / 1.41421);height:calc(var(--df-dia-size) / 1.41421);
+ transform:translate(-50%,-50%) rotate(45deg);
+ border:2.5px solid var(--df-gold);background:var(--df-card-2);border-radius:6px}
+#dfRoot .df-d-in {position:relative;width:64%;text-align:center;font-size:11.5px;font-weight:700;
+ line-height:1.3;color:var(--df-tx)}
+
+/* guard: diamante + ramo lateral.
+   O ramo é UMA coluna flex só, alinhada ao topo da linha (mesmo topo do losango).
+   O margin-top desloca a coluna inteira em (dia-size − box-h)/2, o que faz o CENTRO
+   do 1º retângulo cair exatamente no CENTRO do losango — a linha do "Sim" sai reta,
+   horizontal, sem cotovelo. Como todos os itens vivem na mesma coluna flex, o gap
+   entre eles é sempre --df-gap-chain-y, inclusive entre o 1º e o 2º.
+   (A versão anterior usava duas linhas de grid: o 1º item ficava na linha do losango
+   e herdava a sobra de (dia-size − box-h)/2 ≈ 58px, que somava ao gap e fazia o
+   primeiro intervalo ficar com o dobro do tamanho dos demais.) */
+/* As duas colunas laterais têm LARGURA FIXA E IGUAL (a mesma da caixa de etapa).
+   Com 1fr o navegador dava à coluna da direita o mínimo de que ela precisava e
+   espremia a da esquerda — o losango saía do centro e desalinhava do tronco em
+   qualquer tela mais estreita que 914px. Fixas + justify-content:center, a linha
+   do tronco e o centro do losango coincidem em QUALQUER largura. */
+#dfRoot .df-grow {display:grid;grid-template-columns:var(--df-box-w) auto var(--df-box-w);align-items:start;
+ justify-content:center;width:100%;column-gap:var(--df-gap-branch-x)}
+#dfRoot .df-gd {grid-column:2}
+#dfRoot .df-gside {grid-column:3;display:flex;flex-direction:column;gap:var(--df-gap-chain-y);
+ align-items:flex-start;margin-top:calc((var(--df-dia-size) - var(--df-box-h)) / 2)}
+
+/* fork: duas colunas iguais, ambas legítimas */
+#dfRoot .df-frow {display:grid;grid-template-columns:1fr 1fr;gap:var(--df-gap-branch-x);width:100%;max-width:680px}
+#dfRoot .df-fcol {display:flex;flex-direction:column;align-items:center;gap:var(--df-gap-chain-y)}
+
+/* wires (svg) */
+#dfRoot svg.df-wires {position:absolute;top:0;left:0;overflow:visible;pointer-events:none;z-index:1}
+#dfRoot svg.df-wires path {fill:none;stroke-width:2}
+#dfRoot .df-wire-normal {stroke:var(--df-tx2)}
+#dfRoot .df-wire-exc {stroke:var(--df-red);stroke-dasharray:5 4}
+#dfRoot .df-wire-fork {stroke:var(--df-gold);stroke-dasharray:5 4}
+#dfRoot .df-wire-ok {stroke:var(--df-green)}
+#dfRoot .df-wire-label {position:absolute;z-index:2;pointer-events:none;font-size:11px;font-weight:700;padding:2px 7px;
+ border-radius:5px;background:var(--df-bg);color:var(--df-tx2);white-space:nowrap;transform:translate(-50%,-50%);
+ border:1px solid var(--df-bd)}
+#dfRoot .df-wire-label.df-wl-exc {color:var(--df-red);border-color:var(--df-red)}
+#dfRoot .df-wire-label.df-wl-fork {color:var(--df-gold);border-color:var(--df-gold)}
+#dfRoot .df-wire-label.df-wl-ok {color:var(--df-green);border-color:var(--df-green)}
+
+/* pendências / tabela (reaproveitado) */
+#dfRoot .df-pend-card {background:var(--df-card);border:1px solid var(--df-gold);border-radius:var(--df-r);padding:16px}
+#dfRoot .df-pend-tag {font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--df-gold);font-weight:700}
+#dfRoot .df-pend-card p {font-size:14px;margin-top:8px;color:var(--df-tx2)}
+#dfRoot .df-pend-card b {color:var(--df-tx)}
+
+#dfRoot .df-tw {overflow-x:auto;scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;border:1px solid var(--df-bd);border-radius:var(--df-r);background:var(--df-card)}
+#dfRoot table {width:100%;border-collapse:collapse;font-size:13.5px;min-width:640px}
+#dfRoot th {background:var(--df-bg-deep);text-align:left;padding:10px 13px;font-size:11px;letter-spacing:.08em;
+ text-transform:uppercase;color:var(--df-tx2);border-bottom:1px solid var(--df-bd);white-space:nowrap}
+#dfRoot td {padding:10px 13px;border-bottom:1px solid var(--df-bd);vertical-align:top}
+/* Tabela de Armazéns (a única <table> em #dfRoot): Código/Transf./Status têm
+   conteúdo curto e fixo ("AC190", "T+ / T−", "ATIVO ▾") — sem largura própria
+   eles disputavam espaço de igual pra igual com Utilização, que é a coluna
+   com o texto mais longo, e cortava no meio sem aviso. Encolhendo as curtas,
+   Utilização ganha o espaço de volta e cabe numa linha só no caso comum. */
+#dfRoot table th:nth-child(1), #dfRoot table td:nth-child(1) { width: 80px; }
+#dfRoot table th:nth-child(5), #dfRoot table td:nth-child(5) { width: 84px; }
+#dfRoot table th:nth-child(6), #dfRoot table td:nth-child(6) { width: 108px; }
+#dfRoot tr:last-child td {border-bottom:0}
+/* Status do armazém reaproveita as classes .badge/.status-cell/.status-toggle/
+   .status-dropdown/.status-opt já usadas na tela de Estoque (definidas mais
+   acima neste arquivo, fora de #dfRoot — funcionam aqui igual, CSS não é
+   isolado por aninhamento). Só falta a variante PENDENTE, que a tela de
+   Estoque não tem. */
+.badge.pend { background: var(--bg-input); color: var(--text-muted); }
+
+/* Campos editáveis da tabela de Armazéns — texto puro (sem borda) fora do
+   modo edição; vira input de verdade só com #dfRoot.df-editando (mesma trava
+   visual do resto da página: ninguém edita sem ligar "Editar fluxo"). */
+#dfRoot .df-armz-input {
+  width: 100%; background: transparent; border: 1px solid transparent; border-radius: 5px;
+  color: var(--df-tx); font: inherit; font-size: 13.5px; padding: 3px 5px; margin: -3px -5px;
+}
+/* Fora do modo edição a célula é texto solto (.df-armz-texto), que quebra
+   linha normalmente dentro da <td> — diferente do <input> que ela substitui
+   ali, que não tem como quebrar e cortava texto mais longo que a coluna
+   ("Vendável — armazém de mate|" sem nem reticências, ver commit). */
+#dfRoot .df-armz-texto { display: block; white-space: normal; overflow-wrap: break-word; }
+#dfRoot .df-armz-cod { color: var(--df-gold); font-weight: 700; }
+#dfRoot.df-editando .df-armz-input:not([readonly]) {
+  background: var(--df-card-2); border-color: var(--df-bd); cursor: text;
+}
+#dfRoot.df-editando .df-armz-input:not([readonly]):focus { outline: none; border-color: var(--df-gold); }
+#dfRoot .df-armz-check { display: flex; align-items: center; gap: 6px; cursor: default; white-space: nowrap; }
+#dfRoot.df-editando .df-armz-check { cursor: pointer; }
+
+/* Seção "Pendências" removida da tela — CSS de .df-pd*/.df-pds junto (nada
+   mais a renderiza; ver comentário em distr-fluxo.js perto de montarShell). */
+
+#dfRoot footer {margin-top:52px;padding-top:18px;border-top:1px solid var(--df-bd);color:var(--df-tx2);font-size:12.5px}
+
+/* dialog */
+#dfRoot dialog {border:0;border-radius:12px;padding:0;background:var(--df-card);color:var(--df-tx);
+ width:min(560px,92vw);max-height:82vh;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;box-shadow:0 20px 60px rgba(0,0,0,.4);margin:auto}
+#dfRoot dialog::backdrop {background:rgba(3,10,20,.6)}
+#dfRoot .df-dlg-x {position:sticky;top:12px;float:right;margin:0 12px 0 0;background:var(--df-bg);border:1px solid var(--df-bd);
+ color:var(--df-tx2);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:13px}
+#dfRoot .df-dlg-x:hover {color:var(--df-tx);border-color:var(--df-gold)}
+#dfRoot #df-dlgbody {padding:24px 26px 28px}
+#dfRoot .df-dg-kick {font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--df-gold);font-weight:700}
+#dfRoot .df-dg-h {font-size:20px;font-weight:700;margin-top:6px}
+#dfRoot .df-dg-chip {display:inline-flex;font-size:11px;font-weight:700;padding:3px 9px;border-radius:99px;
+ margin-top:10px;text-transform:uppercase;letter-spacing:.03em}
+#dfRoot .df-dg-chip.df-t-principal, #dfRoot .df-dg-chip.df-t-seq {color:var(--df-blue);box-shadow:inset 0 0 0 1px var(--df-blue)}
+#dfRoot .df-dg-chip.df-t-desvio {background:var(--df-red);color:#fff}
+#dfRoot .df-dg-chip.df-t-bifurcacao {color:var(--df-gold);box-shadow:inset 0 0 0 1px var(--df-gold)}
+#dfRoot .df-dg-sec {margin-top:16px;padding-top:14px;border-top:1px solid var(--df-bd)}
+#dfRoot .df-dg-sec b {display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--df-tx2);
+ margin-bottom:6px;font-weight:700}
+#dfRoot .df-dg-sec p, #dfRoot .df-dg-sec li {font-size:14px;line-height:1.55}
+#dfRoot .df-dg-sec ul {margin:0;padding-left:19px;display:grid;gap:6px}
+#dfRoot .df-dg-marco b {color:var(--df-green)} #dfRoot .df-dg-loop b {color:var(--df-blue)}
+#dfRoot .df-dg-bo b {color:var(--df-red)} #dfRoot .df-dg-alert b {color:var(--df-gold)}
+#dfRoot .df-dg-meta {display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0}
+#dfRoot .df-dg-meta dt {font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--df-tx2);font-weight:700}
+#dfRoot .df-dg-meta dd {margin:3px 0 0;font-size:13.5px}
+#dfRoot .df-dg-orig blockquote {margin:0;font-size:13.5px;color:var(--df-tx2);line-height:1.62;background:var(--df-card-2);
+ border:1px solid var(--df-bd);border-radius:6px;padding:11px 13px;white-space:pre-wrap}
+#dfRoot .df-dg-handoff {margin-top:8px;font-size:12.5px;color:var(--df-tx2);font-style:italic}
+
+#dfRoot .df-hit {outline:2px solid var(--df-gold);outline-offset:2px}
+#dfRoot .df-dim {opacity:.28}
+/* Pulso ao apertar Enter na busca — só na etapa que o scrollIntoView acabou
+   de visitar, pra diferenciar "achei 5" (contorno dourado parado, .df-hit)
+   de "é essa aqui que você tá vendo agora" (pulsa e some sozinho). */
+#dfRoot .df-hit-atual {animation: df-pulso-busca 1.1s ease-out}
+@keyframes df-pulso-busca {
+  0%   {outline-color: var(--df-gold); box-shadow: 0 0 0 0 rgba(246,189,0,.55)}
+  60%  {box-shadow: 0 0 0 14px rgba(246,189,0,0)}
+  100% {box-shadow: 0 0 0 14px rgba(246,189,0,0)}
+}
+
+@media (prefers-reduced-motion:reduce){#dfRoot * {transition:none!important}}
+#dfRoot .df-drag-hint {display:none;font-size:11.5px;color:var(--df-gold);margin-top:8px;align-items:center;gap:6px}
+#dfRoot .df-drag-hint svg {width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2}
+@media(max-width:760px){
+ #dfRoot .df-wrap, #dfRoot .df-hd, #dfRoot .df-stats {padding-left:16px;padding-right:16px}
+ #dfRoot .df-lane-fit {--df-pad:16px}
+ #dfRoot .df-dg-meta {grid-template-columns:1fr}
+ #dfRoot .df-tunepanel {right:12px;bottom:12px;width:calc(100vw - 24px)}
+}
+
+/* ── painel de ajuste de layout (canto inferior direito, oculto por padrão) ── */
+#dfRoot .df-tunebtn {position:fixed;right:20px;bottom:20px;z-index:60;width:46px;height:46px;border-radius:50%;
+ background:var(--df-card);border:1.5px solid var(--df-bd);color:var(--df-tx2);cursor:pointer;
+ display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.35);transition:border-color .15s,color .15s}
+#dfRoot .df-tunebtn:hover {color:var(--df-gold);border-color:var(--df-gold)}
+#dfRoot .df-tunebtn svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8}
+#dfRoot .df-tunepanel {position:fixed;right:20px;bottom:76px;z-index:60;width:290px;max-height:74vh;overflow:auto;
+ scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;
+ background:var(--df-card);border:1px solid var(--df-bd);border-radius:12px;padding:16px 18px 18px;
+ box-shadow:0 12px 40px rgba(0,0,0,.45)}
+#dfRoot .df-tunepanel[hidden] {display:none}
+#dfRoot .df-tp-h {display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+#dfRoot .df-tp-h b {font-size:13px;font-weight:700}
+#dfRoot .df-tp-h button {background:none;border:0;color:var(--df-tx2);cursor:pointer;font-size:14px;padding:2px 4px}
+#dfRoot .df-tp-h button:hover {color:var(--df-tx)}
+#dfRoot .df-tp-note {font-size:11.5px;color:var(--df-tx2);line-height:1.4;margin-bottom:14px}
+#dfRoot .df-tp-fit {display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+ font-size:12px;color:var(--df-tx2);padding:9px 11px;margin-bottom:12px;
+ background:var(--df-card-2);border:1px solid var(--df-bd);border-radius:7px}
+#dfRoot .df-tp-fit b {color:var(--df-gold);font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+#dfRoot .df-tp-fitnote {font-size:11.5px;color:var(--df-tx2);line-height:1.4;margin:-6px 0 14px}
+#dfRoot .df-tp-fitnote[hidden] {display:none}
+#dfRoot .df-tp-row {margin-bottom:14px}
+#dfRoot .df-tp-row label {display:flex;justify-content:space-between;font-size:12px;color:var(--df-tx2);margin-bottom:5px}
+#dfRoot .df-tp-row label b {color:var(--df-tx);font-weight:600;font-variant-numeric:tabular-nums}
+#dfRoot .df-tp-row input[type=range] {width:100%;accent-color:var(--df-gold)}
+#dfRoot .df-tp-reset {width:100%;margin-top:2px;padding:8px;background:transparent;border:1px solid var(--df-bd);
+ border-radius:7px;color:var(--df-tx2);font:inherit;font-size:12.5px;cursor:pointer}
+#dfRoot .df-tp-reset:hover {color:var(--df-tx);border-color:var(--df-gold)}
+
+/* ── CSS-only additions for the shell, admin editor and its forms ──
+   Everything below is new (not in the approved artifact), scoped the same
+   way as the rest — #dfRoot ancestor, df- prefix on every class. */
+#dfRoot { min-height: 120px; }
+#dfRoot .df-loading { color: var(--df-tx2); font-size: 14px; padding: 24px 0; }
+#dfRoot .df-aviso { border-radius: 6px; padding: 12px 15px; font-size: 13.5px; background: var(--df-card-2);
+ border: 1px solid var(--df-bd); color: var(--df-tx); }
+#dfRoot .df-aviso.df-erro { border-color: var(--df-red); color: var(--df-red); }
+
+/* botão "Editar fluxo" (admin) — flutuante para permanecer visível ao scrollar */
+#dfRoot .df-editbtn { position: fixed; right: 22px; top: 70px; z-index: 100;
+ background: var(--df-card-2); border: 1px solid var(--df-gold);
+ color: var(--df-gold); border-radius: 999px; padding: 8px 16px; font: inherit; font-size: 12.5px; font-weight: 700;
+ cursor: pointer; }
+#dfRoot .df-editbtn:hover { background: var(--df-gold); color: #142032; }
+#dfRoot .df-editbtn.df-on { background: var(--df-gold); color: #142032; }
+#dfRoot .df-editbar[hidden] { display: none; }
+#dfRoot .df-editbar { position: sticky; top: 0; z-index: 31; display: flex; align-items: center; gap: 10px;
+ flex-wrap: wrap; background: var(--df-card-2); border: 1px solid var(--df-gold); border-radius: var(--df-r);
+ padding: 10px 14px; margin: 18px 0; font-size: 12.5px; color: var(--df-tx2); }
+#dfRoot .df-editbar.df-tem-mudanca { border-color: var(--df-gold); box-shadow: 0 0 0 1px var(--df-gold) inset; }
+#dfRoot .df-editbar .df-flex1 { flex: 1 1 auto; }
+#dfRoot .df-btn { background: transparent; border: 1px solid var(--df-bd); color: var(--df-tx);
+ border-radius: 7px; padding: 8px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+#dfRoot .df-btn:hover { border-color: var(--df-gold); }
+#dfRoot .df-btn:disabled { opacity: .45; cursor: default; }
+#dfRoot .df-btn.df-btn-gold { background: var(--df-gold); border-color: var(--df-gold); color: #142032; }
+#dfRoot .df-btn.df-btn-gold:hover { filter: brightness(1.08); }
+#dfRoot .df-btn.df-btn-danger { border-color: var(--df-red); color: var(--df-red); }
+#dfRoot .df-btn.df-btn-danger:hover { background: var(--df-red); color: #fff; }
+
+/* modo edição: o cursor já avisa o que é clicável */
+#dfRoot.df-editando .df-dia { cursor: pointer; }
+#dfRoot.df-editando .df-dia:hover::before { border-color: var(--df-blue); }
+.df-wire-hit { fill: none; stroke: transparent; stroke-width: 16; cursor: pointer; pointer-events: stroke; }
+#dfRoot.df-editando svg.df-wires { pointer-events: none; }
+#dfRoot.df-editando svg.df-wires .df-wire-hit { pointer-events: stroke; }
+
+/* menu flutuante ao clicar numa seta — mesmo padrão do dropdown de
+   categoria do armazém em index.html (fixed, posição calculada em JS) */
+.df-edge-menu { position: fixed; z-index: 500; background: var(--df-card); border: 1px solid var(--df-bd);
+ border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.4); padding: 4px; min-width: 170px; }
+.df-edge-opt { display: block; width: 100%; padding: 8px 11px; border: none; background: transparent;
+ border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12.5px; color: var(--df-tx); text-align: left; }
+.df-edge-opt:hover { background: var(--df-card-2); color: var(--df-gold); }
+
+/* painéis de edição (dentro do <dialog> já existente) */
+#dfRoot .df-campo { display: block; margin-top: 14px; }
+#dfRoot .df-campo > span { display: block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+ color: var(--df-tx2); font-weight: 700; margin-bottom: 5px; }
+#dfRoot .df-campo input[type=text], #dfRoot .df-campo textarea, #dfRoot .df-campo select {
+ width: 100%; background: var(--df-card-2); border: 1px solid var(--df-bd); border-radius: 6px;
+ color: var(--df-tx); font: inherit; font-size: 13.5px; padding: 8px 10px; resize: vertical; }
+#dfRoot .df-campo input[type=text]:focus, #dfRoot .df-campo textarea:focus, #dfRoot .df-campo select:focus {
+ outline: none; border-color: var(--df-gold); }
+#dfRoot .df-campo-lado-a-lado { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+#dfRoot .df-campo-lado-a-lado .df-campo { margin-top: 0; }
+#dfRoot .df-campo-lado-a-lado input[type=text] { width: 100%; background: var(--df-card-2);
+ border: 1px solid var(--df-bd); border-radius: 6px; color: var(--df-tx); font: inherit; font-size: 13.5px; padding: 8px 10px; }
+#dfRoot .df-campo-check { display: flex; align-items: center; gap: 9px; flex-direction: row; }
+#dfRoot .df-campo-check input { flex: none; }
+#dfRoot .df-campo-check span { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--df-tx); }
+#dfRoot .df-painel-acoes { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding-top: 16px;
+ border-top: 1px solid var(--df-bd); }
+#dfRoot .df-painel-acoes .df-flex1 { flex: 1 1 auto; }
+#dfRoot .df-icon-picker { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 6px;
+ margin-top: 4px; }
+#dfRoot .df-icon-opt { background: var(--df-card-2); border: 1.5px solid var(--df-bd); border-radius: 6px;
+ padding: 6px; cursor: pointer; display: grid; place-items: center; color: var(--df-tx2); }
+#dfRoot .df-icon-opt:hover { border-color: var(--df-gold); color: var(--df-tx); }
+#dfRoot .df-icon-opt.df-on { border-color: var(--df-gold); background: var(--df-card); color: var(--df-gold); }
+#dfRoot .df-icon-opt .df-ic { width: 16px; height: 16px; }
+#dfRoot .df-lista-setores { list-style: none; margin: 10px 0; padding: 0; display: grid; gap: 6px; }
+#dfRoot .df-lista-setores li { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+ background: var(--df-card-2); border: 1px solid var(--df-bd); border-radius: 6px; padding: 7px 11px; font-size: 13px; }
+#dfRoot .df-btn-x { background: none; border: none; color: var(--df-tx2); cursor: pointer; font-size: 13px; padding: 2px 6px; }
+#dfRoot .df-btn-x:hover { color: var(--df-red); }
+
 </style>
 </head>
 
@@ -540,6 +999,11 @@ table.matrix tbody tr.total th {
       <span class="icone">⚖️</span> Balanço de Estoque
     </div>
 
+    <div class="sidebar-section-label">Processos</div>
+    <div class="menu-item" onclick="mostrarSecao('fluxo')">
+      <span class="icone">🔗</span> Fluxo de Processos
+    </div>
+
     <div class="sidebar-section-label">Admin</div>
     <div class="menu-item" onclick="mostrarSecao('abastecimento')">
       <span class="icone">⚙️</span> Abastecimento
@@ -562,6 +1026,7 @@ table.matrix tbody tr.total th {
       <div class="topbar-titulo" id="topbarTitulo">Outbound</div>
       <div class="topbar-sub" id="topbarSub">Carregando dados...</div>
     </div>
+    <div class="topbar-busca" id="topbarBusca"></div>
     <div class="topbar-right">
       <div class="topbar-data" id="topbarData"></div>
       <div class="topbar-data" id="topbarPerfil"></div>
@@ -602,6 +1067,11 @@ table.matrix tbody tr.total th {
     <div class="secao" id="secao-balanco">
   <div id="balanco-conteudo"><div class="loading-msg">Clique em Balanço para carregar.</div></div>
 </div>
+
+    <!-- FLUXO DE PROCESSOS (ecom-fluxo.js) -->
+    <div class="secao" id="secao-fluxo">
+      <div id="dfRoot"></div>
+    </div>
 
     <!-- ABASTECIMENTO -->
     <div class="secao" id="secao-abastecimento">
@@ -716,6 +1186,8 @@ table.matrix tbody tr.total th {
 <!-- Lógica de ingestão de dados (cálculos, Supabase) -->
 <script src="ingest.js"></script>
 <script src="mapa-brasil.js"></script>
+<!-- Fluxo de Processos: renderizador + editor (admin), mesmo módulo da DISTR -->
+<script src="ecom-fluxo.js"></script>
 
 <script>
 /* ============================================================
@@ -1573,6 +2045,7 @@ const titulos = {
   estoque:       { nome: 'Gestão de Estoque',   sub: 'Capacidade · Ocupação' },
   reversa:       { nome: 'Reversa',             sub: 'Logística Reversa' },
   balanco:       { nome: 'Balanço de Estoque',  sub: 'WMS × SAP — Acesso Gestão' },
+  fluxo:         { nome: 'Fluxo de Processos',   sub: 'Fluxograma operacional do CD' },
   abastecimento: { nome: 'Abastecimento',        sub: 'Atualização de bases — Acesso Admin' },
 };
 
@@ -1614,6 +2087,20 @@ const REGISTRO_PAGINAS = {
   },
 };
 
+let fluxoCarregado = false;
+
+// Chamado pelo ecom-fluxo.js quando o snapshot do fluxo carrega/é salvo: a
+// data da versão publicada vai no subtítulo da topbar (igual à DISTR). Só
+// escreve se o usuário ainda estiver na tela do fluxo.
+function atualizarSubtituloSecao(secao) {
+  if (secao !== 'fluxo' || secaoAtual !== 'fluxo') return;
+  const iso = window.EcomFluxo ? EcomFluxo.dataSnapshot() : null;
+  document.getElementById('topbarSub').textContent = iso
+    ? 'Última atualização: ' + formatarDataBR(iso)
+    : titulos.fluxo.sub;
+}
+window.atualizarSubtituloSecao = atualizarSubtituloSecao;
+
 function mostrarSecao(secao) {
   // Bloqueio de defesa em profundidade: Reversa é restrita ao perfil Admin.
   // A visibilidade do item no menu já esconde essa opção pra quem não é
@@ -1642,12 +2129,25 @@ function mostrarSecao(secao) {
   document.getElementById('topbarTitulo').textContent = t.nome;
   document.getElementById('topbarSub').textContent    = t.sub;
 
+  // Busca do fluxo vive na topbar; só aparece na tela do fluxo.
+  document.getElementById('topbarBusca').classList.toggle('ativa', secao === 'fluxo');
+
   // Carrega os dados da seção se necessário
   if (secao === 'outbound') carregarOutbound();
   if (secao === 'inbound')  carregarInbound();
   if (secao === 'reversa')  carregarReversa();
   if (secao === 'estoque')  carregarEstoque();
   if (secao === 'balanco')  carregarBalanco();
+  // Fluxo carrega 1x só (primeira visita): o editor guarda alterações não
+  // salvas em memória, recarregar a cada clique no menu as perderia.
+  if (secao === 'fluxo') {
+    if (!fluxoCarregado) {
+      fluxoCarregado = true;
+      EcomFluxo.iniciar('dfRoot', supabaseClient, perfilAtual);
+    } else {
+      atualizarSubtituloSecao('fluxo');
+    }
+  }
 
   // Atualiza o dropdown de histórico pra refletir a tela que acabou de abrir.
   carregarDatasHistorico();
