@@ -1391,22 +1391,51 @@ function abrirGuia(i) {
    fluxo (DADOS.mapa = [{classif, bin, wms, venda, fluxo}]). Espelha a regra
    do banco (function calcular_balanco_wms_final + gabarito_endereco_excecao):
    se o gabarito mudar lá, o mapa precisa ser republicado junto. */
-function mapaHtml() {
-  const mapa = DADOS.mapa || [];
-  if (!mapa.length) return "";
-  const rows = mapa.map(function (m) {
-    const semBin = !m.bin, semWms = !m.wms;
+// Ordenação do mapa: clique no título ordena ▲ (menor → maior), de novo ▼.
+// Abre pelo BIN do SAP, do maior para o menor. Vazios ("Sem BIN", "Sem
+// endereço no WMS", "—") ficam sempre no fim, nos dois sentidos.
+const MAPA_COLS = [["classif", "Classificação"], ["bin", "BIN SAP"], ["wms", "Endereços WMS"],
+  ["venda", "Venda"], ["fluxo", "Onde aparece no fluxo"]];
+let mapaOrd = { k: "bin", d: -1 };
+function mapaValor(m, k) { return k === "venda" ? (m.venda ? "Vendável" : "Bloqueado") : (m[k] || ""); }
+function mapaLinhasHtml() {
+  const k = mapaOrd.k, d = mapaOrd.d;
+  return (DADOS.mapa || []).slice().sort(function (a, b) {
+    const x = mapaValor(a, k), y = mapaValor(b, k);
+    if (!x && !y) return 0;
+    if (!x) return 1;
+    if (!y) return -1;
+    return d * x.localeCompare(y, "pt-BR", { numeric: true });
+  }).map(function (m) {
     return "<tr><td>" + esc(m.classif) + "</td>" +
-      "<td>" + (semBin ? '<span class="df-mapa-na">Sem BIN</span>' : '<code>' + esc(m.bin) + "</code>") + "</td>" +
-      "<td>" + (semWms ? '<span class="df-mapa-na">Sem endereço no WMS</span>' : esc(m.wms)) + "</td>" +
+      "<td>" + (m.bin ? "<code>" + esc(m.bin) + "</code>" : '<span class="df-mapa-na">Sem BIN</span>') + "</td>" +
+      "<td>" + (m.wms ? esc(m.wms) : '<span class="df-mapa-na">Sem endereço no WMS</span>') + "</td>" +
       '<td><span class="df-mapa-st ' + (m.venda ? "df-ok" : "df-bloq") + '">' + (m.venda ? "Vendável" : "Bloqueado") + "</span></td>" +
       "<td>" + esc(m.fluxo || "—") + "</td></tr>";
   }).join("");
+}
+function mapaCabecalhoHtml() {
+  return MAPA_COLS.map(function (c) {
+    const on = c[0] === mapaOrd.k;
+    const sort = on ? (mapaOrd.d > 0 ? "ascending" : "descending") : "none";
+    return '<th aria-sort="' + sort + '"><button type="button" class="df-mapa-ord" data-k="' + c[0] + '">' +
+      esc(c[1]) + ' <span class="df-mapa-ar">' + (on ? (mapaOrd.d > 0 ? "▲" : "▼") : "↕") + "</span></button></th>";
+  }).join("");
+}
+function ordenarMapa(k) {
+  mapaOrd = mapaOrd.k === k ? { k: k, d: -mapaOrd.d } : { k: k, d: 1 };
+  const t = document.getElementById("df-mapa");
+  if (!t) return;
+  t.tHead.rows[0].innerHTML = mapaCabecalhoHtml();
+  t.tBodies[0].innerHTML = mapaLinhasHtml();
+}
+function mapaHtml() {
+  if (!(DADOS.mapa || []).length) return "";
   return '<section class="df-blk"><h2>Mapa do estoque</h2>' +
     '<p class="df-guia-sub">Onde cada tipo de material fica no SAP (BIN) e no WMS (endereço), e em que etapa do fluxo ' +
-    "ele cai lá. Mesma regra usada no Balanço de Estoque WMS × SAP.</p>" +
-    '<div class="df-tw"><table class="df-mapa"><thead><tr><th>Classificação</th><th>BIN SAP</th><th>Endereços WMS</th>' +
-    "<th>Venda</th><th>Onde aparece no fluxo</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>";
+    "ele cai lá. Mesma regra usada no Balanço de Estoque WMS × SAP. Clique num título para ordenar.</p>" +
+    '<div class="df-tw"><table class="df-mapa" id="df-mapa"><thead><tr>' + mapaCabecalhoHtml() +
+    "</tr></thead><tbody>" + mapaLinhasHtml() + "</tbody></table></div></section>";
 }
 // Seção "Pendências" removida da tela a pedido do usuário (desnecessária no
 // cenário atual — eram só notas de revisão/QA, sem valor operacional). O
@@ -1501,6 +1530,8 @@ function montarShell(root) {
   ROOT.addEventListener("click", function (e) {
     const card = e.target.closest(".df-guia-card[data-guia]");
     if (card) abrirGuia(parseInt(card.getAttribute("data-guia"), 10));
+    const ord = e.target.closest(".df-mapa-ord[data-k]");
+    if (ord) ordenarMapa(ord.getAttribute("data-k"));
   });
   document.getElementById("df-dlg").addEventListener("click", function (e) {
     if (e.target.id === "df-dlg") document.getElementById("df-dlg").close();

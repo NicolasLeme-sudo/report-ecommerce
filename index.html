@@ -702,6 +702,14 @@ table.matrix tbody tr.total th {
    própria caixa (.df-tw tem overflow-x:auto), a página não se mexe */
 #dfRoot table.df-mapa {min-width:0}
 #dfRoot table.df-mapa th, #dfRoot table.df-mapa td {white-space:nowrap;vertical-align:middle}
+/* títulos ordenáveis (ordenarMapa) */
+#dfRoot table.df-mapa th {padding:0}
+#dfRoot .df-mapa-ord {all:unset;box-sizing:border-box;display:flex;align-items:center;gap:6px;width:100%;
+ padding:10px 13px;cursor:pointer;font:inherit;letter-spacing:inherit;text-transform:inherit}
+#dfRoot .df-mapa-ord:hover, #dfRoot .df-mapa-ord:focus-visible {color:var(--df-tx)}
+#dfRoot .df-mapa-ord:focus-visible {outline:2px solid var(--df-gold);outline-offset:-2px}
+#dfRoot .df-mapa-ar {font-size:10px;opacity:.4}
+#dfRoot th[aria-sort="ascending"] .df-mapa-ar, #dfRoot th[aria-sort="descending"] .df-mapa-ar {opacity:1;color:var(--df-gold)}
 #dfRoot table.df-mapa code {font-size:12.5px;color:var(--df-gold)}
 #dfRoot .df-mapa-na {font-size:12px;color:var(--df-tx2);font-style:italic}
 #dfRoot .df-mapa-st {font-size:11.5px;font-weight:700;border:1px solid;border-radius:99px;padding:1px 9px;white-space:nowrap}
