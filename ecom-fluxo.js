@@ -120,10 +120,15 @@ function edge(a, b, kind, label, sem, meta) {
        posição atPos (atPos === length da lista de hoje = "no fim").
    É essa meta que o clique na seta (onEdgeClick) lê pra saber o que oferecer
    no menu e onde exatamente mexer na topologia (ver "MOTOR DE NUMERAÇÃO"). */
-function renderSection(faseId, blocos, out, prev, prevLabel, prevSem) {
+function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) {
   let pendingRejoin = [];
+  // prevSkip: depois de uma bifurcação com nº ÍMPAR de caminhos, o ramo do meio
+  // fica exatamente embaixo do losango — a linha reta losango → próxima etapa
+  // passaria por cima das caixas dele. Nesse caso só os ramos se ligam à
+  // próxima etapa (com 2 caminhos a linha passa no vão entre eles, igual DISTR).
   function flushTo(nextBid, blocoIdx) {
-    edge(prev, nextBid, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
+    if (!prevSkip) edge(prev, nextBid, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
+    prevSkip = false;
     pendingRejoin.forEach(function (r) { edge(r[0], nextBid, "straight", "", r[1], r[2]); });
     pendingRejoin = [];
     prev = nextBid; prevLabel = ""; prevSem = "normal";
@@ -141,7 +146,8 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem) {
       const dia = diamondHtml(question, "guard", faseId, blocoIdx), did = dia[0];
       out.push('<div class="df-grow" data-bloco="' + blocoIdx + '" data-fase="' + esc(faseId) +
         '"><div class="df-gd">' + dia[1] + '</div><div class="df-gside">');
-      edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
+      if (!prevSkip) edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
+      prevSkip = false;
       prev = did;
       let sidePrev = did;
       nExc.forEach(function (n, i) {
@@ -167,8 +173,8 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem) {
       const question = b[1], branches = b[2];
       const dia = diamondHtml(question, "fork", faseId, blocoIdx), did = dia[0];
       out.push(dia[1]);
-      edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
-      prev = did; prevLabel = ""; prevSem = "normal";
+      if (!prevSkip) edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
+      prev = did; prevLabel = ""; prevSem = "normal"; prevSkip = branches.length % 2 === 1;
       out.push('<div class="df-frow" data-bloco="' + blocoIdx + '" data-fase="' + esc(faseId) + '">');
       branches.forEach(function (br, bi) {
         const lab = br[0], ns = br[1];
@@ -188,7 +194,7 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem) {
       out.push("</div>");
     }
   });
-  return { prev: prev, prevLabel: prevLabel, prevSem: prevSem, pendingRejoin: pendingRejoin, blocoIdxFim: blocos.length };
+  return { prev: prev, prevLabel: prevLabel, prevSem: prevSem, prevSkip: prevSkip, pendingRejoin: pendingRejoin, blocoIdxFim: blocos.length };
 }
 
 /* sections = [{id,titulo,blocos}, ...] — uma lane contínua com Início único,
@@ -203,22 +209,22 @@ function renderMulti(lane) {
   ];
   const inicio = pillHtml("Início", "df-start"), sid = inicio[0];
   out.push(inicio[1]);
-  let prev = sid, prevLabel = "", prevSem = "normal", trailingRejoin = [], prevFaseId = null, prevBlocoFim = 0;
+  let prev = sid, prevLabel = "", prevSem = "normal", prevSkip = false, trailingRejoin = [], prevFaseId = null, prevBlocoFim = 0;
   lane.fases.forEach(function (fase, i) {
     if (i > 0) {
       const divId = uid();
       out.push('<div class="df-phase-div" id="' + divId + '"><span>' + esc(fase.titulo) + "</span></div>");
-      edge(prev, divId, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
+      if (!prevSkip) edge(prev, divId, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
       trailingRejoin.forEach(function (r) { edge(r[0], divId, "straight", "", r[1], r[2]); });
-      prev = divId; prevLabel = ""; prevSem = "normal";
+      prev = divId; prevLabel = ""; prevSem = "normal"; prevSkip = false;
     }
-    const r = renderSection(fase.id, fase.blocos, out, prev, prevLabel, prevSem);
-    prev = r.prev; prevLabel = r.prevLabel; prevSem = r.prevSem; trailingRejoin = r.pendingRejoin;
+    const r = renderSection(fase.id, fase.blocos, out, prev, prevLabel, prevSem, prevSkip);
+    prev = r.prev; prevLabel = r.prevLabel; prevSem = r.prevSem; prevSkip = r.prevSkip; trailingRejoin = r.pendingRejoin;
     prevFaseId = fase.id; prevBlocoFim = r.blocoIdxFim;
   });
   const fim = pillHtml("Fim", "df-end"), eid = fim[0];
   out.push(fim[1]);
-  edge(prev, eid, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
+  if (!prevSkip) edge(prev, eid, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
   trailingRejoin.forEach(function (r) { edge(r[0], eid, "straight", "", r[1], r[2]); });
   out.push("</div></div></section>");
   return out.join("");
@@ -536,10 +542,14 @@ function openDetail(fase, n) {
   if (d.marco) html += '<div class="df-dg-sec df-dg-marco"><b>Por que essa etapa importa</b><p>' + esc(d.marco) + "</p></div>";
   if (d.loop) html += '<div class="df-dg-sec df-dg-loop"><b>Volta ao fluxo</b><p>' + esc(d.loop) + "</p></div>";
   if (d.nota) html += '<div class="df-dg-sec df-dg-alert"><b>Observação</b><p>' + esc(d.nota) + "</p></div>";
-  const nota = armazemNota(d);
+  // Armazém origem/destino só aparece quando a etapa movimenta entre
+  // armazéns (no e-commerce quase nunca); Sistema, quando preenchido.
+  const temArmazem = !(d.orig === "—" && d.dest === "—");
+  const nota = temArmazem ? armazemNota(d) : "";
   html += '<div class="df-dg-sec"><dl class="df-dg-meta">' +
     "<div><dt>Responsável</dt><dd>" + respHtml(d.resp) + "</dd></div>" +
-    "<div><dt>Armazém</dt><dd>" + esc(d.orig) + " → " + esc(d.dest) + "</dd></div></dl>" +
+    (d.sis && d.sis !== "—" ? "<div><dt>Sistema</dt><dd>" + esc(d.sis).replace(/\//g, " · ") + "</dd></div>" : "") +
+    (temArmazem ? "<div><dt>Armazém</dt><dd>" + esc(d.orig) + " → " + esc(d.dest) + "</dd></div>" : "") + "</dl>" +
     (nota ? '<p class="df-dg-handoff">' + nota + "</p>" : "") + "</div>";
   if (d.resp && d.resp.indexOf("/") > -1) {
     html += '<p class="df-dg-handoff">Mais de uma área envolvida, em sequência — cada uma assume a ' +
@@ -578,7 +588,7 @@ function wireSearch() {
     ROOT.querySelectorAll(".df-step[data-n]").forEach(function (b) {
       const key = nodeKey(b.getAttribute("data-fase"), b.getAttribute("data-n")), d = DADOS.nos[key];
       if (!d) return;
-      const hay = (d.n + " " + d.nome + " " + d.nome_orig + " " + d.resp).toLowerCase();
+      const hay = (d.n + " " + d.nome + " " + d.nome_orig + " " + d.resp + " " + (d.sis || "")).toLowerCase();
       const hit = t && hay.indexOf(t) > -1;
       b.classList.toggle("df-hit", hit);
       b.classList.toggle("df-dim", !!t && !hit);
@@ -949,6 +959,7 @@ function abrirPainelNo(fase, n, ehNovo) {
     campoArea("Texto original validado pela área", "df-f-original", d.original, 3) +
     campoInput("Responsável(is) — separe com \"/\" quando houver mais de uma área em sequência",
       "df-f-resp", d.resp, { list: "df-dl-setores", placeholder: "ex.: Comercial/Planejamento/Coleta" }) +
+    campoInput("Sistema(s) — separe com \"/\"", "df-f-sis", d.sis || "", { placeholder: "ex.: WMS/SAP" }) +
     '<div class="df-campo-lado-a-lado">' +
     campoInput("Armazém origem", "df-f-orig", d.orig, { placeholder: "— se não movimenta" }) +
     campoInput("Armazém destino", "df-f-dest", d.dest, { placeholder: "— se não movimenta" }) +
@@ -989,6 +1000,7 @@ function abrirPainelNo(fase, n, ehNovo) {
     d.resumo = g("df-f-resumo");
     d.original = g("df-f-original");
     d.resp = g("df-f-resp");
+    d.sis = g("df-f-sis");
     d.orig = g("df-f-orig") || "—";
     d.dest = g("df-f-dest") || "—";
     d.tipo = document.getElementById("df-f-tipo").value;
@@ -1328,6 +1340,24 @@ function atualizarEdicaoArmazens() {
   const bloco = document.getElementById("df-armazens-bloco");
   if (bloco) bloco.innerHTML = armazensTableHtml();
 }
+/* Guia da operação — compilado para quem não conhece o processo (setores,
+   sistemas, classificações, ondas, siglas). Vem do payload (DADOS.guia =
+   [{titulo, itens:[[termo, texto], ...]}]); sem guia no payload, o bloco
+   não aparece. Cada grupo abre/fecha (<details>), o primeiro já aberto. */
+function guiaHtml() {
+  const guia = DADOS.guia || [];
+  if (!guia.length) return "";
+  return '<section class="df-blk"><h2>Guia da operação</h2>' +
+    '<p class="df-guia-sub">Para quem não conhece o processo: o que cada setor faz, os sistemas, como os pedidos ' +
+    "são classificados e os termos do dia a dia do CD.</p>" +
+    '<div class="df-guia">' + guia.map(function (g, i) {
+      const itens = (g.itens || []).map(function (it) {
+        return "<div><dt>" + esc(it[0]) + "</dt><dd>" + esc(it[1]) + "</dd></div>";
+      }).join("");
+      return '<details class="df-guia-card"' + (i === 0 ? " open" : "") + "><summary><span>" + esc(g.titulo) +
+        "</span><em>" + (g.itens || []).length + "</em></summary><dl>" + itens + "</dl></details>";
+    }).join("") + "</div></section>";
+}
 // Seção "Pendências" removida da tela a pedido do usuário (desnecessária no
 // cenário atual — eram só notas de revisão/QA, sem valor operacional). O
 // campo DADOS.pendencias continua sendo salvo no payload (linha ~1280) por
@@ -1371,6 +1401,7 @@ function montarShell(root) {
     '<div><b>5A, 5B</b><p>Bifurcação legítima — dois caminhos igualmente corretos, não um erro.</p></div>' +
     '<div><b>Cada fase recomeça do 1</b><p>Cada fase do fluxo é tratada como um processo separado.</p></div>' +
     "</div></section>" +
+    guiaHtml() +
     /* Prefixo "df-" nas classes modificadoras (df-sw-step, df-ln-n, ...) é
        obrigatório — o CSS só reconhece a forma composta ".df-sw.df-sw-dev"
        etc. Sem ele (como estava) a legenda inteira aparecia sem nenhuma cor,
@@ -1478,6 +1509,7 @@ async function salvar() {
       nos: DADOS.nos,
       armazens: DADOS.armazens,
       pendencias: DADOS.pendencias,
+      guia: DADOS.guia, // editado fora da tela (seed); sem isto o Salvar apagaria o guia
     };
     // .select() no insert pra trazer de volta o gerado_em que o BANCO gravou
     // (a coluna é default now(); o relógio do servidor é a fonte de verdade,
