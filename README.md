@@ -1028,6 +1028,17 @@ conteúdo do processo.
   (nasce sem).
 - **Histórico de versões** (dropdown da sidebar) não se aplica a esta tela:
   cada "Salvar" já vira uma linha nova no banco, recuperável por SQL.
+- **Guia da operação:** bloco logo abaixo de "Como a numeração funciona",
+  vindo de `payload.guia` (`[{titulo, itens:[[termo, texto]]}]`). Setores,
+  sistemas, classificação de pedidos, ondas, processos internos e siglas, para
+  quem não conhece a operação. Não é editável pela tela (ainda): muda por seed
+  — o "Salvar alterações" só preserva o que já está lá.
+- **Campo Sistema** (`sis`, ex.: `WMS/SAP`) em cada etapa: aparece no detalhe e
+  no editor e entra na busca. "Armazém origem → destino" só aparece no detalhe
+  quando a etapa movimenta entre armazéns.
+- **Bifurcação com 3+ caminhos** (ondas SINGLE / COLMEIA / PEDIDO A PEDIDO):
+  uma coluna por caminho; com nº ímpar de caminhos a linha reta losango →
+  próxima etapa não é desenhada (passaria por cima do ramo do meio).
 - **Barra de rolagem:** as linhas full-bleed das fases (`left/right:-9999px`)
   são recortadas com `.conteudo:has(#secao-fluxo.ativa) { overflow-x: hidden }`,
   porque aqui quem rola é o `.conteudo` (na DISTR era o `<html>`).
@@ -1043,5 +1054,6 @@ do report-DISTR, seção 10.
 
 Rodar uma vez, no SQL Editor do projeto "Report - Operacional":
 `migracao_rls_ecom_fluxo.sql` e depois `seed_ecom_fluxo.sql`. O seed publica
-o esqueleto (5 fases + Reversa, uma "Primeira etapa" em cada); o conteúdo real
-é montado na tela pelo admin.
+o esqueleto (5 fases + Reversa, uma "Primeira etapa" em cada).
+`seed_ecom_fluxo_v2.sql` publica o fluxo real validado com a operação
+(8 fases, 97 etapas, guia da operação) como versão nova.

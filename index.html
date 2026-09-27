@@ -674,6 +674,22 @@ table.matrix tbody tr.total th {
 #dfRoot .df-rule-box p {font-size:12.5px;color:var(--df-tx2);line-height:1.4}
 #dfRoot .df-sw-gate {border-color:var(--df-gold);border-style:dashed}
 
+/* guia da operação (ecom-fluxo.js, guiaHtml) — grupos que abrem/fecham */
+#dfRoot .df-guia-sub {font-size:13px;color:var(--df-tx2);margin:-6px 0 14px;max-width:80ch}
+#dfRoot .df-guia {display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;align-items:start}
+#dfRoot .df-guia-card {background:var(--df-card);border:1px solid var(--df-bd);border-radius:var(--df-r)}
+#dfRoot .df-guia-card summary {display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;
+ list-style:none;font-weight:700;font-size:14px;color:var(--df-gold)}
+#dfRoot .df-guia-card summary::-webkit-details-marker {display:none}
+#dfRoot .df-guia-card summary::before {content:"▸";color:var(--df-tx2);font-size:12px}
+#dfRoot .df-guia-card[open] summary::before {content:"▾"}
+#dfRoot .df-guia-card summary span {flex:1}
+#dfRoot .df-guia-card summary em {font-style:normal;font-size:11px;font-weight:600;color:var(--df-tx2);
+ border:1px solid var(--df-bd);border-radius:99px;padding:1px 8px}
+#dfRoot .df-guia-card dl {margin:0;padding:2px 16px 14px;display:grid;gap:10px}
+#dfRoot .df-guia-card dt {font-size:13px;font-weight:700;color:var(--df-tx)}
+#dfRoot .df-guia-card dd {margin:2px 0 0;font-size:12.5px;line-height:1.45;color:var(--df-tx2)}
+
 #dfRoot .df-pill {width:150px;height:44px;border-radius:999px;display:flex;align-items:center;justify-content:center;
  background:var(--df-card);border:2px solid var(--df-blue);font-size:13px;font-weight:700;text-align:center}
 #dfRoot .df-pill.df-end {border-color:var(--df-green)}
@@ -721,6 +737,10 @@ table.matrix tbody tr.total th {
 
 /* fork: duas colunas iguais, ambas legítimas */
 #dfRoot .df-frow {display:grid;grid-template-columns:1fr 1fr;gap:var(--df-gap-branch-x);width:100%;max-width:680px}
+/* bifurcação com 3+ caminhos (ex.: ondas SINGLE / COLMEIA / PEDIDO A PEDIDO):
+   uma coluna por caminho, lado a lado, em vez de quebrar o 3º para baixo */
+#dfRoot .df-frow:has(> .df-fcol:nth-child(3)) {grid-template-columns:none;grid-auto-flow:column;
+ grid-auto-columns:1fr;max-width:1060px}
 #dfRoot .df-fcol {display:flex;flex-direction:column;align-items:center;gap:var(--df-gap-chain-y)}
 
 /* wires (svg) */
