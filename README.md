@@ -1029,10 +1029,21 @@ conteúdo do processo.
 - **Histórico de versões** (dropdown da sidebar) não se aplica a esta tela:
   cada "Salvar" já vira uma linha nova no banco, recuperável por SQL.
 - **Guia da operação:** bloco logo abaixo de "Como a numeração funciona",
-  vindo de `payload.guia` (`[{titulo, itens:[[termo, texto]]}]`). Setores,
-  sistemas, classificação de pedidos, ondas, processos internos e siglas, para
-  quem não conhece a operação. Não é editável pela tela (ainda): muda por seed
-  — o "Salvar alterações" só preserva o que já está lá.
+  vindo de `payload.guia` (`[{titulo, itens:[[termo, texto]]}]`). Cada grupo é
+  um botão que abre uma janela flutuante (o `<dialog>` do detalhe, versão
+  larga) com os itens em colunas. Não é editável pela tela (ainda): muda por
+  seed — o "Salvar alterações" só preserva o que já está lá.
+- **Mapa do estoque:** tabela no fim da página (`payload.mapa`: classificação,
+  BIN do SAP, endereços do WMS, vendável/bloqueado, etapa do fluxo). Espelha a
+  regra do banco — function `calcular_balanco_wms_final` + tabela
+  `gabarito_endereco_excecao` (K04, K05). **Mudou o gabarito lá, republique o
+  mapa junto.**
+- **Escala fixa de 105%** (`ESCALA` em `ecom-fluxo.js`). O antigo "ajuste à
+  tela" media a largura incluindo as linhas full-bleed das fases e sempre caía
+  no piso de 85%. A medição agora esconde essas linhas (`.df-medindo`).
+- **Redesenho ao voltar para a tela:** com a seção escondida o desenho não é
+  recalculado (tudo mede 0 e as caixas saíam do lugar das linhas);
+  `mostrarSecao('fluxo')` chama `EcomFluxo.redesenhar()`.
 - **Campo Sistema** (`sis`, ex.: `WMS/SAP`) em cada etapa: aparece no detalhe e
   no editor e entra na busca. "Armazém origem → destino" só aparece no detalhe
   quando a etapa movimenta entre armazéns.
@@ -1055,5 +1066,5 @@ do report-DISTR, seção 10.
 Rodar uma vez, no SQL Editor do projeto "Report - Operacional":
 `migracao_rls_ecom_fluxo.sql` e depois `seed_ecom_fluxo.sql`. O seed publica
 o esqueleto (5 fases + Reversa, uma "Primeira etapa" em cada).
-`seed_ecom_fluxo_v2.sql` publica o fluxo real validado com a operação
+`seed_ecom_fluxo_v3.sql` publica o fluxo real validado com a operação
 (8 fases, 97 etapas, guia da operação) como versão nova.

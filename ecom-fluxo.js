@@ -398,6 +398,10 @@ function drawAll() {
   // em telas do app que não são o Fluxo de Processos — se a seção nunca foi
   // aberta (ROOT ainda não montado), não há nada pra desenhar.
   if (!ROOT) return;
+  // Tela do fluxo escondida (usuário em outra seção): display:none mede tudo
+  // como 0 e o desenho ficava deslocado ao voltar. Não desenha agora — o
+  // index.html chama EcomFluxo.redesenhar() quando a seção volta a aparecer.
+  if (!ROOT.offsetParent) return;
   // --df-vw (largura) e --df-vw-inicio (margin-left) precisam ser atualizados
   // ANTES de tudo: controlam a largura "full bleed" do diagrama (regra
   // .df-lane-fit). Calculados por MEDIÇÃO real, não por %: a página tem uma
@@ -454,25 +458,37 @@ function scheduleDraw() {
 // principal"/"Fluxo de Reversa" tem seu próprio, calculado a partir da
 // linha mais larga dela) — subir o número não quebra nada de layout, só
 // muda quanto do desenho cabe sem precisar arrastar.
-const FIT_MIN = 0.85;
-function zoomOff() { ROOT.querySelectorAll(".df-lane").forEach(function (l) { l.style.zoom = ""; }); }
+// Escala do desenho (caixas, fontes, losangos, linhas). Antes era "ajuste
+// automático à tela" com piso de 0.85 — mas a largura "natural" medida
+// incluía as linhas full-bleed das fases (left/right:-9999px), então o
+// cálculo sempre caía no piso e o fluxo ficava sempre em 85%. Agora a
+// escala é fixa (pedido da operação: fluxo maior, mais legível); se a trilha
+// não couber, arrasta-se para o lado (a dica aparece sozinha).
+const ESCALA = 1.05;
+function zoomOff() {
+  ROOT.querySelectorAll(".df-lane").forEach(function (l) { l.style.zoom = ""; l.style.minWidth = ""; });
+}
 function fitAll() {
   const lanes = Array.prototype.slice.call(ROOT.querySelectorAll(".df-lane"));
   if (!lanes.length) return;
-  // --df-vw já foi atualizado em drawAll(), antes do desenho das linhas —
-  // não repetir aqui (ver comentário em drawAll).
   zoomOff();
   const host = lanes[0].parentNode, cs = getComputedStyle(host);
   const avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  // mede sem as linhas full-bleed (senão scrollWidth ≈ 11.000px)
+  ROOT.classList.add("df-medindo");
   let natural = 0;
-  lanes.forEach(function (l) { natural = Math.max(natural, l.scrollWidth); });
-  let s = 1;
-  if (natural > avail + 1) s = Math.max(FIT_MIN, avail / natural);
-  s = Math.floor(s * 1000) / 1000;
-  if (s < 1) lanes.forEach(function (l) { l.style.zoom = String(s); });
+  lanes.forEach(function (l) { l.style.minWidth = "0"; natural = Math.max(natural, l.scrollWidth); l.style.minWidth = ""; });
+  ROOT.classList.remove("df-medindo");
+  const s = ESCALA;
+  lanes.forEach(function (l) {
+    l.style.zoom = String(s);
+    // min-width:100% é aplicado ANTES do zoom — sem compensar, a trilha
+    // ficaria 5% mais larga que a tela e sempre "arrastável".
+    l.style.minWidth = (100 / s) + "%";
+  });
   const pct = Math.round(s * 100);
   const badge = document.getElementById("df-v-fit"); if (badge) badge.textContent = pct + "%";
-  const note = document.getElementById("df-tp-fitnote"); if (note) note.hidden = s === 1;
+  const note = document.getElementById("df-tp-fitnote"); if (note) note.hidden = true;
   const scrollable = natural * s > avail + 2;
   ROOT.querySelectorAll(".df-drag-hint").forEach(function (h) { h.style.display = scrollable ? "flex" : "none"; });
 }
@@ -1343,8 +1359,9 @@ function atualizarEdicaoArmazens() {
 /* Guia da operação — compilado para quem não conhece o processo (setores,
    sistemas, classificações, ondas, siglas). Vem do payload (DADOS.guia =
    [{titulo, itens:[[termo, texto], ...]}]); sem guia no payload, o bloco
-   não aparece. Todos os grupos começam fechados (<details>): cada pessoa
-   abre só o que quer ler. */
+   não aparece. Cada grupo é um botão que abre uma janela flutuante (o mesmo
+   <dialog> do detalhe das etapas, em versão larga) com os itens em colunas —
+   nada empurra a página para baixo. Fecha no X, clicando fora ou com Esc. */
 function guiaHtml() {
   const guia = DADOS.guia || [];
   if (!guia.length) return "";
@@ -1352,13 +1369,44 @@ function guiaHtml() {
     '<p class="df-guia-sub">Para quem não conhece o processo: o que cada setor faz, os sistemas, como os pedidos ' +
     "são classificados e os termos do dia a dia do CD.</p>" +
     '<p class="df-guia-hint">Abra os cards para detalhamento da operação</p>' +
-    '<div class="df-guia">' + guia.map(function (g) {
-      const itens = (g.itens || []).map(function (it) {
-        return "<div><dt>" + esc(it[0]) + "</dt><dd>" + esc(it[1]) + "</dd></div>";
-      }).join("");
-      return '<details class="df-guia-card"><summary><span>' + esc(g.titulo) +
-        "</span><em>" + (g.itens || []).length + "</em></summary><dl>" + itens + "</dl></details>";
+    '<div class="df-guia">' + guia.map(function (g, i) {
+      return '<button type="button" class="df-guia-card" data-guia="' + i + '"><span>' + esc(g.titulo) +
+        "</span><em>" + (g.itens || []).length + "</em></button>";
     }).join("") + "</div></section>";
+}
+function abrirGuia(i) {
+  const g = (DADOS.guia || [])[i];
+  if (!g) return;
+  const itens = (g.itens || []).map(function (it) {
+    return "<div><dt>" + esc(it[0]) + "</dt><dd>" + esc(it[1]) + "</dd></div>";
+  }).join("");
+  document.getElementById("df-dlgbody").innerHTML =
+    '<p class="df-dg-kick">Guia da operação</p><h3 class="df-dg-h">' + esc(g.titulo) + "</h3>" +
+    '<dl class="df-guia-cols">' + itens + "</dl>";
+  const dlg = document.getElementById("df-dlg");
+  dlg.classList.add("df-dlg-larga");
+  dlg.showModal();
+}
+/* Mapa do estoque — classificação × BIN do SAP × endereços do WMS × etapa do
+   fluxo (DADOS.mapa = [{classif, bin, wms, venda, fluxo}]). Espelha a regra
+   do banco (function calcular_balanco_wms_final + gabarito_endereco_excecao):
+   se o gabarito mudar lá, o mapa precisa ser republicado junto. */
+function mapaHtml() {
+  const mapa = DADOS.mapa || [];
+  if (!mapa.length) return "";
+  const rows = mapa.map(function (m) {
+    const semBin = !m.bin, semWms = !m.wms;
+    return "<tr><td>" + esc(m.classif) + "</td>" +
+      "<td>" + (semBin ? '<span class="df-mapa-na">Sem BIN no SAP</span>' : '<code>' + esc(m.bin) + "</code>") + "</td>" +
+      "<td>" + (semWms ? '<span class="df-mapa-na">Sem endereço no WMS</span>' : esc(m.wms)) + "</td>" +
+      '<td><span class="df-mapa-st ' + (m.venda ? "df-ok" : "df-bloq") + '">' + (m.venda ? "Vendável" : "Bloqueado") + "</span></td>" +
+      "<td>" + esc(m.fluxo || "—") + "</td></tr>";
+  }).join("");
+  return '<section class="df-blk"><h2>Mapa do estoque</h2>' +
+    '<p class="df-guia-sub">Onde cada tipo de material fica no SAP (BIN) e no WMS (endereço), e em que etapa do fluxo ' +
+    "ele cai lá. Mesma regra usada no Balanço de Estoque WMS × SAP.</p>" +
+    '<div class="df-tw"><table class="df-mapa"><thead><tr><th>Classificação</th><th>BIN SAP</th><th>Endereços WMS</th>' +
+    "<th>Venda</th><th>Onde aparece no fluxo</th></tr></thead><tbody>" + rows + "</tbody></table></div></section>";
 }
 // Seção "Pendências" removida da tela a pedido do usuário (desnecessária no
 // cenário atual — eram só notas de revisão/QA, sem valor operacional). O
@@ -1424,6 +1472,7 @@ function montarShell(root) {
     // a tabela depende de classes de status da tela de Estoque da DISTR).
     ((DADOS.armazens && DADOS.armazens.length) ?
       '<section class="df-blk"><h2>Armazéns</h2><div id="df-armazens-bloco">' + armazensTableHtml() + "</div></section>" : "") +
+    mapaHtml() +
     '<footer id="df-footer">Clique numa etapa para o detalhe completo — o texto original validado por cada ' +
     "área está preservado na íntegra ali dentro.</footer>" +
     "</div>" +
@@ -1448,6 +1497,11 @@ function montarShell(root) {
     }).join("") +
     '<button class="df-tp-reset" id="df-tp-reset" type="button">Restaurar padrão</button></div>';
   document.getElementById("df-dlgx").addEventListener("click", function () { document.getElementById("df-dlg").close(); });
+  document.getElementById("df-dlg").addEventListener("close", function () { this.classList.remove("df-dlg-larga"); });
+  ROOT.addEventListener("click", function (e) {
+    const card = e.target.closest(".df-guia-card[data-guia]");
+    if (card) abrirGuia(parseInt(card.getAttribute("data-guia"), 10));
+  });
   document.getElementById("df-dlg").addEventListener("click", function (e) {
     if (e.target.id === "df-dlg") document.getElementById("df-dlg").close();
   });
@@ -1512,6 +1566,7 @@ async function salvar() {
       armazens: DADOS.armazens,
       pendencias: DADOS.pendencias,
       guia: DADOS.guia, // editado fora da tela (seed); sem isto o Salvar apagaria o guia
+      mapa: DADOS.mapa, // idem
     };
     // .select() no insert pra trazer de volta o gerado_em que o BANCO gravou
     // (a coluna é default now(); o relógio do servidor é a fonte de verdade,
@@ -1579,6 +1634,8 @@ async function iniciar(rootId, supabaseClient, perfilAtual) {
 // o snapshot não carregou (a seção carrega sob demanda, na primeira visita).
 global.EcomFluxo = {
   iniciar: iniciar,
+  // chamado pelo index.html ao voltar para a seção (ver drawAll)
+  redesenhar: function () { scheduleDraw(); },
   dataSnapshot: function () { return SNAP_INFO ? SNAP_INFO.gerado_em : null; },
 };
 })(window);

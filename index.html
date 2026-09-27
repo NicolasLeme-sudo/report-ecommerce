@@ -683,19 +683,28 @@ table.matrix tbody tr.total th {
 /* guia da operação (ecom-fluxo.js, guiaHtml) — grupos que abrem/fecham */
 #dfRoot .df-guia-sub {font-size:13px;color:var(--df-tx2);margin:-6px 0 8px;max-width:80ch}
 #dfRoot .df-guia-hint {font-size:12.5px;font-weight:600;color:var(--df-gold);margin:0 0 12px}
-#dfRoot .df-guia {display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;align-items:start}
-#dfRoot .df-guia-card {background:var(--df-card);border:1px solid var(--df-bd);border-radius:var(--df-r)}
-#dfRoot .df-guia-card summary {display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;
- list-style:none;font-weight:700;font-size:14px;color:var(--df-gold)}
-#dfRoot .df-guia-card summary::-webkit-details-marker {display:none}
-#dfRoot .df-guia-card summary::before {content:"▸";color:var(--df-tx2);font-size:12px}
-#dfRoot .df-guia-card[open] summary::before {content:"▾"}
-#dfRoot .df-guia-card summary span {flex:1}
-#dfRoot .df-guia-card summary em {font-style:normal;font-size:11px;font-weight:600;color:var(--df-tx2);
+#dfRoot .df-guia {display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+#dfRoot .df-guia-card {display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;text-align:left;
+ background:var(--df-card);border:1px solid var(--df-bd);border-radius:var(--df-r);
+ font-weight:700;font-size:14px;color:var(--df-gold);transition:border-color .15s}
+#dfRoot .df-guia-card:hover, #dfRoot .df-guia-card:focus-visible {border-color:var(--df-gold);outline:none}
+#dfRoot .df-guia-card span {flex:1}
+#dfRoot .df-guia-card em {font-style:normal;font-size:11px;font-weight:600;color:var(--df-tx2);
  border:1px solid var(--df-bd);border-radius:99px;padding:1px 8px}
-#dfRoot .df-guia-card dl {margin:0;padding:2px 16px 14px;display:grid;gap:10px}
-#dfRoot .df-guia-card dt {font-size:13px;font-weight:700;color:var(--df-tx)}
-#dfRoot .df-guia-card dd {margin:2px 0 0;font-size:12.5px;line-height:1.45;color:var(--df-tx2)}
+/* janela do guia: mais larga, itens em colunas (3 em tela cheia, 1 no celular) */
+#dfRoot dialog.df-dlg-larga {width:min(1100px,94vw)}
+#dfRoot .df-guia-cols {margin:16px 0 0;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px 26px}
+#dfRoot .df-guia-cols dt {font-size:13.5px;font-weight:700;color:var(--df-tx)}
+#dfRoot .df-guia-cols dd {margin:3px 0 0;font-size:13px;line-height:1.5;color:var(--df-tx2)}
+/* mapa do estoque (mapaHtml) */
+#dfRoot table.df-mapa th:nth-child(n), #dfRoot table.df-mapa td:nth-child(n) {width:auto}
+#dfRoot table.df-mapa code {font-size:12.5px;color:var(--df-gold)}
+#dfRoot .df-mapa-na {font-size:12px;color:var(--df-tx2);font-style:italic}
+#dfRoot .df-mapa-st {font-size:11.5px;font-weight:700;border:1px solid;border-radius:99px;padding:1px 9px;white-space:nowrap}
+#dfRoot .df-mapa-st.df-ok {color:var(--df-green)}
+#dfRoot .df-mapa-st.df-bloq {color:var(--df-red)}
+/* medição da largura real do fluxo (fitAll): sem as linhas full-bleed */
+#dfRoot.df-medindo .df-phase-div::before, #dfRoot.df-medindo .df-lane-h::before {display:none}
 
 #dfRoot .df-pill {width:150px;height:44px;border-radius:999px;display:flex;align-items:center;justify-content:center;
  background:var(--df-card);border:2px solid var(--df-blue);font-size:13px;font-weight:700;text-align:center}
@@ -811,7 +820,7 @@ table.matrix tbody tr.total th {
 #dfRoot .df-armz-check { display: flex; align-items: center; gap: 6px; cursor: default; white-space: nowrap; }
 #dfRoot.df-editando .df-armz-check { cursor: pointer; }
 
-/* Seção "Pendências" removida da tela — CSS de .df-pd*/.df-pds junto (nada
+/* Seção "Pendências" removida da tela — CSS de .df-pd-(item) e .df-pds junto (nada
    mais a renderiza; ver comentário em distr-fluxo.js perto de montarShell). */
 
 #dfRoot footer {margin-top:52px;padding-top:18px;border-top:1px solid var(--df-bd);color:var(--df-tx2);font-size:12.5px}
@@ -2173,6 +2182,8 @@ function mostrarSecao(secao) {
       EcomFluxo.iniciar('dfRoot', supabaseClient, perfilAtual);
     } else {
       atualizarSubtituloSecao('fluxo');
+      // o desenho não é recalculado com a tela escondida; refaz ao voltar
+      EcomFluxo.redesenhar();
     }
   }
 
