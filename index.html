@@ -698,6 +698,10 @@ table.matrix tbody tr.total th {
 #dfRoot .df-guia-cols dd {margin:3px 0 0;font-size:13px;line-height:1.5;color:var(--df-tx2)}
 /* mapa do estoque (mapaHtml) */
 #dfRoot table.df-mapa th:nth-child(n), #dfRoot table.df-mapa td:nth-child(n) {width:auto}
+/* uma linha por célula: sem quebra; em tela estreita o quadro rola dentro da
+   própria caixa (.df-tw tem overflow-x:auto), a página não se mexe */
+#dfRoot table.df-mapa {min-width:0}
+#dfRoot table.df-mapa th, #dfRoot table.df-mapa td {white-space:nowrap;vertical-align:middle}
 #dfRoot table.df-mapa code {font-size:12.5px;color:var(--df-gold)}
 #dfRoot .df-mapa-na {font-size:12px;color:var(--df-tx2);font-style:italic}
 #dfRoot .df-mapa-st {font-size:11.5px;font-weight:700;border:1px solid;border-radius:99px;padding:1px 9px;white-space:nowrap}

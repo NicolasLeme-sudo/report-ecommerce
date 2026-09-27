@@ -1397,7 +1397,7 @@ function mapaHtml() {
   const rows = mapa.map(function (m) {
     const semBin = !m.bin, semWms = !m.wms;
     return "<tr><td>" + esc(m.classif) + "</td>" +
-      "<td>" + (semBin ? '<span class="df-mapa-na">Sem BIN no SAP</span>' : '<code>' + esc(m.bin) + "</code>") + "</td>" +
+      "<td>" + (semBin ? '<span class="df-mapa-na">Sem BIN</span>' : '<code>' + esc(m.bin) + "</code>") + "</td>" +
       "<td>" + (semWms ? '<span class="df-mapa-na">Sem endereço no WMS</span>' : esc(m.wms)) + "</td>" +
       '<td><span class="df-mapa-st ' + (m.venda ? "df-ok" : "df-bloq") + '">' + (m.venda ? "Vendável" : "Bloqueado") + "</span></td>" +
       "<td>" + esc(m.fluxo || "—") + "</td></tr>";
