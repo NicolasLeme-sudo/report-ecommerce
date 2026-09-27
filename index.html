@@ -160,6 +160,10 @@ body {
   flex-direction: column;
   padding: 0;
   border-right: 1px solid rgba(255,255,255,.06);
+  /* Menu fixo: fica preso à altura da tela enquanto só o conteúdo rola.
+     Se um dia os itens passarem da altura da tela, só o menu ganha rolagem. */
+  position: sticky; top: 0; align-self: start;
+  height: 100vh; overflow-y: auto;
 }
 .sidebar-brand {
   padding: 20px 18px 16px;
@@ -214,6 +218,8 @@ body {
   padding: 10px 18px 14px;
   border-top: 1px solid rgba(255,255,255,.07);
   margin-top: auto;
+  /* Sempre visível no rodapé da tela, mesmo se o menu precisar rolar. */
+  position: sticky; bottom: 0; background: var(--bg-sidebar);
 }
 .sidebar-historico .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: #4A6080; font-weight: 700; margin-bottom: 6px; }
 
@@ -675,7 +681,8 @@ table.matrix tbody tr.total th {
 #dfRoot .df-sw-gate {border-color:var(--df-gold);border-style:dashed}
 
 /* guia da operação (ecom-fluxo.js, guiaHtml) — grupos que abrem/fecham */
-#dfRoot .df-guia-sub {font-size:13px;color:var(--df-tx2);margin:-6px 0 14px;max-width:80ch}
+#dfRoot .df-guia-sub {font-size:13px;color:var(--df-tx2);margin:-6px 0 8px;max-width:80ch}
+#dfRoot .df-guia-hint {font-size:12.5px;font-weight:600;color:var(--df-gold);margin:0 0 12px}
 #dfRoot .df-guia {display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px;align-items:start}
 #dfRoot .df-guia-card {background:var(--df-card);border:1px solid var(--df-bd);border-radius:var(--df-r)}
 #dfRoot .df-guia-card summary {display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;

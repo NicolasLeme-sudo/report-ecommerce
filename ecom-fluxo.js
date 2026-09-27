@@ -1343,18 +1343,20 @@ function atualizarEdicaoArmazens() {
 /* Guia da operação — compilado para quem não conhece o processo (setores,
    sistemas, classificações, ondas, siglas). Vem do payload (DADOS.guia =
    [{titulo, itens:[[termo, texto], ...]}]); sem guia no payload, o bloco
-   não aparece. Cada grupo abre/fecha (<details>), o primeiro já aberto. */
+   não aparece. Todos os grupos começam fechados (<details>): cada pessoa
+   abre só o que quer ler. */
 function guiaHtml() {
   const guia = DADOS.guia || [];
   if (!guia.length) return "";
   return '<section class="df-blk"><h2>Guia da operação</h2>' +
     '<p class="df-guia-sub">Para quem não conhece o processo: o que cada setor faz, os sistemas, como os pedidos ' +
     "são classificados e os termos do dia a dia do CD.</p>" +
-    '<div class="df-guia">' + guia.map(function (g, i) {
+    '<p class="df-guia-hint">Abra os cards para detalhamento da operação</p>' +
+    '<div class="df-guia">' + guia.map(function (g) {
       const itens = (g.itens || []).map(function (it) {
         return "<div><dt>" + esc(it[0]) + "</dt><dd>" + esc(it[1]) + "</dd></div>";
       }).join("");
-      return '<details class="df-guia-card"' + (i === 0 ? " open" : "") + "><summary><span>" + esc(g.titulo) +
+      return '<details class="df-guia-card"><summary><span>' + esc(g.titulo) +
         "</span><em>" + (g.itens || []).length + "</em></summary><dl>" + itens + "</dl></details>";
     }).join("") + "</div></section>";
 }
