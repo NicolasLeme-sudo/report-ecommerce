@@ -658,6 +658,17 @@ table.matrix tbody tr.total th {
 #dfRoot .df-mk-al {border-color:var(--df-gold);color:var(--df-gold)}
 #dfRoot .df-mk-ms {border-color:var(--df-green);color:var(--df-green)}
 #dfRoot .df-mk-lp {border-color:var(--df-blue);color:var(--df-blue)}
+/* status "em aberto" (ecom-fluxo.js, rect): borda tracejada laranja + selo */
+#dfRoot { --df-aberto:#FF9F43; }
+[data-tema="claro"] #dfRoot { --df-aberto:#B85C00; }
+#dfRoot .df-step.df-aberto {outline:2px dashed var(--df-aberto);outline-offset:3px}
+#dfRoot .df-aberto-selo {position:absolute;top:-9px;right:8px;font-style:normal;font-size:9.5px;font-weight:800;
+ letter-spacing:.05em;text-transform:uppercase;color:var(--df-aberto);background:var(--df-bg);
+ border:1.5px dashed var(--df-aberto);border-radius:99px;padding:0 7px;line-height:15px}
+#dfRoot .df-sw-aberto {border-color:var(--df-aberto)!important;border-style:dashed!important}
+#dfRoot .df-dg-sec.df-dg-aberto b {color:var(--df-aberto)}
+/* bifurcação com 4+ caminhos: largura mínima por coluna = largura da caixa */
+#dfRoot .df-frow:has(> .df-fcol:nth-child(4)) {max-width:none;grid-auto-columns:minmax(var(--df-box-w),1fr)}
 #dfRoot .df-mk:nth-of-type(2) {right:12px}
 #dfRoot .df-mk:nth-of-type(3) {right:30px}
 /* Selo ".df-mk-nv" ("NOVO") removido de vista a pedido do usuário — CSS
