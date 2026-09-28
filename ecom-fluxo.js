@@ -89,8 +89,11 @@ function rect(fase, n, kind) {
   // Status "em aberto": etapa ainda sem regra definida, aguardando validação
   // conjunta com outras áreas (Fiscal, Controladoria). Borda tracejada + selo.
   const aberto = e.status === "aberto";
+  // "volta": item de desvio que retorna ao caminho principal (seta verde).
+  // Fica deslocado para o lado, para o resto do desvio seguir na coluna.
+  const volta = !!e.volta;
   return (
-    '<button type="button" class="df-box df-step ' + cls + (aberto ? " df-aberto" : "") + '" id="' + bid +
+    '<button type="button" class="df-box df-step ' + cls + (aberto ? " df-aberto" : "") + (volta ? " df-volta" : "") + '" id="' + bid +
     '" data-fase="' + esc(fase) + '" data-n="' + esc(n) + '">' +
     (aberto ? '<em class="df-aberto-selo">Em aberto</em>' : "") +
     '<i class="df-s-num">' + esc(n) + "</i>" +
@@ -133,7 +136,7 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
   function flushTo(nextBid, blocoIdx) {
     if (!prevSkip) edge(prev, nextBid, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
     prevSkip = false;
-    pendingRejoin.forEach(function (r) { edge(r[0], nextBid, "straight", "", r[1], r[2]); });
+    pendingRejoin.forEach(function (r) { edge(r[0], nextBid, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
     pendingRejoin = [];
     prev = nextBid; prevLabel = ""; prevSem = "normal";
   }
@@ -160,7 +163,14 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
         const meta = { kind: "chain", chainKind: "guard", fase: faseId, blocoIdx: blocoIdx, atPos: i };
         if (i === 0) edge(sidePrev, bid, "right", excLbl, "exc", meta);
         else edge(sidePrev, bid, "straight", parallel ? "ou" : "", "exc", meta);
-        sidePrev = bid;
+        const no = DADOS.nos[nodeKey(faseId, n)];
+        if (no && no.volta) {
+          // volta ao caminho principal: seta verde até o próximo passo do
+          // tronco; o próximo item do desvio continua a partir do anterior.
+          pendingRejoin.push([bid, "ok", { kind: "trunk", fase: faseId, blocoIdx: blocoIdx + 1 }, "volta"]);
+        } else {
+          sidePrev = bid;
+        }
       });
       const metaFim = { kind: "chain", chainKind: "guard", fase: faseId, blocoIdx: blocoIdx, atPos: nExc.length };
       if (rejoin) {
@@ -219,7 +229,7 @@ function renderMulti(lane) {
       const divId = uid();
       out.push('<div class="df-phase-div" id="' + divId + '"><span>' + esc(fase.titulo) + "</span></div>");
       if (!prevSkip) edge(prev, divId, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
-      trailingRejoin.forEach(function (r) { edge(r[0], divId, "straight", "", r[1], r[2]); });
+      trailingRejoin.forEach(function (r) { edge(r[0], divId, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
       prev = divId; prevLabel = ""; prevSem = "normal"; prevSkip = false;
     }
     const r = renderSection(fase.id, fase.blocos, out, prev, prevLabel, prevSem, prevSkip);
@@ -229,7 +239,7 @@ function renderMulti(lane) {
   const fim = pillHtml("Fim", "df-end"), eid = fim[0];
   out.push(fim[1]);
   if (!prevSkip) edge(prev, eid, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
-  trailingRejoin.forEach(function (r) { edge(r[0], eid, "straight", "", r[1], r[2]); });
+  trailingRejoin.forEach(function (r) { edge(r[0], eid, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
   out.push("</div></div></section>");
   return out.join("");
 }
@@ -338,6 +348,8 @@ function drawLane(lane) {
     const ra = rectOf(a, lane), rb = rectOf(b, lane), it = { ed: ed };
     if (ed.kind === "right") {
       it.horizontal = true; it.pa = ptSide(ra, "right"); it.pb = ptSide(rb, "left");
+    } else if (ed.kind === "volta") {
+      it.volta = true; it.pa = ptSide(ra, "bottom"); it.pb = ptSide(rb, "top");
     } else {
       it.horizontal = false; it.pa = ptSide(ra, "bottom"); it.pb = ptSide(rb, "top");
       it.reta = Math.abs(it.pa.x - it.pb.x) < 2;
@@ -355,7 +367,12 @@ function drawLane(lane) {
   arestas.forEach(function (it) {
     const ed = it.ed;
     let d, mid;
-    if (it.horizontal) {
+    if (it.volta) {
+      // desce do item até logo acima do próximo passo e entra por cima
+      const yj = it.pb.y - 18;
+      d = "M" + it.pa.x + "," + it.pa.y + " V" + yj + " H" + it.pb.x + " V" + it.pb.y;
+      mid = { x: (it.pa.x + it.pb.x) / 2, y: yj };
+    } else if (it.horizontal) {
       d = pathH(it.pa, it.pb);
       mid = { x: it.pa.x + Math.max(24, (it.pb.x - it.pa.x) * 0.35), y: it.pa.y };
     } else if (it.reta) {
@@ -565,6 +582,7 @@ function openDetail(fase, n) {
   html += '<div class="df-dg-sec"><b>Resumo</b><p>' + esc(d.resumo) + "</p></div>";
   if (d.marco) html += '<div class="df-dg-sec df-dg-marco"><b>Por que essa etapa importa</b><p>' + esc(d.marco) + "</p></div>";
   if (d.loop) html += '<div class="df-dg-sec df-dg-loop"><b>Volta ao fluxo</b><p>' + esc(d.loop) + "</p></div>";
+  else if (d.volta) html += '<div class="df-dg-sec df-dg-loop"><b>Volta ao fluxo</b><p>Volta ao caminho principal (seta verde).</p></div>';
   if (d.nota) html += '<div class="df-dg-sec df-dg-alert"><b>Observação</b><p>' + esc(d.nota) + "</p></div>";
   // Armazém origem/destino só aparece quando a etapa movimenta entre
   // armazéns (no e-commerce quase nunca); Sistema, quando preenchido.
@@ -993,6 +1011,7 @@ function abrirPainelNo(fase, n, ehNovo) {
       return '<option value="' + t + '"' + (t === d.tipo ? " selected" : "") + ">" + esc(TIPO_LBL[t]) + "</option>";
     }).join("") + "</select></label>" +
     campoCheckbox("Em aberto — aguardando validação conjunta com outras áreas", "df-f-aberto", d.status === "aberto") +
+    campoCheckbox("Volta ao caminho principal (seta verde) — só em desvios", "df-f-volta", !!d.volta) +
     campoArea("Observação (opcional)", "df-f-nota", d.nota, 2) +
     campoInput("Marco do processo (opcional — por que esta etapa importa)", "df-f-marco", d.marco) +
     campoInput("Reinjeta no ciclo (opcional — pra onde volta)", "df-f-loop", d.loop) +
@@ -1030,6 +1049,7 @@ function abrirPainelNo(fase, n, ehNovo) {
     d.dest = g("df-f-dest") || "—";
     d.tipo = document.getElementById("df-f-tipo").value;
     d.status = document.getElementById("df-f-aberto").checked ? "aberto" : "";
+    d.volta = document.getElementById("df-f-volta").checked;
     d.nota = g("df-f-nota");
     d.marco = g("df-f-marco");
     d.loop = g("df-f-loop");
