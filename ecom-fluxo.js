@@ -577,8 +577,10 @@ function fitAll() {
   lanes.forEach(function (l, i) {
     const si = Math.floor(Math.min(ESCALA, Math.max(0.85, avail / Math.max(naturais[i], 1))) * 1000) / 1000;
     l.style.zoom = String(si);
-    // min-width:100% é aplicado ANTES do zoom — compensa para não sobrar largura
-    l.style.minWidth = (100 / si) + "%";
+    // largura mínima = área disponível, em px (px escala com o zoom em todo
+    // navegador; % não escala no Chrome atual e empurrava a trilha reduzida
+    // para a direita, tirando o tronco do centro)
+    l.style.minWidth = (avail / si) + "px";
     const hint = l.closest(".df-lane-wrap") ? l.closest(".df-lane-wrap").querySelector(".df-drag-hint") : null;
     const rola = naturais[i] * si > avail + 2;
     if (hint) hint.style.display = rola ? "flex" : "none";
