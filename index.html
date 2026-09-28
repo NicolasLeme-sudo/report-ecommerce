@@ -658,6 +658,48 @@ table.matrix tbody tr.total th {
 #dfRoot .df-mk-al {border-color:var(--df-gold);color:var(--df-gold)}
 #dfRoot .df-mk-ms {border-color:var(--df-green);color:var(--df-green)}
 #dfRoot .df-mk-lp {border-color:var(--df-blue);color:var(--df-blue)}
+/* status "em aberto" (ecom-fluxo.js, rect): borda tracejada laranja + selo */
+#dfRoot { --df-aberto:#FF9F43; }
+[data-tema="claro"] #dfRoot { --df-aberto:#B85C00; }
+#dfRoot .df-step.df-aberto {outline:2px dashed var(--df-aberto);outline-offset:3px}
+#dfRoot .df-aberto-selo {position:absolute;top:-9px;right:8px;font-style:normal;font-size:9.5px;font-weight:800;
+ letter-spacing:.05em;text-transform:uppercase;color:var(--df-aberto);background:var(--df-bg);
+ border:1.5px dashed var(--df-aberto);border-radius:99px;padding:0 7px;line-height:15px}
+#dfRoot .df-sw-aberto {border-color:var(--df-aberto)!important;border-style:dashed!important}
+/* item de desvio que volta ao caminho principal: deslocado para o lado, para a
+   linha do desvio seguir na coluna sem passar por trás dele */
+/* losango pequeno dentro do desvio (volta / ramificação) */
+#dfRoot .df-dia-mini {--df-dia-size:84px}
+#dfRoot .df-dia-mini .df-d-in {font-size:9.5px;width:80%;line-height:1.15}
+#dfRoot .df-vwrap {position:relative;width:var(--df-box-w);display:flex;justify-content:center}
+/* card de volta: à esquerda do losango pequeno, entre o tronco e o B.O. */
+#dfRoot .df-vwrap > .df-step.df-volta {position:absolute;top:50%;transform:translateY(-50%);
+ right:calc(50% + 42px + 26px);width:calc(var(--df-box-w) * 0.79);outline:1.5px solid var(--df-green);outline-offset:2px}
+#dfRoot .df-wire-volta {stroke-dasharray:6 4}
+/* ramificação dentro do desvio: colunas lado a lado */
+#dfRoot .df-rrow {display:flex;align-items:flex-start}
+#dfRoot .df-rcol {display:flex;flex-direction:column;align-items:center;gap:var(--df-gap-chain-y);width:var(--df-box-w)}
+#dfRoot .df-compacto .df-rcol {width:calc(var(--df-box-w) * 0.79)}
+#dfRoot .df-compacto .df-vwrap {width:100%}
+#dfRoot .df-compacto .df-step, #dfRoot .df-compacto .df-pill.df-end.df-pill-sub {width:100%}
+#dfRoot .df-compacto .df-dia-mini {--df-dia-size:70px}
+#dfRoot .df-compacto .df-vwrap > .df-step.df-volta {width:calc(var(--df-box-w) * 0.68);right:calc(50% + 35px + 20px)}
+/* atalho para outra trilha (ex.: 8.1 → DExPARA): preso na borda de baixo do
+   card, à direita — ao lado dele cortava na borda da tela quando o card fica
+   na coluna do desvio */
+#dfRoot .df-link-chip {position:absolute;right:6px;bottom:-11px;white-space:nowrap;z-index:3;
+ font-size:10.5px;line-height:1.2;font-weight:700;color:var(--df-gold);border:1.5px solid var(--df-gold);border-radius:99px;
+ padding:3px 10px;background:var(--df-bg);cursor:pointer}
+#dfRoot .df-link-chip:hover, #dfRoot .df-link-chip:focus-visible {background:var(--df-gold);color:var(--df-bg);outline:none}
+/* sinalização amarela ao chegar pelo atalho (mesmo padrão do report de Produtividade) */
+#dfRoot .df-lane-h.df-flash > span {animation:dfFlash 800ms ease-in-out 3}
+@keyframes dfFlash {0%,100% {box-shadow:0 0 0 0 transparent}
+ 50% {box-shadow:0 0 0 3px var(--df-gold), 0 0 18px 3px rgba(246,189,0,.45); background:rgba(246,189,0,.18)}}
+#dfRoot .df-dg-sec.df-dg-aberto b {color:var(--df-aberto)}
+/* bifurcação com 4+ caminhos: largura mínima por coluna = largura da caixa */
+/* bifurcação com 4+ caminhos: colunas justas e centralizadas no tronco */
+#dfRoot .df-frow:has(> .df-fcol:nth-child(4)) {max-width:none;width:auto;grid-auto-columns:var(--df-box-w);
+ column-gap:48px;justify-content:center}
 #dfRoot .df-mk:nth-of-type(2) {right:12px}
 #dfRoot .df-mk:nth-of-type(3) {right:30px}
 /* Selo ".df-mk-nv" ("NOVO") removido de vista a pedido do usuário — CSS
