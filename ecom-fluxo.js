@@ -178,7 +178,11 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
       out.push('<div class="df-frow" data-bloco="' + blocoIdx + '" data-fase="' + esc(faseId) + '">');
       branches.forEach(function (br, bi) {
         const lab = br[0], ns = br[1];
-        out.push('<div class="df-fcol">');
+        // Rótulo fixo no topo da coluna, além do rótulo já desenhado na 1ª
+        // linha (SVG) — reforço pedido pelo usuário pra ficar claro qual
+        // caminho é qual sem precisar seguir a linha tracejada com o olho,
+        // principalmente com 3+ colunas lado a lado.
+        out.push('<div class="df-fcol"><div class="df-fcol-h">' + esc(lab) + '</div>');
         let cprev = null;
         ns.forEach(function (n, i) {
           const bid = bidOf(faseId, n);
@@ -637,7 +641,7 @@ function wireSearch() {
    PAINEL DE AJUSTE DE LAYOUT (self-service — ver conversa com o usuário:
    "tem alguma forma de eu mesmo editar sem gastar sua memória?")
    ============================================================ */
-const TUNE_DEFAULT = { lane: 46, bx: 130, cy: 46, bw: 222, bh: 54, dia: 210 };
+const TUNE_DEFAULT = { lane: 56, bx: 150, cy: 46, bw: 222, bh: 54, dia: 210 };
 const TUNE_VARS = { lane: "--df-gap-lane", bx: "--df-gap-branch-x", cy: "--df-gap-chain-y",
   bw: "--df-box-w", bh: "--df-box-h", dia: "--df-dia-size" };
 function wireTune() {
