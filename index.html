@@ -619,11 +619,27 @@ table.matrix tbody tr.total th {
    bug relatado como "os fluxos não estão centralizados". margin-left aqui
    vira um valor em px já calculado (não um calc%), então funciona igual
    não importa a largura da sidebar. */
+/* Barra de rolagem: ficava totalmente escondida (scrollbar-width:none +
+   ::-webkit-scrollbar{display:none}) contando só com arrastar/gesto de
+   trackpad pra rolar — sem rastro visual nenhum de que dava pra rolar.
+   Quem usa mouse comum (sem trackpad) ficava sem nenhuma pista de como ver
+   o resto do fluxo, mesmo com a dica de texto "Arraste para o lado"
+   (que também não tinha handler de arrastar com o mouse — ver
+   wireDragScroll()). Agora fica uma barra fina, sempre visível quando o
+   conteúdo é mais largo que a tela, no estilo do resto do app. */
 #dfRoot .df-lane-fit {--df-pad:24px;width:var(--df-vw,100%);margin-left:var(--df-vw-inicio,0px);
- padding:0 var(--df-pad);margin-top:26px;text-align:center;
+ padding:0 var(--df-pad) 14px;margin-top:26px;text-align:center;
  overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
- scrollbar-width:none;-webkit-overflow-scrolling:touch}
-#dfRoot .df-lane-fit::-webkit-scrollbar {display:none}
+ scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;-webkit-overflow-scrolling:touch}
+/* .df-scrollable: classe ligada por fitAll() (ecom-fluxo.js) só quando o
+   conteúdo realmente transborda — cursor de "arrastável" não pode aparecer
+   quando não há nada pra rolar. */
+#dfRoot .df-lane-fit.df-scrollable {cursor:grab}
+#dfRoot .df-lane-fit.df-scrollable:active {cursor:grabbing}
+#dfRoot .df-lane-fit::-webkit-scrollbar {height:9px}
+#dfRoot .df-lane-fit::-webkit-scrollbar-track {background:transparent}
+#dfRoot .df-lane-fit::-webkit-scrollbar-thumb {background:var(--df-bd);border-radius:99px}
+#dfRoot .df-lane-fit::-webkit-scrollbar-thumb:hover {background:var(--df-tx2)}
 
 #dfRoot .df-lane {position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:var(--df-gap-lane);
  padding:10px 10px;min-width:100%}

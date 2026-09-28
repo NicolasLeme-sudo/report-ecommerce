@@ -605,6 +605,11 @@ function fitAll() {
     const hint = l.closest(".df-lane-wrap") ? l.closest(".df-lane-wrap").querySelector(".df-drag-hint") : null;
     const rola = naturais[i] * si > avail + 2;
     if (hint) hint.style.display = rola ? "flex" : "none";
+    // cursor de "arrastável" (grab) e barra de rolagem só aparecem quando dá
+    // pra rolar de verdade — senão o cursor mentiria pra quem o conteúdo
+    // couber inteiro na tela
+    const fit = l.closest(".df-lane-fit");
+    if (fit) fit.classList.toggle("df-scrollable", rola);
     scrollable = scrollable || rola;
     s = Math.min(s, si);
   });
@@ -717,6 +722,40 @@ function openDetail(fase, n) {
 /* ============================================================
    BUSCA
    ============================================================ */
+// Clicar e arrastar pra rolar horizontalmente cada .df-lane-fit — a dica de
+// texto ("Arraste para o lado") já prometia isso, mas não existia handler
+// nenhum: só rolava por gesto de trackpad/touch, sem nenhum jeito pra quem
+// usa mouse comum (usuário: "cadê a barra de rolagem?" — a barra em si
+// também estava com scrollbar-width:none, ver CSS). Delegado no ROOT (não
+// direto no .df-lane-fit) porque renderTudo() recria esses elementos a cada
+// atualização do fluxo — um listener preso ao nó antigo morreria junto.
+function wireDragScroll() {
+  let alvo = null, iniciouX = 0, iniciouScroll = 0, arrastou = false;
+  const LIMIAR = 4; // px de tolerância antes de considerar "arrastou" — abaixo disso é um clique normal
+  ROOT.addEventListener("mousedown", function (e) {
+    if (e.button !== 0) return;
+    const fit = e.target.closest(".df-lane-fit");
+    if (!fit || fit.scrollWidth <= fit.clientWidth) return;
+    alvo = fit; iniciouX = e.clientX; iniciouScroll = fit.scrollLeft; arrastou = false;
+  });
+  window.addEventListener("mousemove", function (e) {
+    if (!alvo) return;
+    const dx = e.clientX - iniciouX;
+    if (!arrastou && Math.abs(dx) < LIMIAR) return;
+    arrastou = true;
+    alvo.scrollLeft = iniciouScroll - dx;
+    e.preventDefault();
+  });
+  window.addEventListener("mouseup", function () {
+    if (alvo && arrastou) {
+      // engole o click que o mouseup dispararia em seguida (senão arrastar
+      // solta em cima de uma etapa e abre o painel de detalhe dela)
+      window.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); }, { capture: true, once: true });
+    }
+    alvo = null; arrastou = false;
+  });
+}
+
 function wireSearch() {
   const q = document.getElementById("df-q"), qhint = document.getElementById("df-qhint");
   if (!q) return;
@@ -1813,6 +1852,7 @@ async function iniciar(rootId, supabaseClient, perfilAtual) {
   if (!ok) return;
   montarShell(root);
   wireSearch();
+  wireDragScroll();
   wireTune();
   wireEditToggle();
   wireCliquesDelegados();
