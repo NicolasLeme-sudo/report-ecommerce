@@ -622,8 +622,10 @@ table.matrix tbody tr.total th {
 #dfRoot .df-lane-fit {--df-pad:24px;width:var(--df-vw,100%);margin-left:var(--df-vw-inicio,0px);
  padding:0 var(--df-pad);margin-top:26px;text-align:center;
  overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;
- scrollbar-width:none;-webkit-overflow-scrolling:touch}
-#dfRoot .df-lane-fit::-webkit-scrollbar {display:none}
+ scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;-webkit-overflow-scrolling:touch;padding-bottom:6px}
+#dfRoot .df-lane-fit::-webkit-scrollbar {height:8px}
+#dfRoot .df-lane-fit::-webkit-scrollbar-thumb {background:var(--df-bd);border-radius:99px}
+#dfRoot .df-lane-fit::-webkit-scrollbar-track {background:transparent}
 
 #dfRoot .df-lane {position:relative;display:inline-flex;flex-direction:column;align-items:center;gap:var(--df-gap-lane);
  padding:10px 10px;min-width:100%}
@@ -669,12 +671,15 @@ table.matrix tbody tr.total th {
 /* item de desvio que volta ao caminho principal: deslocado para o lado, para a
    linha do desvio seguir na coluna sem passar por trás dele */
 /* losango pequeno dentro do desvio (volta / ramificação) */
-#dfRoot .df-dia-mini {--df-dia-size:84px}
-#dfRoot .df-dia-mini .df-d-in {font-size:9.5px;width:80%;line-height:1.15}
+#dfRoot .df-dia-mini {--df-dia-size:104px}
+#dfRoot .df-dia-mini .df-d-in {font-size:11.5px;width:80%;line-height:1.2}
+/* 1º item do desvio sendo um losango pequeno: centro na altura do centro do
+   losango grande (a linha do "Não" sai reta, sem degrau) */
+#dfRoot .df-gside > .df-vwrap:first-child {margin-top:calc((var(--df-box-h) - 104px) / 2)}
 #dfRoot .df-vwrap {position:relative;width:var(--df-box-w);display:flex;justify-content:center}
 /* card de volta: à esquerda do losango pequeno, entre o tronco e o B.O. */
 #dfRoot .df-vwrap > .df-step.df-volta {position:absolute;top:50%;transform:translateY(-50%);
- right:calc(50% + 42px + 26px);width:calc(var(--df-box-w) * 0.79);outline:1.5px solid var(--df-green);outline-offset:2px}
+ right:calc(50% + 52px + 26px);width:calc(var(--df-box-w) * 0.79);outline:1.5px solid var(--df-green);outline-offset:2px}
 #dfRoot .df-wire-volta {stroke-dasharray:6 4}
 /* ramificação dentro do desvio: colunas lado a lado */
 #dfRoot .df-rrow {display:flex;align-items:flex-start}
@@ -682,8 +687,9 @@ table.matrix tbody tr.total th {
 #dfRoot .df-compacto .df-rcol {width:calc(var(--df-box-w) * 0.79)}
 #dfRoot .df-compacto .df-vwrap {width:100%}
 #dfRoot .df-compacto .df-step, #dfRoot .df-compacto .df-pill.df-end.df-pill-sub {width:100%}
-#dfRoot .df-compacto .df-dia-mini {--df-dia-size:70px}
-#dfRoot .df-compacto .df-vwrap > .df-step.df-volta {width:calc(var(--df-box-w) * 0.68);right:calc(50% + 35px + 20px)}
+#dfRoot .df-compacto .df-dia-mini {--df-dia-size:90px}
+#dfRoot .df-compacto .df-dia-mini .df-d-in {font-size:10.5px}
+#dfRoot .df-compacto .df-vwrap > .df-step.df-volta {width:calc(var(--df-box-w) * 0.68);right:calc(50% + 45px + 20px)}
 /* atalho para outra trilha (ex.: 8.1 → DExPARA): preso na borda de baixo do
    card, à direita — ao lado dele cortava na borda da tela quando o card fica
    na coluna do desvio */
@@ -704,7 +710,10 @@ table.matrix tbody tr.total th {
 /* divisor entre fases dentro da mesma lane */
 #dfRoot .df-phase-div {position:relative;width:100%;display:flex;align-items:center;justify-content:center;
  min-height:1px;overflow:visible}
-#dfRoot .df-phase-div::before {content:'';display:block;position:absolute;left:-9999px;right:-9999px;top:50%;height:1px;background:var(--gelo)}
+/* full-bleed por box-shadow (não conta como área de rolagem — com left/right
+   -9999px a trilha rolava ~10.000px para o lado vazio) */
+#dfRoot .df-phase-div::before {content:'';display:block;position:absolute;left:0;right:0;top:50%;height:1px;background:var(--gelo);
+ box-shadow:0 0 0 100vmax var(--gelo);clip-path:inset(0 -100vmax)}
 #dfRoot .df-phase-div span {position:relative;background:var(--df-bg);padding:7px 20px;border:1.5px solid var(--df-gold);
  border-radius:999px;color:var(--df-gold);font-weight:700;font-size:11.5px;text-transform:uppercase;
  letter-spacing:.06em;white-space:nowrap}
@@ -830,7 +839,7 @@ table.matrix tbody tr.total th {
    linhas tracejadas cruzam ou ficam próximas demais pra seguir com o olho. */
 #dfRoot .df-fcol-h {font-size:11px;font-weight:700;color:var(--df-gold);background:var(--df-bg);
  border:1px solid var(--df-gold);border-radius:999px;padding:5px 14px;text-align:center;
- white-space:nowrap;margin-bottom:2px}
+ white-space:nowrap;margin-bottom:2px;position:relative;z-index:2}
 
 /* wires (svg) */
 #dfRoot svg.df-wires {position:absolute;top:0;left:0;overflow:visible;pointer-events:none;z-index:1}
