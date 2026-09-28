@@ -666,6 +666,9 @@ table.matrix tbody tr.total th {
  letter-spacing:.05em;text-transform:uppercase;color:var(--df-aberto);background:var(--df-bg);
  border:1.5px dashed var(--df-aberto);border-radius:99px;padding:0 7px;line-height:15px}
 #dfRoot .df-sw-aberto {border-color:var(--df-aberto)!important;border-style:dashed!important}
+/* item de desvio que volta ao caminho principal: deslocado para o lado, para a
+   linha do desvio seguir na coluna sem passar por trás dele */
+#dfRoot .df-gside .df-step.df-volta {left:calc(var(--df-box-w) * 0.62 + 16px)}
 #dfRoot .df-dg-sec.df-dg-aberto b {color:var(--df-aberto)}
 /* bifurcação com 4+ caminhos: largura mínima por coluna = largura da caixa */
 #dfRoot .df-frow:has(> .df-fcol:nth-child(4)) {max-width:none;grid-auto-columns:minmax(var(--df-box-w),1fr)}
