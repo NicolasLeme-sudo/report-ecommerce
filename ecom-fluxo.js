@@ -569,7 +569,20 @@ function fitAll() {
   const avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   // mede sem as linhas full-bleed (senão scrollWidth ≈ 11.000px)
   ROOT.classList.add("df-medindo");
-  const naturais = lanes.map(function (l) { l.style.minWidth = "0"; const w = l.scrollWidth; l.style.minWidth = ""; return w; });
+  // largura necessária = 2 × o alcance mais distante a partir do tronco (o
+  // centro da trilha): as ramificações transbordam só para a direita e não
+  // entram no scrollWidth, então sem isso a última coluna cortava na borda
+  const naturais = lanes.map(function (l) {
+    l.style.minWidth = "0";
+    const r = l.getBoundingClientRect(), cx = r.left + r.width / 2;
+    let ext = r.width / 2;
+    l.querySelectorAll(".df-box, .df-rcol, .df-link-chip").forEach(function (e) {
+      const b = e.getBoundingClientRect();
+      if (b.width) ext = Math.max(ext, b.right - cx, cx - b.left);
+    });
+    const w = Math.max(l.scrollWidth, Math.ceil(2 * ext) + 24);
+    l.style.minWidth = ""; return w;
+  });
   ROOT.classList.remove("df-medindo");
   // escala POR TRILHA: 105% quando cabe; a trilha mais larga que a tela
   // reduz até 85% para caber — as outras não encolhem junto.
