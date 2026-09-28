@@ -171,8 +171,14 @@ function renderCadeia(faseId, blocoIdx, lista, entradas, trunkId, out, o) {
       // ramificação aninhada (ex.: "Resposta do conferente?" dentro de um desvio)
       // visivelmente mais espremidas que o resto do diagrama, que já usa gaps bem
       // maiores (--df-gap-branch-x). Um "gap" explícito no dado continua valendo.
-      out.push('<div class="df-rrow' + (ro.compacto ? " df-compacto" : "") + '" style="column-gap:' + (ro.gap || 90) +
-        "px;margin-left:-" + (ro.desloc || 0) + 'px">');
+      // colunas centralizadas embaixo do losango pequeno (a linha desce no meio
+      // das opções): no topo do desvio a coluna do .df-gside tem a largura de
+      // um card e alinha à esquerda, então desloca metade do excesso; dentro de
+      // outra coluna (.df-rcol, align-items:center) o flex já centraliza.
+      const gapR = ro.gap || 90, colW = ro.compacto ? "var(--df-box-w) * 0.79" : "var(--df-box-w)";
+      const larg = "(" + ramos.length + " * " + colW + " + " + ((ramos.length - 1) * gapR) + "px)";
+      out.push('<div class="df-rrow' + (ro.compacto ? " df-compacto" : "") + '" style="column-gap:' + gapR + "px" +
+        (o.topo ? ";margin-left:calc((var(--df-box-w) - " + larg + ") / 2)" : "") + '">');
       const novas = [];
       ramos.forEach(function (br) {
         out.push('<div class="df-rcol">');
@@ -262,17 +268,17 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
       out.push('<div class="df-frow" data-bloco="' + blocoIdx + '" data-fase="' + esc(faseId) + '">');
       branches.forEach(function (br, bi) {
         const lab = br[0], ns = br[1];
-        // Rótulo fixo no topo da coluna, além do rótulo já desenhado na 1ª
-        // linha (SVG) — reforço pedido pelo usuário pra ficar claro qual
-        // caminho é qual sem precisar seguir a linha tracejada com o olho,
-        // principalmente com 3+ colunas lado a lado.
-        out.push('<div class="df-fcol"><div class="df-fcol-h">' + esc(lab) + '</div>');
+        const hid = uid();
+        out.push('<div class="df-fcol"><div class="df-fcol-h" id="' + hid + '">' + esc(lab) + '</div>');
         let cprev = null;
         ns.forEach(function (n, i) {
           const bid = bidOf(faseId, n);
           out.push(rect(faseId, n));
           const meta = { kind: "chain", chainKind: "fork", fase: faseId, blocoIdx: blocoIdx, branch: bi, atPos: i };
-          edge(i === 0 ? did : cprev, bid, "straight", i === 0 ? lab : "", "fork", meta);
+          // sem rótulo na linha: o rótulo fixo no topo da coluna (.df-fcol-h) já
+          // identifica o caminho — os dois juntos ficavam duplicados
+          edge(i === 0 ? did : cprev, bid, "straight", "", "fork", meta);
+          if (i === 0) EDGES[EDGES.length - 1].hdr = hid;   // desce passando pelo rótulo
           cprev = bid;
         });
         const metaFim = { kind: "chain", chainKind: "fork", fase: faseId, blocoIdx: blocoIdx, branch: bi, atPos: ns.length };
@@ -459,7 +465,10 @@ function drawLane(lane) {
       d = pathV(it.pa, it.pb);
       mid = { x: it.pa.x, y: it.ly != null ? it.ly : labelY(it.pa, it.pb) };
     } else {
-      const my = elbowY(it.pa, it.pb, faixas[ed.b]);
+      // bifurcação: a horizontal passa ACIMA do rótulo fixo da coluna, e cada
+      // caminho desce pelo seu rótulo até o card
+      const hd = ed.hdr && document.getElementById(ed.hdr);
+      const my = hd ? rectOf(hd, lane).y - 14 : elbowY(it.pa, it.pb, faixas[ed.b]);
       d = pathV(it.pa, it.pb, my);
       mid = { x: (it.pa.x + it.pb.x) / 2, y: my };
     }
@@ -577,20 +586,12 @@ function fitAll() {
   const avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   // mede sem as linhas full-bleed (senão scrollWidth ≈ 11.000px)
   ROOT.classList.add("df-medindo");
-  // largura necessária = 2 × o alcance mais distante a partir do tronco (o
-  // centro da trilha): as ramificações transbordam só para a direita e não
-  // entram no scrollWidth, então sem isso a última coluna cortava na borda
-  const naturais = lanes.map(function (l) {
-    l.style.minWidth = "0";
-    const r = l.getBoundingClientRect(), cx = r.left + r.width / 2;
-    let ext = r.width / 2;
-    l.querySelectorAll(".df-box, .df-rcol, .df-link-chip").forEach(function (e) {
-      const b = e.getBoundingClientRect();
-      if (b.width) ext = Math.max(ext, b.right - cx, cx - b.left);
-    });
-    const w = Math.max(l.scrollWidth, Math.ceil(2 * ext) + 24);
-    l.style.minWidth = ""; return w;
-  });
+  // largura do LAYOUT (tronco, desvios, bifurcações). As colunas das
+  // ramificações dentro de um desvio transbordam para a direita e não entram
+  // aqui de propósito: a trilha não encolhe por causa delas — elas ficam
+  // acessíveis pela barra de rolagem lateral (pedido da operação: design
+  // antes de caber tudo na tela).
+  const naturais = lanes.map(function (l) { l.style.minWidth = "0"; const w = l.offsetWidth; l.style.minWidth = ""; return w; });
   ROOT.classList.remove("df-medindo");
   // escala POR TRILHA: 105% quando cabe; a trilha mais larga que a tela
   // reduz até 85% para caber — as outras não encolhem junto.
@@ -603,7 +604,7 @@ function fitAll() {
     // para a direita, tirando o tronco do centro)
     l.style.minWidth = (avail / si) + "px";
     const hint = l.closest(".df-lane-wrap") ? l.closest(".df-lane-wrap").querySelector(".df-drag-hint") : null;
-    const rola = naturais[i] * si > avail + 2;
+    const rola = l.parentNode.scrollWidth > l.parentNode.clientWidth + 2;
     if (hint) hint.style.display = rola ? "flex" : "none";
     // cursor de "arrastável" (grab) e barra de rolagem só aparecem quando dá
     // pra rolar de verdade — senão o cursor mentiria pra quem o conteúdo
