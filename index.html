@@ -696,10 +696,6 @@ table.matrix tbody tr.total th {
 @keyframes dfFlash {0%,100% {box-shadow:0 0 0 0 transparent}
  50% {box-shadow:0 0 0 3px var(--df-gold), 0 0 18px 3px rgba(246,189,0,.45); background:rgba(246,189,0,.18)}}
 #dfRoot .df-dg-sec.df-dg-aberto b {color:var(--df-aberto)}
-/* bifurcação com 4+ caminhos: largura mínima por coluna = largura da caixa */
-/* bifurcação com 4+ caminhos: colunas justas e centralizadas no tronco */
-#dfRoot .df-frow:has(> .df-fcol:nth-child(4)) {max-width:none;width:auto;grid-auto-columns:var(--df-box-w);
- column-gap:48px;justify-content:center}
 #dfRoot .df-mk:nth-of-type(2) {right:12px}
 #dfRoot .df-mk:nth-of-type(3) {right:30px}
 /* Selo ".df-mk-nv" ("NOVO") removido de vista a pedido do usuário — CSS
@@ -809,22 +805,25 @@ table.matrix tbody tr.total th {
 #dfRoot .df-frow {display:grid;grid-template-columns:1fr 1fr;gap:var(--df-gap-branch-x);width:100%;max-width:680px}
 /* bifurcação com 3+ caminhos (ex.: ondas SINGLE / COLMEIA / PEDIDO A PEDIDO, ou o
    "Qual o tratamento?" da Reversa): uma coluna por caminho, lado a lado, em vez de
-   quebrar o 3º pra baixo. SEM max-width (largura só pelo conteúdo) e com gap maior
-   que o de 2 colunas — com 4+ caminhos, o max-width fixo de antes (1060px) forçava
-   os tracks de grid a espremer/vazar por cima do limite da caixa (grid não encolhe
-   coluna de largura fixa abaixo do conteúdo), e o resultado era exatamente "tudo
-   junto e sem alinhamento": colunas se sobrepondo silenciosamente fora da área
-   visível. Aqui a lane já rola horizontalmente (.df-lane-fit), então é seguro
-   deixar crescer — pior caso vira barra de rolagem, nunca sobreposição. */
+   quebrar o 3º pra baixo. Coluna de largura FIXA (var(--df-box-w)), não "1fr": com
+   4+ caminhos, "1fr" + o max-width fixo de antes (1060px) forçava os tracks do grid
+   a espremer/vazar por cima do limite da caixa (grid não encolhe coluna abaixo do
+   conteúdo), e o resultado era exatamente "tudo junto e sem alinhamento": colunas
+   se sobrepondo silenciosamente fora da área visível. Com largura fixa e SEM
+   max-width isso não acontece mais — a fileira sempre mede exatamente o que as
+   colunas ocupam. Gap maior que o de 2 colunas (o pedido do usuário de "mais
+   espaço"); a lane já rola horizontalmente, então o pior caso vira barra de
+   rolagem, nunca sobreposição. */
 #dfRoot .df-frow:has(> .df-fcol:nth-child(3)) {grid-template-columns:none;grid-auto-flow:column;
- grid-auto-columns:1fr;gap:calc(var(--df-gap-branch-x) * 1.3);width:max-content;max-width:none}
+ grid-auto-columns:var(--df-box-w);column-gap:calc(var(--df-gap-branch-x) * .6);
+ width:max-content;max-width:none;justify-content:center}
 #dfRoot .df-fcol {display:flex;flex-direction:column;align-items:center;gap:var(--df-gap-chain-y);position:relative}
 /* divisor vertical entre caminhos de uma bifurcação de 3+: reforça visualmente
    onde um caminho termina e o próximo começa (pedido do usuário — "dividir
    melhor" os caminhos abaixo de "Qual o tratamento?" e afins). Some no meio do
    gap, então não interfere com a linha/rótulo de nenhum dos dois caminhos. */
 #dfRoot .df-frow:has(> .df-fcol:nth-child(3)) > .df-fcol:not(:last-child)::after {
- content:'';position:absolute;top:0;bottom:0;right:calc(var(--df-gap-branch-x) * -0.65);
+ content:'';position:absolute;top:0;bottom:0;right:calc(var(--df-gap-branch-x) * -.3);
  width:1px;background:var(--df-bd);opacity:.6}
 /* rótulo fixo no topo de cada coluna de bifurcação — junto com o rótulo na
    linha (SVG), deixa claro "isso pertence a esse caminho" mesmo quando as

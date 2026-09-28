@@ -167,7 +167,11 @@ function renderCadeia(faseId, blocoIdx, lista, entradas, trunkId, out, o) {
       }
       // compacto: colunas e cards de volta mais estreitos, para duas colunas com
       // volta (ex.: Separação SINGLE × MULTI) caberem na tela
-      out.push('<div class="df-rrow' + (ro.compacto ? " df-compacto" : "") + '" style="column-gap:' + (ro.gap || 60) +
+      // Padrão (sem "gap" no dado) subiu de 60 pra 90 — 60 deixava colunas de uma
+      // ramificação aninhada (ex.: "Resposta do conferente?" dentro de um desvio)
+      // visivelmente mais espremidas que o resto do diagrama, que já usa gaps bem
+      // maiores (--df-gap-branch-x). Um "gap" explícito no dado continua valendo.
+      out.push('<div class="df-rrow' + (ro.compacto ? " df-compacto" : "") + '" style="column-gap:' + (ro.gap || 90) +
         "px;margin-left:-" + (ro.desloc || 0) + 'px">');
       const novas = [];
       ramos.forEach(function (br) {
