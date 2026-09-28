@@ -96,6 +96,9 @@ function rect(fase, n, kind) {
     '<button type="button" class="df-box df-step ' + cls + (aberto ? " df-aberto" : "") + (volta ? " df-volta" : "") + '" id="' + bid +
     '" data-fase="' + esc(fase) + '" data-n="' + esc(n) + '">' +
     (aberto ? '<em class="df-aberto-selo">Em aberto</em>' : "") +
+    // atalho: leva à trilha que detalha esta etapa (ex.: 4.1 → DExPARA)
+    (e.link && e.link.lane ? '<span class="df-link-chip" role="link" tabindex="0" data-goto="' + esc(e.link.lane) +
+      '">' + esc(e.link.rotulo || "Ver detalhamento") + " ↓</span>" : "") +
     '<i class="df-s-num">' + esc(n) + "</i>" +
     '<span class="df-s-ico">' + svgIcon(e.icone) + marks.join("") + "</span>" +
     '<span class="df-s-t">' + esc(e.nome) + "</span></button>"
@@ -127,6 +130,81 @@ function edge(a, b, kind, label, sem, meta) {
        posição atPos (atPos === length da lista de hoje = "no fim").
    É essa meta que o clique na seta (onEdgeClick) lê pra saber o que oferecer
    no menu e onde exatamente mexer na topologia (ver "MOTOR DE NUMERAÇÃO"). */
+/* Cadeia de um desvio (B.O.). Itens:
+   - "n"                         etapa normal, empilhada na coluna;
+   - "n" com nos[n].volta        losango pequeno (nos[n].volta_q) — "Sim" leva ao
+                                 card de volta, entre o tronco e o B.O., com seta
+                                 verde tracejada curta até a linha principal;
+                                 "Não" segue descendo no B.O.;
+   - ["ramos", [[rótulo, [ns], {fim}], ...], {pergunta, gap, desloc}]
+                                 ramificação em árvore: losango pequeno (opcional)
+                                 e colunas lado a lado; cada coluna termina em
+                                 "Fim deste caminho" (fim:true) ou se junta de
+                                 novo no próximo item da cadeia.
+   Devolve as pontas abertas (ids) para o chamador ligar ao que vem depois. */
+function miniDiaHtml(q) {
+  const bid = uid();
+  return [bid, '<div class="df-box df-dia df-dia-mini" id="' + bid + '"><span class="df-d-in">' + esc(q) + "</span></div>"];
+}
+function renderCadeia(faseId, blocoIdx, lista, entradas, trunkId, out, o) {
+  let ends = entradas.slice(), primeiro = true, rotuloProx = "";
+  function liga(bid, meta) {
+    const kind = primeiro && o.firstKind ? o.firstKind : "straight";
+    const lbl = primeiro ? (o.firstLabel || "") : (rotuloProx || (o.parallel ? "ou" : ""));
+    ends.forEach(function (e) { edge(e, bid, kind, lbl, "exc", meta); });
+    primeiro = false; rotuloProx = "";
+  }
+  lista.forEach(function (item, i) {
+    const meta = o.topo ? { kind: "chain", chainKind: "guard", fase: faseId, blocoIdx: blocoIdx, atPos: i } : null;
+    if (Array.isArray(item) && item[0] === "ramos") {
+      const ramos = item[1] || [], ro = item[2] || {};
+      let pontos = ends;
+      if (ro.pergunta) {
+        const md = miniDiaHtml(ro.pergunta);
+        out.push('<div class="df-vwrap">' + md[1] + "</div>");
+        liga(md[0], meta);
+        pontos = [md[0]];
+      }
+      // compacto: colunas e cards de volta mais estreitos, para duas colunas com
+      // volta (ex.: Separação SINGLE × MULTI) caberem na tela
+      out.push('<div class="df-rrow' + (ro.compacto ? " df-compacto" : "") + '" style="column-gap:' + (ro.gap || 60) +
+        "px;margin-left:-" + (ro.desloc || 0) + 'px">');
+      const novas = [];
+      ramos.forEach(function (br) {
+        out.push('<div class="df-rcol">');
+        const sub = renderCadeia(faseId, blocoIdx, br[1], pontos, trunkId, out,
+          { firstKind: "straight", firstLabel: br[0], parallel: false, topo: false });
+        const bo = br[2] || {};
+        if (bo.fim) {
+          const fim = pillHtml("Fim deste caminho", "df-end df-pill-sub"), eid = fim[0];
+          sub.forEach(function (e) { edge(e, eid, "straight", "", "exc", null); });
+          out.push(fim[1]);
+        } else {
+          Array.prototype.push.apply(novas, sub);
+        }
+        out.push("</div>");
+      });
+      out.push("</div>");
+      ends = novas; primeiro = false; rotuloProx = "";
+      return;
+    }
+    const n = item, bid = bidOf(faseId, n), no = DADOS.nos[nodeKey(faseId, n)];
+    if (no && no.volta) {
+      const md = miniDiaHtml(no.volta_q || "Deu certo?");
+      out.push('<div class="df-vwrap">' + md[1] + rect(faseId, n) + "</div>");
+      liga(md[0], meta);
+      edge(md[0], bid, "left", "Sim", "ok", null);          // losango → card de volta
+      edge(bid, trunkId, "voltaH", "", "ok", null);         // card → linha principal
+      ends = [md[0]]; rotuloProx = "Não";
+      return;
+    }
+    out.push(rect(faseId, n));
+    liga(bid, meta);
+    ends = [bid];
+  });
+  return ends;
+}
+
 function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) {
   let pendingRejoin = [];
   // prevSkip: depois de uma bifurcação com nº ÍMPAR de caminhos, o ramo do meio
@@ -136,7 +214,7 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
   function flushTo(nextBid, blocoIdx) {
     if (!prevSkip) edge(prev, nextBid, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
     prevSkip = false;
-    pendingRejoin.forEach(function (r) { edge(r[0], nextBid, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
+    pendingRejoin.forEach(function (r) { edge(r[0], nextBid, "straight", "", r[1], r[2]); });
     pendingRejoin = [];
     prev = nextBid; prevLabel = ""; prevSem = "normal";
   }
@@ -156,29 +234,15 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
       if (!prevSkip) edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
       prevSkip = false;
       prev = did;
-      let sidePrev = did;
-      nExc.forEach(function (n, i) {
-        const bid = bidOf(faseId, n);
-        out.push(rect(faseId, n));
-        const meta = { kind: "chain", chainKind: "guard", fase: faseId, blocoIdx: blocoIdx, atPos: i };
-        if (i === 0) edge(sidePrev, bid, "right", excLbl, "exc", meta);
-        else edge(sidePrev, bid, "straight", parallel ? "ou" : "", "exc", meta);
-        const no = DADOS.nos[nodeKey(faseId, n)];
-        if (no && no.volta) {
-          // volta ao caminho principal: seta verde até o próximo passo do
-          // tronco; o próximo item do desvio continua a partir do anterior.
-          pendingRejoin.push([bid, "ok", { kind: "trunk", fase: faseId, blocoIdx: blocoIdx + 1 }, "volta"]);
-        } else {
-          sidePrev = bid;
-        }
-      });
+      const ends = renderCadeia(faseId, blocoIdx, nExc, [did], did, out, {
+        firstKind: "right", firstLabel: excLbl, parallel: parallel, topo: true });
       const metaFim = { kind: "chain", chainKind: "guard", fase: faseId, blocoIdx: blocoIdx, atPos: nExc.length };
-      if (rejoin) {
-        pendingRejoin.push([sidePrev, "exc", metaFim]);
+      if (rejoin || !ends.length) {
+        ends.forEach(function (e) { pendingRejoin.push([e, "exc", metaFim]); });
         out.push("</div></div>");
       } else {
         const fim = pillHtml("Fim deste caminho", "df-end df-pill-sub"), eid = fim[0];
-        edge(sidePrev, eid, "straight", "", "exc", metaFim);
+        ends.forEach(function (e) { edge(e, eid, "straight", "", "exc", metaFim); });
         out.push(fim[1] + "</div></div>");
       }
       // saída correta do losango: verde, para contrastar com o vermelho do B.O.
@@ -188,7 +252,9 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
       const dia = diamondHtml(question, "fork", faseId, blocoIdx), did = dia[0];
       out.push(dia[1]);
       if (!prevSkip) edge(prev, did, "straight", prevLabel, prevSem, { kind: "trunk", fase: faseId, blocoIdx: blocoIdx });
-      prev = did; prevLabel = ""; prevSem = "normal"; prevSkip = branches.length % 2 === 1;
+      // Depois de uma bifurcação não existe "fluxo normal", só as opções: nada
+      // de linha reta do losango ao próximo passo — só as tracejadas amarelas.
+      prev = did; prevLabel = ""; prevSem = "normal"; prevSkip = true;
       out.push('<div class="df-frow" data-bloco="' + blocoIdx + '" data-fase="' + esc(faseId) + '">');
       branches.forEach(function (br, bi) {
         const lab = br[0], ns = br[1];
@@ -229,7 +295,7 @@ function renderMulti(lane) {
       const divId = uid();
       out.push('<div class="df-phase-div" id="' + divId + '"><span>' + esc(fase.titulo) + "</span></div>");
       if (!prevSkip) edge(prev, divId, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
-      trailingRejoin.forEach(function (r) { edge(r[0], divId, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
+      trailingRejoin.forEach(function (r) { edge(r[0], divId, "straight", "", r[1], r[2]); });
       prev = divId; prevLabel = ""; prevSem = "normal"; prevSkip = false;
     }
     const r = renderSection(fase.id, fase.blocos, out, prev, prevLabel, prevSem, prevSkip);
@@ -239,7 +305,7 @@ function renderMulti(lane) {
   const fim = pillHtml("Fim", "df-end"), eid = fim[0];
   out.push(fim[1]);
   if (!prevSkip) edge(prev, eid, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
-  trailingRejoin.forEach(function (r) { edge(r[0], eid, r[3] || "straight", r[3] ? "Volta ao fluxo" : "", r[1], r[2]); });
+  trailingRejoin.forEach(function (r) { edge(r[0], eid, "straight", "", r[1], r[2]); });
   out.push("</div></div></section>");
   return out.join("");
 }
@@ -348,8 +414,13 @@ function drawLane(lane) {
     const ra = rectOf(a, lane), rb = rectOf(b, lane), it = { ed: ed };
     if (ed.kind === "right") {
       it.horizontal = true; it.pa = ptSide(ra, "right"); it.pb = ptSide(rb, "left");
-    } else if (ed.kind === "volta") {
-      it.volta = true; it.pa = ptSide(ra, "bottom"); it.pb = ptSide(rb, "top");
+    } else if (ed.kind === "left") {
+      // losango pequeno → card de volta, à esquerda
+      it.esq = true; it.pa = ptSide(ra, "left"); it.pb = ptSide(rb, "right");
+    } else if (ed.kind === "voltaH") {
+      // card de volta → linha principal: horizontal, curta, até o x do tronco
+      it.voltaH = true; it.pa = ptSide(ra, "left");
+      it.pb = { x: rb.cx, y: it.pa.y };
     } else {
       it.horizontal = false; it.pa = ptSide(ra, "bottom"); it.pb = ptSide(rb, "top");
       it.reta = Math.abs(it.pa.x - it.pb.x) < 2;
@@ -367,11 +438,12 @@ function drawLane(lane) {
   arestas.forEach(function (it) {
     const ed = it.ed;
     let d, mid;
-    if (it.volta) {
-      // desce do item até logo acima do próximo passo e entra por cima
-      const yj = it.pb.y - 18;
-      d = "M" + it.pa.x + "," + it.pa.y + " V" + yj + " H" + it.pb.x + " V" + it.pb.y;
-      mid = { x: (it.pa.x + it.pb.x) / 2, y: yj };
+    if (it.voltaH) {
+      d = "M" + it.pa.x + "," + it.pa.y + " H" + (it.pb.x + 3);
+      mid = { x: (it.pa.x + it.pb.x) / 2, y: it.pa.y };
+    } else if (it.esq) {
+      d = "M" + it.pa.x + "," + it.pa.y + " H" + it.pb.x;
+      mid = { x: (it.pa.x + it.pb.x) / 2, y: it.pa.y };
     } else if (it.horizontal) {
       d = pathH(it.pa, it.pb);
       mid = { x: it.pa.x + Math.max(24, (it.pb.x - it.pa.x) * 0.35), y: it.pa.y };
@@ -383,8 +455,8 @@ function drawLane(lane) {
       d = pathV(it.pa, it.pb, my);
       mid = { x: (it.pa.x + it.pb.x) / 2, y: my };
     }
-    const cls = ed.sem === "exc" ? "df-wire-exc" : ed.sem === "fork" ? "df-wire-fork"
-      : ed.sem === "ok" ? "df-wire-ok" : "df-wire-normal";
+    const cls = (ed.sem === "exc" ? "df-wire-exc" : ed.sem === "fork" ? "df-wire-fork"
+      : ed.sem === "ok" ? "df-wire-ok" : "df-wire-normal") + (it.voltaH ? " df-wire-volta" : "");
     const marker = (ed.sem === "exc" ? "ar-e" : ed.sem === "fork" ? "ar-f"
       : ed.sem === "ok" ? "ar-o" : "ar-n") + "-" + svg.dataset.pfx;
     const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
@@ -497,21 +569,26 @@ function fitAll() {
   const avail = host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   // mede sem as linhas full-bleed (senão scrollWidth ≈ 11.000px)
   ROOT.classList.add("df-medindo");
-  let natural = 0;
-  lanes.forEach(function (l) { l.style.minWidth = "0"; natural = Math.max(natural, l.scrollWidth); l.style.minWidth = ""; });
+  const naturais = lanes.map(function (l) { l.style.minWidth = "0"; const w = l.scrollWidth; l.style.minWidth = ""; return w; });
   ROOT.classList.remove("df-medindo");
-  const s = ESCALA;
-  lanes.forEach(function (l) {
-    l.style.zoom = String(s);
-    // min-width:100% é aplicado ANTES do zoom — sem compensar, a trilha
-    // ficaria 5% mais larga que a tela e sempre "arrastável".
-    l.style.minWidth = (100 / s) + "%";
+  // escala POR TRILHA: 105% quando cabe; a trilha mais larga que a tela
+  // reduz até 85% para caber — as outras não encolhem junto.
+  let s = ESCALA, scrollable = false;
+  lanes.forEach(function (l, i) {
+    const si = Math.floor(Math.min(ESCALA, Math.max(0.85, avail / Math.max(naturais[i], 1))) * 1000) / 1000;
+    l.style.zoom = String(si);
+    // min-width:100% é aplicado ANTES do zoom — compensa para não sobrar largura
+    l.style.minWidth = (100 / si) + "%";
+    const hint = l.closest(".df-lane-wrap") ? l.closest(".df-lane-wrap").querySelector(".df-drag-hint") : null;
+    const rola = naturais[i] * si > avail + 2;
+    if (hint) hint.style.display = rola ? "flex" : "none";
+    scrollable = scrollable || rola;
+    s = Math.min(s, si);
   });
   const pct = Math.round(s * 100);
   const badge = document.getElementById("df-v-fit"); if (badge) badge.textContent = pct + "%";
   const note = document.getElementById("df-tp-fitnote"); if (note) note.hidden = true;
-  const scrollable = natural * s > avail + 2;
-  ROOT.querySelectorAll(".df-drag-hint").forEach(function (h) { h.style.display = scrollable ? "flex" : "none"; });
+
 }
 window.addEventListener("resize", scheduleDraw);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleDraw);
@@ -768,8 +845,12 @@ function deslocarTroncoApartirDe(fObj, apartir) {
   // 3) reescreve o prefixo de toda cadeia (guard/fork) que citava um desses
   //    inteiros — mesma ordem decrescente, mesmo motivo
   function ajustaLista(lista) {
+    lista.forEach(function (n) {
+      if (Array.isArray(n) && n[0] === "ramos") (n[1] || []).forEach(function (br) { ajustaLista(br[1]); });
+    });
     antigos.forEach(function (velho) {
       lista.forEach(function (n, i) {
+        if (Array.isArray(n)) return;
         const p = parseNum(n);
         if (p.int === velho) {
           const novo = fmtNum(Object.assign({}, p, { int: mapa[velho] }));
@@ -845,8 +926,22 @@ function localizarBloco(fase, n) {
     const b = fObj.blocos[i];
     if ((b[0] === "step" || b[0] === "gate") && b[1] === n) return { fObj: fObj, lista: fObj.blocos, idx: i, tipo: "trunk" };
     if (b[0] === "guard") {
-      const j = b[2].indexOf(n);
-      if (j > -1) return { fObj: fObj, lista: b[2], idx: j, tipo: "chain", bloco: b, blocoIdx: i };
+      // procura também dentro das ramificações ("ramos") do desvio
+      const achado = (function busca(lista) {
+        const j = lista.indexOf(n);
+        if (j > -1) return { lista: lista, idx: j };
+        for (let k = 0; k < lista.length; k++) {
+          const it = lista[k];
+          if (Array.isArray(it) && it[0] === "ramos") {
+            for (let r = 0; r < (it[1] || []).length; r++) {
+              const f = busca(it[1][r][1]);
+              if (f) return f;
+            }
+          }
+        }
+        return null;
+      })(b[2]);
+      if (achado) return { fObj: fObj, lista: achado.lista, idx: achado.idx, tipo: "chain", bloco: b, blocoIdx: i };
     }
     if (b[0] === "fork") {
       for (let bi = 0; bi < b[2].length; bi++) {
@@ -1209,8 +1304,25 @@ function abrirPainelNovaFase() {
 }
 
 /* ---------- clique nos blocos (delegado — sobrevive a cada renderTudo()) ---------- */
+function irParaTrilha(laneId) {
+  const lane = document.getElementById("df-lane-" + laneId);
+  const wrap = lane ? lane.closest(".df-lane-wrap") : null;
+  if (!wrap) return;
+  wrap.scrollIntoView({ behavior: "smooth", block: "start" });
+  const h = wrap.querySelector(".df-lane-h");
+  if (!h) return;
+  h.classList.remove("df-flash");
+  void h.offsetWidth; // reinicia a animação se clicar de novo
+  h.classList.add("df-flash");
+}
 function wireCliquesDelegados() {
+  ROOT.addEventListener("keydown", function (e) {
+    const chip = e.target.closest && e.target.closest(".df-link-chip[data-goto]");
+    if (chip && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); irParaTrilha(chip.getAttribute("data-goto")); }
+  });
   ROOT.addEventListener("click", function (e) {
+    const chip = e.target.closest(".df-link-chip[data-goto]");
+    if (chip) { e.stopPropagation(); irParaTrilha(chip.getAttribute("data-goto")); return; }
     const step = e.target.closest(".df-step[data-n]");
     if (step) {
       const fase = step.getAttribute("data-fase"), n = step.getAttribute("data-n");
