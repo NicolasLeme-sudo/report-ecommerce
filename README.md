@@ -1038,6 +1038,13 @@ conteúdo do processo.
   regra do banco — function `calcular_balanco_wms_final` + tabela
   `gabarito_endereco_excecao` (K04, K05). **Mudou o gabarito lá, republique o
   mapa junto.**
+- **Status "Em aberto"** (`status: "aberto"` na etapa): contorno tracejado
+  laranja + selo, status no detalhe e opção no editor. Para etapas cuja regra
+  ainda depende de validação conjunta com outras áreas (Fiscal, Controladoria).
+- **Trilha "Divergências da devolução — DExPARA"** (lane `divergencias`):
+  disparada na Devolução 4 (losango "confere com a NF de devolução?").
+  Bifurcação com 4 caminhos — a CSS dá a cada coluna no mínimo a largura da
+  caixa (`.df-frow` com 4+ `.df-fcol`); a trilha rola para o lado se precisar.
 - **Escala fixa de 105%** (`ESCALA` em `ecom-fluxo.js`). O antigo "ajuste à
   tela" media a largura incluindo as linhas full-bleed das fases e sempre caía
   no piso de 85%. A medição agora esconde essas linhas (`.df-medindo`).

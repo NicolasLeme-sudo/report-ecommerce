@@ -86,9 +86,13 @@ function rect(fase, n, kind) {
   // continua vindo no payload (é dado histórico da migração da planilha),
   // só parou de ser desenhado. Reativar é só desfazer este comentário.
   const cls = kind === "gate" ? TIPO_CLS.gate : (TIPO_CLS[e.tipo] || "t-n");
+  // Status "em aberto": etapa ainda sem regra definida, aguardando validação
+  // conjunta com outras áreas (Fiscal, Controladoria). Borda tracejada + selo.
+  const aberto = e.status === "aberto";
   return (
-    '<button type="button" class="df-box df-step ' + cls + '" id="' + bid +
+    '<button type="button" class="df-box df-step ' + cls + (aberto ? " df-aberto" : "") + '" id="' + bid +
     '" data-fase="' + esc(fase) + '" data-n="' + esc(n) + '">' +
+    (aberto ? '<em class="df-aberto-selo">Em aberto</em>' : "") +
     '<i class="df-s-num">' + esc(n) + "</i>" +
     '<span class="df-s-ico">' + svgIcon(e.icone) + marks.join("") + "</span>" +
     '<span class="df-s-t">' + esc(e.nome) + "</span></button>"
@@ -554,6 +558,10 @@ function openDetail(fase, n) {
   if (d.nome !== d.nome_orig) {
     html += '<div class="df-dg-sec"><b>Nome na planilha</b><p>' + esc(d.nome_orig) + "</p></div>";
   }
+  if (d.status === "aberto") {
+    html += '<div class="df-dg-sec df-dg-aberto"><b>Status</b><p>Em aberto — aguardando validação conjunta com ' +
+      "outras áreas (Fiscal e Controladoria).</p></div>";
+  }
   html += '<div class="df-dg-sec"><b>Resumo</b><p>' + esc(d.resumo) + "</p></div>";
   if (d.marco) html += '<div class="df-dg-sec df-dg-marco"><b>Por que essa etapa importa</b><p>' + esc(d.marco) + "</p></div>";
   if (d.loop) html += '<div class="df-dg-sec df-dg-loop"><b>Volta ao fluxo</b><p>' + esc(d.loop) + "</p></div>";
@@ -984,6 +992,7 @@ function abrirPainelNo(fase, n, ehNovo) {
     ["principal", "desvio", "bifurcacao", "gate"].map(function (t) {
       return '<option value="' + t + '"' + (t === d.tipo ? " selected" : "") + ">" + esc(TIPO_LBL[t]) + "</option>";
     }).join("") + "</select></label>" +
+    campoCheckbox("Em aberto — aguardando validação conjunta com outras áreas", "df-f-aberto", d.status === "aberto") +
     campoArea("Observação (opcional)", "df-f-nota", d.nota, 2) +
     campoInput("Marco do processo (opcional — por que esta etapa importa)", "df-f-marco", d.marco) +
     campoInput("Reinjeta no ciclo (opcional — pra onde volta)", "df-f-loop", d.loop) +
@@ -1020,6 +1029,7 @@ function abrirPainelNo(fase, n, ehNovo) {
     d.orig = g("df-f-orig") || "—";
     d.dest = g("df-f-dest") || "—";
     d.tipo = document.getElementById("df-f-tipo").value;
+    d.status = document.getElementById("df-f-aberto").checked ? "aberto" : "";
     d.nota = g("df-f-nota");
     d.marco = g("df-f-marco");
     d.loop = g("df-f-loop");
@@ -1491,6 +1501,7 @@ function montarShell(root) {
     '<div class="df-lg"><span class="df-sw df-sw-bif"></span><div><b>Bifurcação</b><p>Um dos caminhos possíveis.</p></div></div>' +
     '<div class="df-lg"><span class="df-sw df-sw-gate"></span><div><b>Regra do sistema</b><p>Bloqueio automático.</p></div></div>' +
     '<div class="df-lg"><span class="df-sw df-sw-dia"></span><div><b>Decisão</b><p>Losango — pergunta que define o caminho.</p></div></div>' +
+    '<div class="df-lg"><span class="df-sw df-sw-aberto"></span><div><b>Em aberto</b><p>Aguarda validação com outras áreas.</p></div></div>' +
     '<div class="df-lg"><span class="df-ln df-ln-n"></span><div><b>Fluxo normal</b><p>Linha sólida cinza.</p></div></div>' +
     '<div class="df-lg"><span class="df-ln df-ln-ok"></span><div><b>Saída correta</b><p>Linha verde.</p></div></div>' +
     '<div class="df-lg"><span class="df-ln df-ln-e"></span><div><b>Exceção</b><p>Linha tracejada vermelha.</p></div></div>' +
