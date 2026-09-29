@@ -785,6 +785,18 @@ function wireDragScroll() {
   });
 }
 
+// Botão "Voltar ao topo", ao lado do de ajustar layout — rola quem realmente
+// tem o scroll (.conteudo, fora de #dfRoot; a página em si não rola).
+function wireTopBtn() {
+  const btn = document.getElementById("df-topbtn");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    const conteudo = document.querySelector(".conteudo");
+    if (conteudo) conteudo.scrollTo({ top: 0, behavior: "smooth" });
+    else window.scrollTo({ top: 0, behavior: "smooth" }); // fallback, caso rode fora do shell do dashboard
+  });
+}
+
 function wireSearch() {
   const q = document.getElementById("df-q"), qhint = document.getElementById("df-qhint");
   if (!q) return;
@@ -1755,6 +1767,8 @@ function montarShell(root) {
     "</div>" +
     '<dialog id="df-dlg"><button class="df-dlg-x" id="df-dlgx" type="button" aria-label="Fechar">✕</button>' +
     '<div id="df-dlgbody"></div></dialog>' +
+    '<button class="df-topbtn" id="df-topbtn" type="button" title="Voltar ao topo" ' +
+    'aria-label="Voltar ao topo"><svg viewBox="0 0 24 24"><path d="M12 19V6M6 11l6-6 6 6"/></svg></button>' +
     '<button class="df-tunebtn" id="df-tunebtn" type="button" title="Ajustar espaçamento e tamanho" ' +
     'aria-label="Ajustar layout"><svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>' +
     '<path d="M19.4 13a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V19a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>' +
@@ -1896,6 +1910,7 @@ async function iniciar(rootId, supabaseClient, perfilAtual) {
   montarShell(root);
   wireSearch();
   wireDragScroll();
+  wireTopBtn();
   wireTune();
   wireEditToggle();
   wireCliquesDelegados();

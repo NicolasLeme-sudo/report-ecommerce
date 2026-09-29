@@ -982,11 +982,14 @@ table.matrix tbody tr.total th {
 }
 
 /* ── painel de ajuste de layout (canto inferior direito, oculto por padrão) ── */
-#dfRoot .df-tunebtn {position:fixed;right:20px;bottom:20px;z-index:60;width:46px;height:46px;border-radius:50%;
+#dfRoot .df-tunebtn, #dfRoot .df-topbtn {position:fixed;bottom:20px;z-index:60;width:46px;height:46px;border-radius:50%;
  background:var(--df-card);border:1.5px solid var(--df-bd);color:var(--df-tx2);cursor:pointer;
  display:grid;place-items:center;box-shadow:0 6px 20px rgba(0,0,0,.35);transition:border-color .15s,color .15s}
-#dfRoot .df-tunebtn:hover {color:var(--df-gold);border-color:var(--df-gold)}
-#dfRoot .df-tunebtn svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8}
+#dfRoot .df-tunebtn:hover, #dfRoot .df-topbtn:hover {color:var(--df-gold);border-color:var(--df-gold)}
+#dfRoot .df-tunebtn svg, #dfRoot .df-topbtn svg {width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8}
+/* engrenagem no canto; "voltar ao topo" logo à esquerda dela (46px + 10px de vão) */
+#dfRoot .df-tunebtn {right:20px}
+#dfRoot .df-topbtn {right:76px}
 #dfRoot .df-tunepanel {position:fixed;right:20px;bottom:76px;z-index:60;width:290px;max-height:74vh;overflow:auto;
  scrollbar-width:thin;scrollbar-color:var(--df-bd) transparent;
  background:var(--df-card);border:1px solid var(--df-bd);border-radius:12px;padding:16px 18px 18px;
