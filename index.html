@@ -711,10 +711,19 @@ table.matrix tbody tr.total th {
  font-size:10.5px;line-height:1.2;font-weight:700;color:var(--df-gold);border:1.5px solid var(--df-gold);border-radius:99px;
  padding:3px 10px;background:var(--df-bg);cursor:pointer}
 #dfRoot .df-link-chip:hover, #dfRoot .df-link-chip:focus-visible {background:var(--df-gold);color:var(--df-bg);outline:none}
-/* sinalização amarela ao chegar pelo atalho (mesmo padrão do report de Produtividade) */
-#dfRoot .df-lane-h.df-flash > span {animation:dfFlash 800ms ease-in-out 3}
+/* sinalização amarela ao chegar pelo atalho (mesmo padrão do report de Produtividade) —
+   também nos divisores de fase e no pill "Início" (irParaFase, clique no nome do setor
+   no título da lane: ecom-fluxo.js/tituloLaneHtml) */
+#dfRoot .df-lane-h.df-flash > span, #dfRoot .df-phase-div.df-flash > span {animation:dfFlash 800ms ease-in-out 3}
+#dfRoot .df-pill.df-flash {animation:dfFlash 800ms ease-in-out 3}
 @keyframes dfFlash {0%,100% {box-shadow:0 0 0 0 transparent}
  50% {box-shadow:0 0 0 3px var(--df-gold), 0 0 18px 3px rgba(246,189,0,.45); background:rgba(246,189,0,.18)}}
+/* nome do setor clicável dentro do título da lane (tituloLaneHtml) — pula
+   pro divisor daquela fase (irParaFase). Sutil: sublinhado pontilhado, sem
+   mudar o visual compacto do pill; fica sólido e mais claro no hover/foco. */
+#dfRoot .df-setor-link {background:none;border:none;padding:0;margin:0;font:inherit;color:inherit;
+ cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+#dfRoot .df-setor-link:hover, #dfRoot .df-setor-link:focus-visible {color:var(--df-tx);text-decoration-style:solid;outline:none}
 #dfRoot .df-dg-sec.df-dg-aberto b {color:var(--df-aberto)}
 #dfRoot .df-mk:nth-of-type(2) {right:12px}
 #dfRoot .df-mk:nth-of-type(3) {right:30px}

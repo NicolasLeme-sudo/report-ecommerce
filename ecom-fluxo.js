@@ -291,22 +291,50 @@ function renderSection(faseId, blocos, out, prev, prevLabel, prevSem, prevSkip) 
   return { prev: prev, prevLabel: prevLabel, prevSem: prevSem, prevSkip: prevSkip, pendingRejoin: pendingRejoin, blocoIdxFim: blocos.length };
 }
 
+// Título da lane ("Fluxo principal — Recebimento → Armazenagem → ...") com
+// cada nome de setor virando um botão que pula pro divisor daquela fase —
+// pedido do usuário, mesmo comportamento do "Ver detalhamento" que já pula
+// entre lanes (irParaTrilha/df-link-chip), só que dentro da MESMA lane.
+// Não tenta recompor o texto a partir de lane.fases (o título usa nomes
+// abreviados só dele, ex. "Packing" vs. fase.titulo "Conferência e
+// packing") — em vez disso, separa o texto já escrito pelo "→" e casa cada
+// pedaço com a fase de MESMA POSIÇÃO na lista. Se a contagem não bater
+// (título editado sem seguir esse padrão, ou lane sem essa estrutura, como
+// "Fluxo de Reversa — Devolução e insucesso de entrega", uma frase só),
+// não arrisca virar link errado — cai pro texto simples de sempre.
+function tituloLaneHtml(lane, anchorIds) {
+  const titulo = lane.titulo || "";
+  const SEP = " — ";
+  const posSep = titulo.indexOf(SEP);
+  if (posSep === -1) return esc(titulo);
+  const prefixo = titulo.slice(0, posSep + SEP.length);
+  const segs = titulo.slice(posSep + SEP.length).split(" → ");
+  if (segs.length !== anchorIds.length) return esc(titulo);
+  return esc(prefixo) + segs.map(function (seg, i) {
+    return '<button type="button" class="df-setor-link" data-goto-fase="' + esc(anchorIds[i]) + '">' + esc(seg) + "</button>";
+  }).join(" → ");
+}
+
 /* sections = [{id,titulo,blocos}, ...] — uma lane contínua com Início único,
    Fim único, e um divisor visível entre cada fase. Porta render_multi(). */
 function renderMulti(lane) {
+  const inicio = pillHtml("Início", "df-start"), sid = inicio[0];
+  // ids pré-gerados (não só os do meio) pra poder linkar o título ANTES de
+  // montar o resto do HTML: a 1ª fase não tem .df-phase-div próprio (o
+  // "Início" já marca o começo dela), então usa o id do próprio pill.
+  const anchorIds = lane.fases.map(function (fase, i) { return i === 0 ? sid : uid(); });
   const out = [
-    '<section class="df-lane-wrap"><h2 class="df-lane-h"><span>' + esc(lane.titulo) + "</span></h2>" +
+    '<section class="df-lane-wrap"><h2 class="df-lane-h"><span>' + tituloLaneHtml(lane, anchorIds) + "</span></h2>" +
     '<p class="df-lane-sub">' + esc(lane.sub || "") + "</p>" +
     '<p class="df-drag-hint"><svg viewBox="0 0 24 24"><path d="M8 5l-5 7 5 7M16 5l5 7-5 7"/></svg>' +
     "Arraste para o lado para ver os desvios</p>" +
     '<div class="df-lane-fit"><div class="df-lane" id="df-lane-' + esc(lane.id) + '" data-lane="' + esc(lane.id) + '">',
   ];
-  const inicio = pillHtml("Início", "df-start"), sid = inicio[0];
   out.push(inicio[1]);
   let prev = sid, prevLabel = "", prevSem = "normal", prevSkip = false, trailingRejoin = [], prevFaseId = null, prevBlocoFim = 0;
   lane.fases.forEach(function (fase, i) {
     if (i > 0) {
-      const divId = uid();
+      const divId = anchorIds[i];
       out.push('<div class="df-phase-div" id="' + divId + '"><span>' + esc(fase.titulo) + "</span></div>");
       if (!prevSkip) edge(prev, divId, "straight", prevLabel, prevSem, { kind: "trunk", fase: prevFaseId, blocoIdx: prevBlocoFim });
       trailingRejoin.forEach(function (r) { edge(r[0], divId, "straight", "", r[1], r[2]); });
@@ -1378,12 +1406,26 @@ function irParaTrilha(laneId) {
   void h.offsetWidth; // reinicia a animação se clicar de novo
   h.classList.add("df-flash");
 }
+// Pula pro divisor de uma fase (ou pro "Início", na 1ª fase) dentro da MESMA
+// lane — id vem de tituloLaneHtml()/anchorIds em renderMulti(). "center" em
+// vez de "start" (irParaTrilha) porque aqui o alvo normalmente já está no
+// meio do fluxo, não no topo de uma seção nova.
+function irParaFase(anchorId) {
+  const el = document.getElementById(anchorId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.remove("df-flash");
+  void el.offsetWidth;
+  el.classList.add("df-flash");
+}
 function wireCliquesDelegados() {
   ROOT.addEventListener("keydown", function (e) {
     const chip = e.target.closest && e.target.closest(".df-link-chip[data-goto]");
     if (chip && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); e.stopPropagation(); irParaTrilha(chip.getAttribute("data-goto")); }
   });
   ROOT.addEventListener("click", function (e) {
+    const setor = e.target.closest(".df-setor-link[data-goto-fase]");
+    if (setor) { e.stopPropagation(); irParaFase(setor.getAttribute("data-goto-fase")); return; }
     const chip = e.target.closest(".df-link-chip[data-goto]");
     if (chip) { e.stopPropagation(); irParaTrilha(chip.getAttribute("data-goto")); return; }
     const step = e.target.closest(".df-step[data-n]");
