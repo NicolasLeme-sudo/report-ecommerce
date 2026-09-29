@@ -785,15 +785,19 @@ function wireDragScroll() {
   });
 }
 
-// Botão "Voltar ao topo", ao lado do de ajustar layout — rola quem realmente
-// tem o scroll (.conteudo, fora de #dfRoot; a página em si não rola).
+// Botão "Voltar ao topo", ao lado do de ajustar layout. Quem rola é a JANELA,
+// não o .conteudo: .conteudo é linha "1fr" de um grid com min-height (não
+// height) — sem altura própria, cresce junto com o conteúdo (efeito
+// "blowout" do CSS Grid) e nunca fica menor que o que tem dentro, então seu
+// overflow-y:auto nunca tem o que rolar. É por isso que a .sidebar usa
+// position:sticky (contra o scroll da janela) em vez de ficar presa a um
+// .conteudo com scroll próprio — primeira versão deste botão chamava
+// .conteudo.scrollTo() e não fazia nada, exatamente por essa razão.
 function wireTopBtn() {
   const btn = document.getElementById("df-topbtn");
   if (!btn) return;
   btn.addEventListener("click", function () {
-    const conteudo = document.querySelector(".conteudo");
-    if (conteudo) conteudo.scrollTo({ top: 0, behavior: "smooth" });
-    else window.scrollTo({ top: 0, behavior: "smooth" }); // fallback, caso rode fora do shell do dashboard
+    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 }
 
