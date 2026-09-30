@@ -3262,7 +3262,9 @@ function desenharExpedicao() {
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     const bl = d.backlog.filter(v => v != null);
-    tot.innerHTML = '<div class="item"><div class="lab">Amanhecemos hoje com</div><div class="val">' + (d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div></div>' +
+    const efHoje = d.backlog_efetivo ? d.backlog_efetivo[hi] : null;   // o que de fato amanheceu em tela hoje
+    tot.innerHTML = '<div class="item"><div class="lab">Amanhecemos hoje com</div><div class="val">' + (efHoje != null ? fmtInt(efHoje) : d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div>' +
+      '<div class="lab" style="margin-top:2px">' + (efHoje != null && d.backlog[hi] != null ? 'previsto ' + fmtInt(d.backlog[hi]) : efHoje == null ? 'previsto (sem efetivo no snapshot)' : '') + '</div></div>' +
       '<div class="item" title="Maior backlog previsto (amanhecer) entre os dias mostrados no gráfico"><div class="lab">Pico previsto' + (bl.length ? ' · ' + d.dias[d.backlog.indexOf(Math.max(...bl))] : '') + '</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (amanhecer no dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
