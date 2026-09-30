@@ -3119,7 +3119,10 @@ function desenharExpedicao() {
   const nota = document.getElementById('expNota'), tot = document.getElementById('weekTotais'), leg = document.getElementById('expLegenda');
   svg.innerHTML = '';
   esconderTipExp();
-  const d = _expVisao === 'forecast' ? _expDados : _expBacklog;
+  let d = _expVisao === 'forecast' ? _expDados : _expBacklog;
+  if (d && _expVisao === 'backlog' && _expDados && _expDados.expedido && _expDados.expedido.length === d.dias.length) {
+    d = Object.assign({}, d, { saida_efetiva: _expDados.expedido }); // mesma janela de dias nos dois blocos do snapshot
+  }
   if (!d) {
     svg.setAttribute('width', 10); svg.setAttribute('height', 10); tot.innerHTML = ''; leg.innerHTML = '';
     nota.textContent = _expVisao === 'forecast' ? 'Sem dados de expedição neste snapshot.'
@@ -3127,14 +3130,21 @@ function desenharExpedicao() {
     return;
   }
 
-  const n = d.dias.length;
-  const hi = (d.hoje_idx !== undefined && d.hoje_idx >= 0) ? d.hoje_idx : n - 1;
+  // O filtro define QUANTOS DIAS entram (15 = hoje ±7, 30 = hoje ±15); o espaçamento entre
+  // os dias é sempre o mesmo, então 30 dias só alarga a área rolável (não espreme o gráfico).
+  const nAll = d.dias.length;
+  const hiAll = (d.hoje_idx !== undefined && d.hoje_idx >= 0) ? d.hoje_idx : nAll - 1;
+  const meia = Math.floor(_expJanela / 2), ia = Math.max(0, hiAll - meia), ib = Math.min(nAll - 1, hiAll + meia);
+  const cortado = {};
+  Object.keys(d).forEach(k => { cortado[k] = Array.isArray(d[k]) && d[k].length === nAll ? d[k].slice(ia, ib + 1) : d[k]; });
+  d = cortado;
+  const n = d.dias.length, hi = hiAll - ia;
   // gráfico maior e com letra maior (pedido do usuário: "difícil de visualizar")
   const w0 = sc.clientWidth || 1000, h = 320, pL = 34, pR = 34, pT = 62, pB = 54;
   const FS = 12;                                  // fonte dos rótulos de valor
   // snapshot antigo (7 dias) ou janela maior que os dados: distribui os pontos que existem
   // pela largura toda, em vez de espremer tudo à esquerda
-  const vis = Math.max(2, Math.min(_expJanela, n));
+  const vis = Math.max(2, Math.min(15, n));
   const step = (w0 - pL - pR) / (vis - 1);
   const W = pL + pR + (n - 1) * step;
   svg.setAttribute('width', W); svg.setAttribute('height', h); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + h);
@@ -3191,7 +3201,7 @@ function desenharExpedicao() {
     }
     // totais = parte já decorrida do período que o filtro mostra (do início da janela até hoje),
     // mesmos dias para expedido e forecast
-    const ini = Math.max(0, hi - Math.floor(_expJanela / 2));
+    const ini = 0;
     const soma = arr => arr.slice(ini, hi + 1).reduce((s, v) => s + (v || 0), 0);
     const per = d.dias[ini] + ' a ' + d.dias[hi];
     tot.innerHTML = '<div class="item"><div class="lab">Expedido · ' + per + '</div><div class="val">' + fmtInt(soma(d.expedido)) + '</div></div>' +
@@ -3214,7 +3224,7 @@ function desenharExpedicao() {
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (fim do dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
-    nota.textContent = 'Passe o mouse sobre um dia para ver a entrada efetiva × prevista e a diferença (acuracidade do planejamento). Backlog = posição inicial + entrada prevista − capacidade de saída' +
+    nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = posição inicial + entrada prevista − capacidade de saída' +
       (d.capacidade_informada ? ' (capacidade informada em Abastecimento).' : ' (capacity do arquivo do planejamento).');
   }
   rotulos.forEach(f => f());
@@ -3238,12 +3248,19 @@ function desenharExpedicao() {
         lin('Expedido', d.expedido[i] == null ? '—' : fmtInt(d.expedido[i]), 'var(--olive)') +
         (p == null ? '' : lin('Diferença', fmtPct(p) + ' · ' + fmtInt(d.expedido[i] - d.forecast[i]), corPct(p)));
     } else {
-      const ef = d.entrada_efetiva ? d.entrada_efetiva[i] : null, p = pct(ef, d.entrada[i]);
-      html += lin('Backlog previsto', d.backlog[i] == null ? '—' : fmtInt(d.backlog[i]), 'var(--amber)') +
-        lin('Saída prevista', d.saida[i] == null ? '—' : fmtInt(d.saida[i]), 'var(--olive)') +
-        lin('Entrada prevista', d.entrada[i] == null ? '—' : fmtInt(d.entrada[i]), 'var(--accent)') +
-        (ef == null ? '' : lin('Entrada efetiva' + (i === hi ? ' (parcial)' : ''), fmtInt(ef))) +
-        (p == null || i === hi ? '' : lin('Efetiva × prevista', fmtPct(p) + ' · ' + fmtInt(ef - d.entrada[i]), corPct(p)));
+      const g = (k) => d[k] ? d[k][i] : null, num = v => v == null ? '—' : fmtInt(v);
+      const parcial = i === hi;                                   // hoje ainda está fechando
+      const efLin = (rotulo, ef, pr, cor) => {
+        if (ef == null) return '';
+        const p = parcial && rotulo !== 'Backlog efetivo' ? null : pct(ef, pr);
+        return lin(rotulo + (parcial && rotulo !== 'Backlog efetivo' ? ' (parcial)' : ''), fmtInt(ef) + (p == null ? '' : ' · ' + fmtPct(p)), p == null ? cor : corPct(p));
+      };
+      html += lin('Backlog previsto', num(g('backlog')), 'var(--amber)') +
+        efLin('Backlog efetivo', g('backlog_efetivo'), g('backlog'), 'var(--text)') +
+        lin('Entrada prevista', num(g('entrada')), 'var(--accent)') +
+        efLin('Entrada efetiva', g('entrada_efetiva'), g('entrada'), 'var(--text)') +
+        lin('Saída prevista', num(g('saida')), 'var(--olive)') +
+        efLin('Saída efetiva', g('saida_efetiva'), g('saida'), 'var(--text)');
     }
     const col = el('rect', { x: xF(i) - step / 2, y: 0, width: step, height: h - pB + 4, class: 'exp-col' });
     col.addEventListener('mouseenter', e => mostrarTipExp(html, e));

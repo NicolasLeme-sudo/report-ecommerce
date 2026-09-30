@@ -1236,35 +1236,63 @@ async function buscarSegmentos() {
 // gráfico de backlog previsto — buscado uma vez por processamento (cache curto).
 // Ordenado e paginado até a página vazia, senão a paginação pula/repete linhas.
 let _integracaoCache = null;
-async function buscarIntegracaoPorDia() {
-  if (_integracaoCache && Date.now() - _integracaoCache.ts < 120000) return _integracaoCache.porDia;
+async function carregarPedidosJanela() {
+  if (_integracaoCache && Date.now() - _integracaoCache.ts < 120000) return _integracaoCache;
   const desde = new Date();
   desde.setDate(desde.getDate() - 60);
   const desdeISO = paraDataISOLocal(desde);
 
-  const porDia = {};
+  const porDia = {}, ordens = [];
   const LOTE = 1000;
   let offset = 0;
   while (true) {
     const { data, error } = await supabaseClient
       .from("pedidos")
-      .select("importado_em, qtd_total_produto")
+      .select("importado_em, processado_em, situacao, status_calculado, qtd_total_produto")
       .gte("importado_em", desdeISO)
       .order("pedido_venda", { ascending: true })
       .range(offset, offset + LOTE - 1);
-    if (error) { console.error("Erro ao buscar integração por dia:", error); break; }
+    if (error) { console.error("Erro ao buscar pedidos da janela:", error); break; }
     if (!data || data.length === 0) break;
 
     data.forEach(function(r) {
       if (!r.importado_em) return;
-      const diaISO = paraDataISOLocal(dataDoBanco(r.importado_em));
-      porDia[diaISO] = (porDia[diaISO] || 0) + (Number(r.qtd_total_produto) || 0);
+      const qtd = Number(r.qtd_total_produto) || 0;
+      const imp = paraDataISOLocal(dataDoBanco(r.importado_em));
+      porDia[imp] = (porDia[imp] || 0) + qtd;
+      // pedido cancelado vem com situacao CANCELADO (o status_calculado dele pode ser uma etapa qualquer)
+      const cancelado = r.situacao === "CANCELADO" || r.status_calculado === "Cancelado";
+      const exp = (r.situacao === "EXPEDIDO" && r.processado_em) ? paraDataISOLocal(dataDoBanco(r.processado_em)) : null;
+      if (!cancelado) ordens.push({ imp: imp, exp: exp, qtd: qtd });
     });
 
     offset += data.length;
   }
-  _integracaoCache = { ts: Date.now(), porDia: porDia };
-  return porDia;
+  _integracaoCache = { ts: Date.now(), porDia: porDia, ordens: ordens };
+  return _integracaoCache;
+}
+async function buscarIntegracaoPorDia() { return (await carregarPedidosJanela()).porDia; }
+
+// Backlog EFETIVO no fim de cada dia da janela: itens já integrados (importado_em <= dia)
+// e ainda não expedidos naquele dia (sem processado_em, ou processado depois). Cancelados
+// ficam de fora. Só faz sentido até hoje; a precisão depende de o banco ter os pedidos do dia.
+async function calcularBacklogEfetivo(dias, hojeISO) {
+  const { ordens } = await carregarPedidosJanela();
+  const idx = {}; dias.forEach(function(d, i){ idx[d] = i; });
+  const diff = new Array(dias.length + 1).fill(0);
+  ordens.forEach(function(o) {
+    if (o.imp > dias[dias.length - 1]) return;
+    const ini = o.imp < dias[0] ? 0 : idx[o.imp];
+    let fim = dias.length - 1;
+    if (o.exp) {
+      if (o.exp < dias[0]) return;                       // já saiu antes da janela
+      fim = o.exp > dias[dias.length - 1] ? dias.length - 1 : idx[o.exp] - 1;
+    }
+    if (ini === undefined || fim < ini) return;
+    diff[ini] += o.qtd; diff[fim + 1] -= o.qtd;
+  });
+  let acum = 0;
+  return dias.map(function(d, i){ acum += diff[i]; return d <= hojeISO ? Math.round(acum) : null; });
 }
 
 async function buscarTetoHistoricoIntegracao() {
@@ -1498,6 +1526,7 @@ async function computarBacklogPrevisto() {
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
     // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
     // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
+    backlog_efetivo: await calcularBacklogEfetivo(dias, hojeISO),
     entrada_efetiva: dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
     backlog: dias.map(function(d){ return backlogEf[d] === undefined ? null : backlogEf[d]; }),
