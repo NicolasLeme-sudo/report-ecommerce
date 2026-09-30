@@ -3423,6 +3423,12 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
 });
 /* Capacidade de saída informada (usada na Análise Prevista de Backlog) */
+// Refaz o forecast/backlog do snapshot de Outbound de hoje; se não houver um, avisa o que fazer.
+async function refletirForecastNoGrafico() {
+  try { if (await atualizarForecastNoSnapshotOutbound()) return 'Gráfico do Outbound atualizado.'; }
+  catch (e) { console.error(e); }
+  return 'Para o gráfico refletir, rode "Atualizar Relatórios da Operação".';
+}
 async function renderCapacidades() {
   const el = document.getElementById('capLista'); if (!el) return;
   try {
@@ -3432,7 +3438,7 @@ async function renderCapacidades() {
       '</span><button type="button" data-cap="' + g.data + '" title="Remover">×</button></div>').join('')
       : 'Nenhuma capacidade informada — a análise usa a capacity do arquivo do forecast.';
     el.querySelectorAll('button[data-cap]').forEach(b => b.addEventListener('click', async () => {
-      try { await removerCapacidadeSaida(b.dataset.cap); mostrar('progressCapacidade', 'Removida. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok'); }
+      try { await removerCapacidadeSaida(b.dataset.cap); mostrar('progressCapacidade', 'Removida. ' + await refletirForecastNoGrafico(), 'ok'); }
       catch (e) { mostrar('progressCapacidade', '✗ Erro: ' + e.message, 'erro'); }
       renderCapacidades();
     }));
@@ -3448,7 +3454,7 @@ async function renderDiasEspeciais() {
       '</span><button type="button" data-tipo="' + g.tipo + '" data-dia="' + g.data + '" title="Remover">×</button></div>').join('')
       : 'Nenhum dia marcado — vale o calendário do arquivo do planejamento.';
     el.querySelectorAll('button[data-dia]').forEach(b => b.addEventListener('click', async () => {
-      try { await removerDiaEspecial(b.dataset.tipo, b.dataset.dia); mostrar('progressDias', 'Removido. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok'); }
+      try { await removerDiaEspecial(b.dataset.tipo, b.dataset.dia); mostrar('progressDias', 'Removido. ' + await refletirForecastNoGrafico(), 'ok'); }
       catch (e) { mostrar('progressDias', '✗ Erro: ' + e.message, 'erro'); }
       renderDiasEspeciais();
     }));
@@ -3458,7 +3464,7 @@ async function renderDiasEspeciais() {
   const tipo = id === 'btnDiaExtra' ? 'extra' : 'folga';
   try {
     await salvarDiaEspecial(tipo, document.getElementById('diaData').value, document.getElementById('diaItens').value);
-    mostrar('progressDias', '✓ Salvo. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok');
+    mostrar('progressDias', '✓ Salvo. ' + await refletirForecastNoGrafico(), 'ok');
     document.getElementById('diaItens').value = '';
   } catch (e) { mostrar('progressDias', '✗ Erro: ' + e.message, 'erro'); }
   renderDiasEspeciais();
@@ -3467,7 +3473,7 @@ document.getElementById('capDesde').value = new Date().toLocaleDateString('sv-SE
 document.getElementById('btnCapacidade').addEventListener('click', async () => {
   try {
     await salvarCapacidadeSaida(document.getElementById('capValor').value, document.getElementById('capDesde').value);
-    mostrar('progressCapacidade', '✓ Capacidade salva. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok');
+    mostrar('progressCapacidade', '✓ Capacidade salva. ' + await refletirForecastNoGrafico(), 'ok');
     document.getElementById('capValor').value = '';
   } catch (e) { mostrar('progressCapacidade', '✗ Erro: ' + e.message, 'erro'); }
   renderCapacidades();

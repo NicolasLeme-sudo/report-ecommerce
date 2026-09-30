@@ -1053,7 +1053,10 @@ async function gravarForecastCru(cru, file, onProgress) {
     throw new Error("Forecast (curva) gravado, mas a análise de backlog NÃO: " + erroExtras.message +
       " — provável restrição da tabela forecast_diario sobre o valor de 'marca'.");
   }
-  onProgress(`✓ ${total.length} dias gravados (curva de faturamento + entrada, saída e backlog previstos).`);
+  onProgress(`✓ ${total.length} dias gravados (curva de faturamento + entrada, saída e backlog previstos). Atualizando o gráfico...`);
+  let atualizou = false;
+  try { atualizou = await atualizarForecastNoSnapshotOutbound(); } catch (e) { console.error("Erro ao atualizar o gráfico com o forecast:", e); }
+  onProgress(`✓ ${total.length} dias gravados. ` + (atualizou ? "Gráfico do Outbound atualizado." : 'Para o gráfico refletir, rode "Atualizar Relatórios da Operação".'));
 }
 
 async function processarForecastMensal(file, options) {
@@ -1502,7 +1505,7 @@ async function removerCapacidadeSaida(desdeISO) {
 // backlog previsto por dia, de D-15 a D+15 — tudo vindo do forecast (marcas extras
 // de forecast_diario, ver gravarForecastCru). null quando o forecast ainda não
 // foi carregado no layout do planejamento.
-async function computarBacklogPrevisto() {
+async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: reaproveita os efetivos de um snapshot do dia (evita reler milhares de pedidos)
   const hoje = new Date();
   const dias = [];
   for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
@@ -1553,20 +1556,20 @@ async function computarBacklogPrevisto() {
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const hojeISO = paraDataISOLocal(hoje);
-  const integracao = await buscarIntegracaoPorDia();
+  const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
   return {
     dias: dias.map(function(d){ return d.slice(8, 10) + "/" + d.slice(5, 7); }),
     dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
     // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
     // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
-    backlog_efetivo: await (async function(){
+    backlog_efetivo: efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
       const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
       const base = [paraDataISOLocal(ontem0)].concat(dias);
       const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
       return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
     })(),
-    entrada_efetiva: dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
+    entrada_efetiva: efetivosProntos ? efetivosProntos.entrada_efetiva : dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
     // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
     // dia anterior), previsto e efetivo na mesma base.
@@ -1575,6 +1578,35 @@ async function computarBacklogPrevisto() {
     capacidade_informada: dias.some(function(d){ return informada[d]; }),
     hoje_idx: dias.indexOf(hojeISO),
   };
+}
+
+// Depois de mudar forecast, capacidade ou dias trabalhados (Abastecimento), refaz SÓ a parte de
+// forecast do snapshot de Outbound de HOJE (curva do Forecast x Expedição e a Análise Prevista de
+// Backlog), sem precisar reprocessar os relatórios da operação. Reaproveita do snapshot o resto
+// (inclusive os efetivos já calculados). Devolve false se não houver snapshot de hoje — aí vale rodar
+// "Atualizar Relatórios da Operação".
+async function atualizarForecastNoSnapshotOutbound() {
+  const res = await supabaseClient.from("dashboard_snapshots").select("payload, gerado_em")
+    .eq("pagina", "outbound").order("gerado_em", { ascending: false }).limit(1);
+  const snap = res.data && res.data[0];
+  if (res.error || !snap || !snap.payload) return false;
+  const p = snap.payload;
+  const hoje = new Date(), hojeISO = paraDataISOLocal(hoje);
+  if (paraDataISOLocal(dataDoBanco(snap.gerado_em)) !== hojeISO) return false;   // snapshot de outro dia: janela de datas não bate
+
+  const antigo = p.backlog_previsto || null;
+  p.backlog_previsto = await computarBacklogPrevisto(antigo && antigo.backlog_efetivo && antigo.entrada_efetiva
+    ? { backlog_efetivo: antigo.backlog_efetivo, entrada_efetiva: antigo.entrada_efetiva } : undefined);
+
+  if (p.expedicao_semana && p.expedicao_semana.dias && p.expedicao_semana.dias.length === 31) {
+    const rows = await buscarForecastJanela15();
+    const porDia = {}; rows.forEach(function(r){ porDia[r.data] = r.itens_forecast; });
+    const forecast = [];
+    for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); const k = paraDataISOLocal(d); forecast.push(porDia[k] === undefined ? null : porDia[k]); }
+    p.expedicao_semana.forecast = forecast;
+  }
+  await salvarSnapshot("outbound", "auto", p);
+  return true;
 }
 
 async function computarExpedicaoSemana(pedidos, forecastRows) {
