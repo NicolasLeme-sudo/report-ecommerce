@@ -2206,6 +2206,31 @@ function pathSuave(pts) {
   return d;
 }
 
+// Curva suave que NÃO ultrapassa os valores (interpolação cúbica monotônica, Fritsch–Carlson):
+// entre um dia de 0 e um de 10.000 a linha desce/sobe sem passar do mínimo nem do máximo,
+// ao contrário do pathSuave (Catmull-Rom), que "estoura" nas quinas.
+function pathMonotono(pts) {
+  const n = pts.length;
+  if (n < 3) return pts.length === 2 ? 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1) + ' L' + pts[1][0].toFixed(1) + ',' + pts[1][1].toFixed(1) : '';
+  const dx = [], m = [], t = new Array(n);
+  for (let i = 0; i < n - 1; i++) { dx[i] = pts[i + 1][0] - pts[i][0]; m[i] = (pts[i + 1][1] - pts[i][1]) / dx[i]; }
+  t[0] = m[0]; t[n - 1] = m[n - 2];
+  for (let i = 1; i < n - 1; i++) t[i] = m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2;
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+    const a = t[i] / m[i], b = t[i + 1] / m[i], s = a * a + b * b;
+    if (s > 9) { const k = 3 / Math.sqrt(s); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+  }
+  let d = 'M' + pts[0][0].toFixed(1) + ',' + pts[0][1].toFixed(1);
+  for (let i = 0; i < n - 1; i++) {
+    const h3 = dx[i] / 3;
+    d += ' C' + (pts[i][0] + h3).toFixed(1) + ',' + (pts[i][1] + t[i] * h3).toFixed(1) + ' ' +
+      (pts[i + 1][0] - h3).toFixed(1) + ',' + (pts[i + 1][1] - t[i + 1] * h3).toFixed(1) + ' ' +
+      pts[i + 1][0].toFixed(1) + ',' + pts[i + 1][1].toFixed(1);
+  }
+  return d;
+}
+
 // Rótulo de dado com fundo (chip), para ficar legível mesmo sobre linhas/outros rótulos
 function labelComFundo(svg, x, y, texto, opts) {
   opts = opts || {};
@@ -3184,11 +3209,11 @@ function desenharExpedicao() {
   const rotulos = [];
   const rot = (x, y, txt, cor) => rotulos.push(() => labelComFundo(svg, x, Math.min(y, h - pB - 8), txt, { fontSize: FS, cor: cor }));
 
-  const linha = (vals, cor, dash, reta) => {
+  const linha = (vals, cor, dash, suave) => {   // suave = curva monotônica e sem bolinhas (Análise de Backlog)
     const pts = vals.map((v, i) => v == null ? null : [xF(i), yF(v), v, i]).filter(Boolean);
-    if (pts.length > 1) el('path', { d: reta ? 'M' + pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') : pathSuave(pts),
+    if (pts.length > 1) el('path', { d: suave ? pathMonotono(pts) : pathSuave(pts),
       fill: 'none', 'clip-path': 'url(#expClip)', stroke: cor, 'stroke-width': 3.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': dash || '' });
-    pts.forEach(pt => el('circle', { cx: pt[0], cy: pt[1], r: 4.2, fill: cor }));
+    if (!suave) pts.forEach(pt => el('circle', { cx: pt[0], cy: pt[1], r: 4.2, fill: cor }));
     return pts;
   };
   // com o dia apertado (janela de 30), rotula um dia sim, um não (e sempre hoje)
