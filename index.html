@@ -439,6 +439,14 @@ table.matrix tbody tr.total th {
 .exp-tip { position: fixed; z-index: 500; display: none; pointer-events: none; min-width: 210px;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px;
   box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: 12.5px; color: var(--text); }
+.exp-tip.largo { min-width: 470px; }
+.exp-tip .et-cols { display: flex; }
+.exp-tip .et-c { flex: 1; padding: 0 14px; border-left: 1px solid var(--border); }
+.exp-tip .et-c:first-child { padding-left: 0; border-left: 0; }
+.exp-tip .et-c:last-child { padding-right: 0; }
+.exp-tip .et-t { font-weight: 700; margin-bottom: 4px; }
+.exp-tip .et-k { color: var(--text-muted); font-size: 11.5px; margin-top: 4px; }
+.exp-tip .et-v { font-weight: 700; }
 .exp-tip .et-h { font-weight: 700; margin-bottom: 6px; color: var(--text-label); }
 .exp-tip .et-l { display: flex; justify-content: space-between; gap: 18px; padding: 1.5px 0; }
 .exp-tip .et-l span { color: var(--text-muted); }
@@ -3255,7 +3263,7 @@ function desenharExpedicao() {
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     const bl = d.backlog.filter(v => v != null);
     tot.innerHTML = '<div class="item"><div class="lab">Amanhecemos hoje com</div><div class="val">' + (d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div></div>' +
-      '<div class="item"><div class="lab">Pico previsto</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
+      '<div class="item" title="Maior backlog previsto (amanhecer) entre os dias mostrados no gráfico"><div class="lab">Pico previsto' + (bl.length ? ' · ' + d.dias[d.backlog.indexOf(Math.max(...bl))] : '') + '</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (amanhecer no dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
@@ -3276,6 +3284,7 @@ function desenharExpedicao() {
   const corPct = p => p == null ? 'var(--text-muted)' : Math.abs(p) <= 10 ? 'var(--olive)' : 'var(--amber)';
   const lin = (rot, val, cor) => '<div class="et-l"><span>' + rot + '</span><b' + (cor ? ' style="color:' + cor + '"' : '') + '>' + val + '</b></div>';
   d.dias.forEach((lab, i) => {
+    let wide = false;
     let html = '<div class="et-h">' + lab + (d.dias_semana ? ' · ' + d.dias_semana[i] : '') + (i === hi ? ' · hoje' : '') +
       (d.dia_especial && d.dia_especial[i] === 'extra' ? ' · dia trabalhado (extra)' : d.dia_especial && d.dia_especial[i] === 'folga' ? ' · sem trabalho' : '') + '</div>';
     if (_expVisao === 'forecast') {
@@ -3286,31 +3295,34 @@ function desenharExpedicao() {
     } else {
       const g = (k) => d[k] ? d[k][i] : null, num = v => v == null ? '—' : fmtInt(v);
       const parcial = i === hi;                                   // hoje ainda está fechando
-      const efLin = (rotulo, ef, pr, cor) => {
-        if (ef == null) return '';
-        const p = parcial && rotulo !== 'Backlog efetivo' ? null : pct(ef, pr);
-        return lin(rotulo + (parcial && rotulo !== 'Backlog efetivo' ? ' (parcial)' : ''), fmtInt(ef) + (p == null ? '' : ' · ' + fmtPct(p)), p == null ? cor : corPct(p));
+      // um bloco por assunto, lado a lado e separados por "|": Backlog | Entrada | Saída
+      const bloco = (titulo, cor, pr, ef, ehBacklog) => {
+        const sub = parcial && !ehBacklog;
+        const p = (sub || ef == null) ? null : pct(ef, pr);
+        return '<div class="et-c"><div class="et-t" style="color:' + cor + '">' + titulo + '</div>' +
+          '<div class="et-k">Previsto</div><div class="et-v">' + num(pr) + '</div>' +
+          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
+          '<div class="et-k">Diferença</div><div class="et-v"' + (p == null ? '' : ' style="color:' + corPct(p) + '"') + '>' + (p == null ? '—' : fmtPct(p)) + '</div></div>';
       };
-      html += lin('Backlog previsto', num(g('backlog')), 'var(--amber)') +
-        efLin('Backlog efetivo', g('backlog_efetivo'), g('backlog'), 'var(--text)') +
-        lin('Entrada prevista', num(g('entrada')), 'var(--accent)') +
-        efLin('Entrada efetiva', g('entrada_efetiva'), g('entrada'), 'var(--text)') +
-        lin('Saída prevista', num(g('saida')), 'var(--olive)') +
-        efLin('Saída efetiva', g('saida_efetiva'), g('saida'), 'var(--text)');
+      html += '<div class="et-cols">' +
+        bloco('Backlog', 'var(--amber)', g('backlog'), g('backlog_efetivo'), true) +
+        bloco('Entrada', 'var(--accent)', g('entrada'), g('entrada_efetiva'), false) +
+        bloco('Saída', 'var(--olive)', g('saida'), g('saida_efetiva'), false) + '</div>';
+      wide = true;
     }
     const col = el('rect', { x: xF(i) - step / 2, y: 0, width: step, height: h - pB + 4, class: 'exp-col' });
-    col.addEventListener('mouseenter', e => mostrarTipExp(html, e));
-    col.addEventListener('mousemove', e => mostrarTipExp(html, e));
+    col.addEventListener('mouseenter', e => mostrarTipExp(html, e, wide));
+    col.addEventListener('mousemove', e => mostrarTipExp(html, e, wide));
     col.addEventListener('mouseleave', esconderTipExp);
   });
   // abre com HOJE no meio da janela visível
   sc.scrollLeft = Math.max(0, xF(hi) - w0 / 2);
 }
 
-function mostrarTipExp(html, e) {
+function mostrarTipExp(html, e, wide) {
   let t = document.getElementById('expTip');
   if (!t) { t = document.createElement('div'); t.id = 'expTip'; t.className = 'exp-tip'; document.body.appendChild(t); }
-  t.innerHTML = html; t.style.display = 'block';
+  t.innerHTML = html; t.classList.toggle('largo', !!wide); t.style.display = 'block';
   const w = t.offsetWidth, hh = t.offsetHeight;
   t.style.left = Math.max(8, Math.min(e.clientX + 16, window.innerWidth - w - 8)) + 'px';
   t.style.top = Math.max(8, Math.min(e.clientY - hh / 2, window.innerHeight - hh - 8)) + 'px';
