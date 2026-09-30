@@ -1527,10 +1527,22 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   if (!Object.keys(porMarca.BACKLOG_PREVISTO).length) return null;
   const val = function(marca, d){ return porMarca[marca][d] === undefined ? null : porMarca[marca][d]; };
 
-  // Recalcula o backlog dia a dia: backlog = posição inicial + entrada − capacidade,
-  // com a posição inicial de um dia = backlog do dia anterior. Dia sem capacidade
-  // no arquivo (fim de semana/feriado) continua sem saída. Sem degrau vigente,
-  // vale o backlog do próprio arquivo.
+  // Efetivos primeiro: o backlog real de hoje é a âncora da projeção (como no Excel do planejamento).
+  const hojeISO = paraDataISOLocal(hoje);
+  const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
+  const backlogEfetivo = efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
+    const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
+    const base = [paraDataISOLocal(ontem0)].concat(dias);
+    const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
+    return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
+  })();
+  const idxHoje = dias.indexOf(hojeISO);
+  const ancora = idxHoje >= 0 && backlogEfetivo && backlogEfetivo[idxHoje] != null ? Number(backlogEfetivo[idxHoje]) : null;
+
+  // Mesma conta do Excel: backlog (amanhecer) de D = backlog de D-1 + entrada de D-1 − saída de D-1,
+  // nunca abaixo de zero. Até hoje vale a cadeia do arquivo; de amanhã em diante a projeção parte do
+  // backlog REAL de hoje (quando há), com entrada e saída previstas. Dia sem capacidade no arquivo
+  // (fim de semana/feriado) continua sem saída, salvo dia extra marcado.
   const capInformada = function(d){
     let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
   };
@@ -1541,34 +1553,26 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
     const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
     posEf[d] = val("POSICAO_INICIAL", d);
     if (ci === null || capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
-    // calendário do planejamento (capacity 0 = fim de semana/feriado), com as exceções que o
-    // usuário marcou: dia extra trabalhado (sábado de HE, troca de feriado) e folga
     const extra = porMarca.DIA_EXTRA[d], folga = porMarca.DIA_FOLGA[d] !== undefined;
     let cap;
     if (folga) cap = 0;
     else if (extra !== undefined) cap = extra > 0 ? extra : ci;
     else cap = capArq === 0 ? 0 : ci;
-    const pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
+    let pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
+    if (d === hojeISO && ancora !== null) pos = ancora;   // amanhecemos hoje com o backlog real
     posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente); informada[d] = true;
   });
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-  const hojeISO = paraDataISOLocal(hoje);
-  const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
   return {
     dias: dias.map(function(d){ return d.slice(8, 10) + "/" + d.slice(5, 7); }),
     dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
     // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
     // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
-    backlog_efetivo: efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
-      const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
-      const base = [paraDataISOLocal(ontem0)].concat(dias);
-      const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
-      return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
-    })(),
+    backlog_efetivo: backlogEfetivo,
     entrada_efetiva: efetivosProntos ? efetivosProntos.entrada_efetiva : dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
     // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
