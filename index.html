@@ -3158,7 +3158,7 @@ function desenharExpedicao() {
   document.querySelectorAll('#expVisao .seg-btn').forEach(b => b.classList.toggle('ativo', b.dataset.visao === _expVisao));
   document.querySelectorAll('#expJanela .seg-btn').forEach(b => b.classList.toggle('ativo', Number(b.dataset.janela) === _expJanela));
   document.getElementById('expTitulo').textContent = _expVisao === 'forecast'
-    ? 'Expedição × Forecast — hoje ±15 dias' : 'Análise Prevista de Backlog — hoje ±15 dias';
+    ? 'Expedição × Forecast' : 'Análise Prevista de Backlog';
   const nota = document.getElementById('expNota'), tot = document.getElementById('weekTotais'), leg = document.getElementById('expLegenda');
   svg.innerHTML = '';
   esconderTipExp();
