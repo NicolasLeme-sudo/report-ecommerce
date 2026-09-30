@@ -956,6 +956,106 @@ async function processarBaseAcronimos(file, options) {
 // As colunas por marca (C/D/E) são gravadas apenas para uso futuro, sem uso no
 // dashboard hoje.
 // -------------------------------------------------------------------------
+// -------------------------------------------------------------------------
+// FORECAST — layout cru do planejamento. Achado por NOME de cabeçalho (não por
+// posição fixa), então aguenta o mês seguinte com colunas deslocadas:
+//   linha de marcas:  ... "TOTAL ECOM" ...        (bloco Itens/Pedidos/Faturamento)
+//   linha de títulos: "Data" ... "Itens" ... "Capacity" "Ent. Prevista"
+//                     "Posição Inicial" "Backlog"
+// Backlog previsto do dia = Posição Inicial + Ent. Prevista − Capacity.
+// Devolve null se a planilha não tiver esse cabeçalho (aí vale o layout antigo).
+// -------------------------------------------------------------------------
+function lerForecastCru(wb) {
+  for (const aba of wb.SheetNames) {
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null });
+    let hdr = -1;
+    for (let r = 0; r < Math.min(linhas.length, 15); r++) {
+      const norm = (linhas[r] || []).map(function(v){ return stripAccents(String(v == null ? "" : v)); });
+      if (norm.indexOf("data") > -1 && norm.indexOf("capacity") > -1 && norm.indexOf("ent. prevista") > -1) { hdr = r; break; }
+    }
+    if (hdr < 0) continue;
+    const titulos = (linhas[hdr] || []).map(function(v){ return stripAccents(String(v == null ? "" : v)); });
+    const col = function(nome){ return titulos.indexOf(nome); };
+    const cData = col("data"), cCap = col("capacity"), cEnt = col("ent. prevista");
+    const cPos = col("posicao inicial"), cBack = col("backlog");
+
+    // coluna "Itens" do bloco TOTAL ECOM: a etiqueta da marca fica na linha de cima
+    let cTotal = -1;
+    for (let r = Math.max(0, hdr - 3); r < hdr && cTotal < 0; r++) {
+      const c = (linhas[r] || []).findIndex(function(v){ return stripAccents(String(v == null ? "" : v)) === "total ecom"; });
+      if (c > -1) cTotal = c;
+    }
+    if (cTotal > -1 && titulos[cTotal] !== "itens") {
+      const c2 = titulos.indexOf("itens", cTotal);
+      cTotal = c2;
+    }
+    if (cTotal < 0 || cPos < 0 || cBack < 0) continue;
+
+    const registros = [];
+    for (let r = hdr + 1; r < linhas.length; r++) {
+      const linha = linhas[r] || [];
+      const serial = Number(linha[cData]);
+      if (isNaN(serial) || serial < 40000 || serial > 60000) continue; // pula linha TOTAL/vazias
+      const dataISO = paraDataISOUTC(excelSerialParaData(serial));
+      registros.push({
+        data: dataISO,
+        dow: excelSerialParaData(serial).getUTCDay(),
+        itens: Math.round(Number(linha[cTotal]) || 0),
+        entrada: Math.round(Number(linha[cEnt]) || 0),
+        capacity: Math.round(Number(linha[cCap]) || 0),
+        posicao: Math.round(Number(linha[cPos]) || 0),
+        backlog: Math.round(Number(linha[cBack]) || 0),
+      });
+    }
+    if (registros.length) return { aba: aba, dias: registros.length, registros: registros };
+  }
+  return null;
+}
+
+// Grava o forecast do layout cru em forecast_diario:
+//  - marca "TOTAL": itens_forecast = curva de faturamento (o que o gráfico
+//    Forecast × Expedição já lê);
+//  - marcas extras, uma linha por dia, valor em itens_forecast:
+//    ENT_PREVISTA, CAPACITY (= saída prevista), POSICAO_INICIAL,
+//    BACKLOG_PREVISTO — alimentam "Análise Prevista de Backlog".
+// Reaproveita a tabela existente (sem coluna nova): a marca funciona como o
+// nome da série. Quem lê forecast_diario sempre filtra por marca.
+async function gravarForecastCru(cru, file, onProgress) {
+  const total = [], extras = [];
+  cru.registros.forEach(function(r){
+    // sábado/domingo não têm expedição programada (mesma trava do layout antigo)
+    const itens = (r.dow === 0 || r.dow === 6) ? 0 : r.itens;
+    total.push({ data: r.data, marca: "TOTAL", itens_forecast: itens, pedidos_forecast: 0, faturamento_forecast: 0 });
+    [["ENT_PREVISTA", r.entrada], ["CAPACITY", r.capacity],
+     ["POSICAO_INICIAL", r.posicao], ["BACKLOG_PREVISTO", r.backlog]].forEach(function(par){
+      extras.push({ data: r.data, marca: par[0], itens_forecast: par[1], pedidos_forecast: 0, faturamento_forecast: 0 });
+    });
+  });
+
+  // apaga só os dias deste arquivo (todas as marcas) e regrava — corrigir um
+  // mês já lançado substitui; subir um mês novo só acrescenta
+  const datas = total.map(function(r){ return r.data; });
+  falharSeErro(await supabaseClient.from("forecast_diario").delete().in("data", datas), "Erro ao limpar forecast_diario");
+
+  const TAMANHO_LOTE = 200;
+  for (let i = 0; i < total.length; i += TAMANHO_LOTE) {
+    falharSeErro(await supabaseClient.from("forecast_diario").insert(total.slice(i, i + TAMANHO_LOTE)),
+      "Erro ao gravar o forecast (TOTAL)");
+  }
+  let erroExtras = null;
+  for (let i = 0; i < extras.length; i += TAMANHO_LOTE) {
+    const res = await supabaseClient.from("forecast_diario").insert(extras.slice(i, i + TAMANHO_LOTE));
+    if (res.error) { erroExtras = res.error; console.error("Erro ao gravar forecast_diario (backlog):", res.error); break; }
+  }
+
+  await registrarLog("forecast", file.name, total.length + extras.length);
+  if (erroExtras) {
+    throw new Error("Forecast (curva) gravado, mas a análise de backlog NÃO: " + erroExtras.message +
+      " — provável restrição da tabela forecast_diario sobre o valor de 'marca'.");
+  }
+  onProgress(`✓ ${total.length} dias gravados (curva de faturamento + entrada, saída e backlog previstos).`);
+}
+
 async function processarForecastMensal(file, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Lendo arquivo de forecast...");
@@ -965,6 +1065,18 @@ async function processarForecastMensal(file, options) {
   // O SheetJS lê .xlsb com o mesmo método do .xlsx
   // raw:true mantém os seriais de data como número (processamos com excelSerialParaData)
   const wb = XLSX.read(buffer, { type: "array", raw: true });
+
+  // Layout CRU do planejamento ("Faturamento CD - <mês> + Prévia de Backlog"):
+  // curva por marca + Capacity / Ent. Prevista / Posição Inicial / Backlog.
+  // Tentado primeiro; se o arquivo não tiver esse cabeçalho, cai no layout
+  // simplificado antigo logo abaixo.
+  const cru = lerForecastCru(wb);
+  if (cru) {
+    onProgress(`Layout do planejamento detectado (aba "${cru.aba}"): ${cru.dias} dias. Gravando...`);
+    await gravarForecastCru(cru, file, onProgress);
+    return;
+  }
+
   const ws = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
@@ -1069,6 +1181,24 @@ async function buscarForecastUltimos7Dias() {
 
   if (resultado.error) {
     console.error("Erro ao buscar forecast:", resultado.error);
+    return [];
+  }
+  return resultado.data;
+}
+
+// Forecast TOTAL de D-15 a D+15 (gráfico Expedição × Forecast, com rolagem).
+async function buscarForecastJanela15() {
+  const hoje = new Date();
+  const ini = new Date(hoje); ini.setDate(hoje.getDate() - 15);
+  const fim = new Date(hoje); fim.setDate(hoje.getDate() + 15);
+  const resultado = await supabaseClient
+    .from("forecast_diario")
+    .select("*")
+    .eq("marca", "TOTAL")
+    .gte("data", paraDataISOLocal(ini))
+    .lte("data", paraDataISOLocal(fim));
+  if (resultado.error) {
+    console.error("Erro ao buscar forecast (janela):", resultado.error);
     return [];
   }
   return resultado.data;
@@ -1274,13 +1404,45 @@ async function refecharExpedicaoDoMesPeloBanco() {
   console.log("Expedição refechada pelo banco (dia, itens, pedidos):");
   console.table(Object.keys(porDia).sort().map(function(d){ return { dia: d, itens: porDia[d].itens, pedidos: porDia[d].pedidos }; }));
 }
+// "Análise Prevista de Backlog": entrada prevista, saída prevista (capacity) e
+// backlog previsto por dia, de D-15 a D+15 — tudo vindo do forecast (marcas extras
+// de forecast_diario, ver gravarForecastCru). null quando o forecast ainda não
+// foi carregado no layout do planejamento.
+async function computarBacklogPrevisto() {
+  const hoje = new Date();
+  const dias = [];
+  for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
+  const { data, error } = await supabaseClient
+    .from("forecast_diario")
+    .select("data, marca, itens_forecast")
+    .in("marca", ["ENT_PREVISTA", "CAPACITY", "BACKLOG_PREVISTO"])
+    .gte("data", dias[0]).lte("data", dias[dias.length - 1]);
+  if (error) { console.error("Erro ao buscar backlog previsto:", error); return null; }
+  const porMarca = { ENT_PREVISTA: {}, CAPACITY: {}, BACKLOG_PREVISTO: {} };
+  (data || []).forEach(function(r){ if (porMarca[r.marca]) porMarca[r.marca][r.data] = Number(r.itens_forecast); });
+  if (!Object.keys(porMarca.BACKLOG_PREVISTO).length) return null;
+  const val = function(marca, d){ return porMarca[marca][d] === undefined ? null : porMarca[marca][d]; };
+  const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+  const hojeISO = paraDataISOLocal(hoje);
+  return {
+    dias: dias.map(function(d){ return d.slice(8, 10) + "/" + d.slice(5, 7); }),
+    dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
+    entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
+    saida: dias.map(function(d){ return val("CAPACITY", d); }),
+    backlog: dias.map(function(d){ return val("BACKLOG_PREVISTO", d); }),
+    hoje_idx: dias.indexOf(hojeISO),
+  };
+}
+
 async function computarExpedicaoSemana(pedidos, forecastRows) {
+  // Janela de D-15 a D+15 (31 dias): passado com expedição fechada, hoje ao
+  // vivo, futuro só com forecast (expedido = null, a linha não desce a zero).
   const hoje = new Date();
   const hojeISO = paraDataISOLocal(hoje);
   const dias = [];
-  for (let i = 6; i >= 0; i--) {
+  for (let i = -15; i <= 15; i++) {
     const d = new Date(hoje);
-    d.setDate(hoje.getDate() - i);
+    d.setDate(hoje.getDate() + i);
     dias.push(paraDataISOLocal(d));
   }
 
@@ -1289,35 +1451,35 @@ async function computarExpedicaoSemana(pedidos, forecastRows) {
     .from("expedicao_diaria")
     .select("data, itens_expedidos")
     .gte("data", dias[0])
-    .lte("data", dias[dias.length - 1]);
+    .lte("data", hojeISO);
   if (error) console.error("Erro ao buscar expedicao_diaria:", error);
-  console.log("DEBUG expedicao_diaria — janela buscada:", dias[0], "a", dias[dias.length-1], "| registros encontrados:", (fechados||[]).length, fechados);
 
   const expedidoPorDia = {};
-  dias.forEach(function(d){ expedidoPorDia[d] = 0; });
+  dias.forEach(function(d){ if (d <= hojeISO) expedidoPorDia[d] = 0; });
   (fechados || []).forEach(function(r){
-    expedidoPorDia[r.data] = r.itens_expedidos;
+    if (expedidoPorDia[r.data] !== undefined) expedidoPorDia[r.data] = r.itens_expedidos;
   });
 
   // O dia de HOJE não está fechado ainda — calcula ao vivo
+  expedidoPorDia[hojeISO] = 0;
   pedidos
     .filter(function(p){ return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado"; })
     .forEach(function(p){
-      if (p.processado_em) {
-        const diaISO = paraDataISOLocal(p.processado_em);
-        if (diaISO === hojeISO) {
-          expedidoPorDia[hojeISO] += p.qtd_total_produto;
-        }
+      if (p.processado_em && paraDataISOLocal(p.processado_em) === hojeISO) {
+        expedidoPorDia[hojeISO] += p.qtd_total_produto;
       }
     });
 
   const forecastPorDia = {};
   forecastRows.forEach(function(r){ forecastPorDia[r.data] = r.itens_forecast; });
 
+  const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   return {
     dias: dias.map(function(d){ return d.slice(8,10) + "/" + d.slice(5,7); }),
-    expedido: dias.map(function(d){ return expedidoPorDia[d]; }),
-    forecast: dias.map(function(d){ return forecastPorDia[d] || 0; }),
+    dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
+    expedido: dias.map(function(d){ return expedidoPorDia[d] === undefined ? null : expedidoPorDia[d]; }),
+    forecast: dias.map(function(d){ return forecastPorDia[d] === undefined ? null : forecastPorDia[d]; }),
+    hoje_idx: dias.indexOf(hojeISO),
   };
 }
 
@@ -1428,7 +1590,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // que ainda não temos — esse bloco fica pendente até definirmos a origem.
 
   // Forecast e Integração — permanecem como séries de 7 dias, fora do escopo dos filtros
-  const forecastRows = await buscarForecastUltimos7Dias();
+  const forecastRows = await buscarForecastJanela15();
   // Refecha os últimos 7 dias corridos a cada reprocessamento, não só "ontem".
   // fecharExpedicaoDoDia faz upsert (onConflict: "data"), então refechar um
   // dia que já estava certo não tem custo. Isso autocorrige qualquer dia que
@@ -1437,6 +1599,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // isso nunca foi fechado como "ontem" de nenhuma execução.
   await refecharExpedicaoDoMesPeloBanco();
   const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
+  const backlog_previsto = await computarBacklogPrevisto();
   const integracao_7dias = await computarIntegracao7Dias(pedidos);
 
   // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria).
@@ -1543,6 +1706,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     status_por_etapa_pedidos: status_por_etapa_pedidos,
     backlog_fifo: backlog_fifo,
     expedicao_semana: expedicao_semana,
+    backlog_previsto: backlog_previsto,
     integracao_7dias: integracao_7dias,
     marketplaces: marketplaces,
     segmentos: segmentos,

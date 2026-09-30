@@ -419,7 +419,21 @@ table.matrix tbody tr.total th {
 .donut-legend b { margin-left: auto; }
 
 /* Gráfico de linha */
-.week-head  { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 2px; }
+.week-head  { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 18px; margin-bottom: 6px; }
+.week-head .section-title { flex: 1 1 auto; }
+.week-ctrl { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+/* seletor em pílulas (mesmo padrão do filtro "Peças | Qtde PFAs" do report da DISTR) */
+.seg-toggle { display: inline-flex; gap: 6px; }
+.seg-btn {
+  padding: 5px 13px; border-radius: 20px; font-size: 12px; font-weight: 600; font-family: inherit;
+  border: 1px solid var(--border); background: transparent; color: var(--text-muted); cursor: pointer;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn.ativo { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.week-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; cursor: grab; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.week-scroll:active { cursor: grabbing; }
+.week-scroll svg { display: block; }
+.week-nota { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
 .week-totais { display: flex; gap: 22px; }
 .week-totais .item .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); }
 .week-totais .item .val { font-size: 16px; font-weight: 700; color: var(--text); }
@@ -1317,7 +1331,7 @@ table.matrix tbody tr.total th {
         <h2>Atualizar Forecast Mensal</h2>
         <div class="freq">Frequência: mensal</div>
         <div class="file-row">
-          <div class="file-field"><label>Acompanhamento_Faturamento_CD.xlsb</label><input type="file" id="fileForecast"></div>
+          <div class="file-field"><label>Forecast — Faturamento CD (.xlsb cru do planejamento)</label><input type="file" id="fileForecast"></div>
         </div>
         <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
         <div class="progress-box" id="progressForecast"></div>
@@ -2683,17 +2697,22 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="card">
       <div class="week-head">
-        <div class="section-title" style="margin-bottom:0">Expedição × Forecast — últimos 7 dias</div>
-        <div class="week-totais">
-          <div class="item"><div class="lab">Expedido</div><div class="val" id="totalExpedido"></div></div>
-          <div class="item"><div class="lab">Forecast</div><div class="val" id="totalForecast"></div></div>
+        <div class="section-title" style="margin-bottom:0" id="expTitulo">Expedição × Forecast</div>
+        <div class="week-ctrl">
+          <div class="seg-toggle" id="expVisao">
+            <button type="button" class="seg-btn ativo" data-visao="forecast">Forecast × Expedição</button>
+            <button type="button" class="seg-btn" data-visao="backlog">Análise Prevista de Backlog</button>
+          </div>
+          <div class="seg-toggle" id="expJanela" title="Quantos dias aparecem de uma vez (o resto fica na rolagem)">
+            <button type="button" class="seg-btn ativo" data-janela="15">15 dias</button>
+            <button type="button" class="seg-btn" data-janela="30">30 dias</button>
+          </div>
         </div>
+        <div class="week-totais" id="weekTotais"></div>
       </div>
-      <svg id="weekSvg" width="100%" viewBox="0 0 1100 190" style="aspect-ratio:1100/190;height:auto"></svg>
-      <div class="legend-line">
-        <span><i style="background:var(--olive)"></i>Expedido</span>
-        <span><i style="background:var(--accent)"></i>Forecast</span>
-      </div>
+      <div class="week-scroll" id="weekScroll"><svg id="weekSvg"></svg></div>
+      <div class="legend-line" id="expLegenda"></div>
+      <div class="week-nota" id="expNota"></div>
     </div>`;
 
   document.getElementById('outbound-conteudo').innerHTML = html;
@@ -2740,7 +2759,7 @@ function renderizarOutbound(atual, anterior) {
   renderBarras(atual.marketplaces, 'mktBars', 5);
   renderBacklog(atual.backlog_fifo);
   renderBarrasSeg(atual.segmentos, 'segBars');
-  renderExpedicao(atual.expedicao_semana);
+  renderExpedicao(atual.expedicao_semana, atual.backlog_previsto);
 }
 
 /* ---------- Filtros funcionais (Marca, Marketplace, Backlog FIFO) ---------- */
@@ -3043,60 +3062,122 @@ function renderBacklog(backlog) {
   cl.textContent='itens em backlog'; svg.appendChild(cl);
 }
 
-/* ---------- Expedição × Forecast ---------- */
-function renderExpedicao(dados) {
-  if (!dados) return;
-  const tE=dados.expedido.reduce((a,b)=>a+b,0), tF=dados.forecast.reduce((a,b)=>a+b,0);
-  document.getElementById('totalExpedido').textContent=fmtInt(tE);
-  document.getElementById('totalForecast').textContent=fmtInt(tF);
-  const svg=document.getElementById('weekSvg');
-  const w=1100,h=190,pL=40,pR=20,pT=34,pB=34;
-  const mx=Math.max(...dados.expedido,...dados.forecast,1)*1.15;
-  const n=dados.dias.length;
-  const xF=i=>pL+i*((w-pL-pR)/(n-1)), yF=v=>(h-pB)-(v/mx)*(h-pT-pB);
-  const ax=document.createElementNS('http://www.w3.org/2000/svg','line');
-  ax.setAttribute('x1',pL); ax.setAttribute('x2',w-pR); ax.setAttribute('y1',h-pB); ax.setAttribute('y2',h-pB);
-  ax.setAttribute('stroke','var(--border)'); ax.setAttribute('stroke-width','1'); svg.appendChild(ax);
-  function drawL(pts,col) {
-    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('d', pathSuave(pts));
-    p.setAttribute('fill','none'); p.setAttribute('stroke',col); p.setAttribute('stroke-width','2.5');
-    p.setAttribute('stroke-linecap','round'); p.setAttribute('stroke-linejoin','round'); svg.appendChild(p);
-    pts.forEach(pt=>{
-      const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
-      c.setAttribute('cx',pt[0]); c.setAttribute('cy',pt[1]); c.setAttribute('r','3'); c.setAttribute('fill',col); svg.appendChild(c);
-    });
-  }
-  const ptsForecast=dados.forecast.map((v,i)=>[xF(i),yF(v)]);
-  const ptsExpedido=dados.expedido.map((v,i)=>[xF(i),yF(v)]);
-  drawL(ptsForecast,'var(--accent)');
-  drawL(ptsExpedido,'var(--olive)');
+/* ---------- Expedição × Forecast  /  Análise Prevista de Backlog ----------
+   Um card, dois gráficos (seletor "Forecast × Expedição" | "Análise Prevista de
+   Backlog") e uma janela de 31 dias (hoje ±15) que rola na horizontal. O seletor
+   "15 dias | 30 dias" define quantos dias cabem de uma vez na tela. */
+let _expVisao = 'forecast', _expJanela = 15, _expDados = null, _expBacklog = null;
 
-  // Rótulos: o ponto que estiver fisicamente mais alto na tela naquele dia
-  // recebe o rótulo empurrado pra cima, o mais baixo pra baixo — não é fixo
-  // por série (forecast sempre acima / expedido sempre abaixo). Quando as
-  // linhas se cruzam (uma semana ruim de expedição, forecast passa a ficar
-  // abaixo do expedido), "sempre acima" jogava o rótulo do forecast em cima
-  // da própria linha do expedido, e o do expedido em cima da linha do
-  // forecast — os dois trocados. Afastamento dinâmico quando as séries ficam
-  // próximas naquele dia continua igual, só evita sobreposição.
-  const GAP_MIN=24;
-  ptsForecast.forEach((ptF,i)=>{
-    const ptE=ptsExpedido[i];
-    const dist=Math.abs(ptF[1]-ptE[1]);
-    let offAcima=10, offAbaixo=18;
-    if (dist<GAP_MIN) { const extra=(GAP_MIN-dist)/2+4; offAcima+=extra; offAbaixo+=extra; }
-    const forecastMaisAlto = ptF[1] <= ptE[1]; // menor y = mais acima na tela
-    const yForecast = forecastMaisAlto ? ptF[1]-offAcima : ptF[1]+offAbaixo;
-    const yExpedido  = forecastMaisAlto ? ptE[1]+offAbaixo : ptE[1]-offAcima;
-    labelComFundo(svg, ptF[0], yForecast, fmtInt(dados.forecast[i]), {fontSize:10, cor:'var(--accent)'});
-    labelComFundo(svg, ptE[0], yExpedido, fmtInt(dados.expedido[i]), {fontSize:10, cor:'var(--olive)'});
+function renderExpedicao(dados, backlog) {
+  _expDados = dados || null; _expBacklog = backlog || null;
+  const cv = document.getElementById('expVisao'), cj = document.getElementById('expJanela');
+  if (cv) cv.querySelectorAll('.seg-btn').forEach(b => b.addEventListener('click', () => { _expVisao = b.dataset.visao; desenharExpedicao(); }));
+  if (cj) cj.querySelectorAll('.seg-btn').forEach(b => b.addEventListener('click', () => { _expJanela = Number(b.dataset.janela); desenharExpedicao(); }));
+  const sc = document.getElementById('weekScroll');
+  if (sc && !sc._drag) { // arrastar com o mouse para rolar
+    sc._drag = true; let x0 = 0, s0 = 0, ativo = false;
+    sc.addEventListener('mousedown', e => { ativo = true; x0 = e.clientX; s0 = sc.scrollLeft; });
+    window.addEventListener('mousemove', e => { if (ativo) sc.scrollLeft = s0 - (e.clientX - x0); });
+    window.addEventListener('mouseup', () => { ativo = false; });
+  }
+  desenharExpedicao();
+}
+
+function desenharExpedicao() {
+  const svg = document.getElementById('weekSvg'), sc = document.getElementById('weekScroll');
+  if (!svg || !sc) return;
+  document.querySelectorAll('#expVisao .seg-btn').forEach(b => b.classList.toggle('ativo', b.dataset.visao === _expVisao));
+  document.querySelectorAll('#expJanela .seg-btn').forEach(b => b.classList.toggle('ativo', Number(b.dataset.janela) === _expJanela));
+  document.getElementById('expTitulo').textContent = _expVisao === 'forecast'
+    ? 'Expedição × Forecast — hoje ±15 dias' : 'Análise Prevista de Backlog — hoje ±15 dias';
+  const nota = document.getElementById('expNota'), tot = document.getElementById('weekTotais'), leg = document.getElementById('expLegenda');
+  svg.innerHTML = '';
+  const d = _expVisao === 'forecast' ? _expDados : _expBacklog;
+  if (!d) {
+    svg.setAttribute('width', 10); svg.setAttribute('height', 10); tot.innerHTML = ''; leg.innerHTML = '';
+    nota.textContent = _expVisao === 'forecast' ? 'Sem dados de expedição neste snapshot.'
+      : 'Sem forecast no layout do planejamento. Suba o arquivo em Abastecimento → Forecast e atualize os Relatórios da Operação.';
+    return;
+  }
+
+  const n = d.dias.length;
+  const hi = (d.hoje_idx !== undefined && d.hoje_idx >= 0) ? d.hoje_idx : n - 1;
+  const w0 = sc.clientWidth || 1000, h = 210, pL = 30, pR = 30, pT = 46, pB = 44;
+  const step = (w0 - pL - pR) / (_expJanela - 1);
+  const W = pL + pR + (n - 1) * step;
+  svg.setAttribute('width', W); svg.setAttribute('height', h); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + h);
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs, txt) => { const e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(k => e.setAttribute(k, attrs[k])); if (txt != null) e.textContent = txt; svg.appendChild(e); return e; };
+  const series = _expVisao === 'forecast' ? [d.expedido, d.forecast] : [d.entrada, d.saida, d.backlog];
+  const mx = Math.max(1, ...series.flat().filter(v => v != null)) * 1.15;
+  const xF = i => pL + i * step, yF = v => (h - pB) - (v / mx) * (h - pT - pB);
+
+  // futuro = só previsto: faixa sutil à direita de HOJE
+  if (hi < n - 1) {
+    el('rect', { x: xF(hi), y: pT - 30, width: W - xF(hi) - 4, height: h - pB - pT + 30, fill: 'var(--accent-soft)', opacity: .55, rx: 6 });
+    el('text', { x: xF(hi) + 26, y: pT - 22, 'font-size': 10, 'font-weight': 700, fill: 'var(--text-muted)' }, 'PREVISTO — somente forecast');
+  }
+  el('line', { x1: pL, x2: W - pR, y1: h - pB, y2: h - pB, stroke: 'var(--border)', 'stroke-width': 1 });
+  el('line', { x1: xF(hi), x2: xF(hi), y1: pT - 26, y2: h - pB, stroke: 'var(--amber)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' });
+  labelComFundo(svg, xF(hi), pT - 26, 'HOJE', { fontSize: 10, cor: '#111', fundo: 'var(--amber)' });
+
+  const linha = (vals, cor, dash, reta) => {
+    const pts = vals.map((v, i) => v == null ? null : [xF(i), yF(v), v, i]).filter(Boolean);
+    if (pts.length > 1) el('path', { d: reta ? 'M' + pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') : pathSuave(pts), fill: 'none', stroke: cor, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': dash || '' });
+    pts.forEach(pt => { const c = el('circle', { cx: pt[0], cy: pt[1], r: 3, fill: cor }); c.appendChild(document.createElementNS(NS, 'title')).textContent = d.dias[pt[3]] + ': ' + fmtInt(pt[2]); });
+    return pts;
+  };
+  // com o dia apertado (janela de 30), rotula um dia sim, um não (e sempre hoje)
+  const mostra = i => step >= 48 || i % 2 === hi % 2;
+
+  if (_expVisao === 'forecast') {
+    const pF = linha(d.forecast, 'var(--accent)'), pE = linha(d.expedido, 'var(--olive)');
+    const yl = y => Math.min(y, h - pB - 6);
+    const byI = a => { const m = {}; a.forEach(p => m[p[3]] = p); return m; }, mF = byI(pF), mE = byI(pE);
+    for (let i = 0; i < n; i++) {
+      if (!mostra(i)) continue;
+      const a = mF[i], b = mE[i];
+      if (a && b) {
+        let oA = 10, oB = 18; const dist = Math.abs(a[1] - b[1]);
+        if (dist < 24) { const ex = (24 - dist) / 2 + 4; oA += ex; oB += ex; }
+        const fAlto = a[1] <= b[1];
+        labelComFundo(svg, a[0], yl(fAlto ? a[1] - oA : a[1] + oB), fmtInt(a[2]), { fontSize: 10, cor: 'var(--accent)' });
+        labelComFundo(svg, b[0], yl(fAlto ? b[1] + oB : b[1] - oA), fmtInt(b[2]), { fontSize: 10, cor: 'var(--olive)' });
+      } else if (a) labelComFundo(svg, a[0], a[1] - 10, fmtInt(a[2]), { fontSize: 10, cor: 'var(--accent)' });
+      else if (b) labelComFundo(svg, b[0], b[1] - 10, fmtInt(b[2]), { fontSize: 10, cor: 'var(--olive)' });
+    }
+    const a7 = Math.max(0, hi - 6);
+    const soma = arr => arr.slice(a7, hi + 1).reduce((s, v) => s + (v || 0), 0);
+    tot.innerHTML = '<div class="item"><div class="lab">Expedido (7 dias)</div><div class="val">' + fmtInt(soma(d.expedido)) + '</div></div>' +
+      '<div class="item"><div class="lab">Forecast (7 dias)</div><div class="val">' + fmtInt(soma(d.forecast)) + '</div></div>';
+    leg.innerHTML = '<span><i style="background:var(--olive)"></i>Expedido</span><span><i style="background:var(--accent)"></i>Forecast</span>';
+    nota.textContent = 'Arraste ou use a barra para ver outros dias. Totais = 7 dias até hoje.';
+  } else {
+    // backlog previsto = barras; entrada e saída previstas = linhas
+    const bw = Math.min(30, step * 0.55);
+    d.backlog.forEach((v, i) => {
+      if (v == null) return;
+      const r = el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 3,
+        fill: 'color-mix(in srgb, var(--amber) 30%, transparent)', stroke: 'var(--amber)', 'stroke-width': 1 });
+      r.appendChild(document.createElementNS(NS, 'title')).textContent = d.dias[i] + ' — backlog previsto: ' + fmtInt(v);
+      if (mostra(i)) labelComFundo(svg, xF(i), yF(v) - 6, fmtInt(v), { fontSize: 10, cor: 'var(--amber)' });
+    });
+    linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
+    const bl = d.backlog.filter(v => v != null);
+    tot.innerHTML = '<div class="item"><div class="lab">Backlog hoje (fim do dia)</div><div class="val">' + (d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div></div>' +
+      '<div class="item"><div class="lab">Pico previsto</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
+    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (fim do dia)</span>' +
+      '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
+      '<span><i style="background:var(--olive)"></i>Saída prevista (capacity)</span>';
+    nota.textContent = 'Backlog = posição inicial + entrada prevista − capacity. Passe o mouse nos pontos para ver os valores; fonte: forecast do planejamento.';
+  }
+
+  d.dias.forEach((lab, i) => {
+    el('text', { x: xF(i), y: h - 24, 'text-anchor': 'middle', 'font-size': 10, fill: i === hi ? 'var(--amber)' : 'var(--text-muted)', 'font-weight': i === hi ? 700 : 400 }, lab);
+    if (d.dias_semana) el('text', { x: xF(i), y: h - 11, 'text-anchor': 'middle', 'font-size': 9, fill: 'var(--text-muted)', opacity: .8 }, d.dias_semana[i]);
   });
-  dados.dias.forEach((lab,i)=>{
-    const t=document.createElementNS('http://www.w3.org/2000/svg','text');
-    t.setAttribute('x',xF(i)); t.setAttribute('y',h-10); t.setAttribute('text-anchor','middle');
-    t.setAttribute('font-size','10'); t.setAttribute('fill','var(--text-muted)'); t.textContent=lab; svg.appendChild(t);
-  });
+  // abre com HOJE no meio da janela visível
+  sc.scrollLeft = Math.max(0, xF(hi) - w0 / 2);
 }
 
 /* ============================================================
