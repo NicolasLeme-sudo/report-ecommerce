@@ -1552,17 +1552,19 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   todos.forEach(function(d){
     const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
     posEf[d] = val("POSICAO_INICIAL", d);
-    if (ci === null || capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
+    if (capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
+    // saída prevista = coluna "Capacity" do planejamento (0 = fim de semana/feriado), com as exceções
+    // marcadas pelo usuário: dia extra trabalhado (valor informado, ou a capacidade informada/do arquivo) e folga
     const extra = porMarca.DIA_EXTRA[d], folga = porMarca.DIA_FOLGA[d] !== undefined;
     let cap;
     if (folga) cap = 0;
-    else if (extra !== undefined) cap = extra > 0 ? extra : ci;
-    else cap = capArq === 0 ? 0 : ci;
+    else if (extra !== undefined) cap = extra > 0 ? extra : (capArq > 0 ? capArq : (ci || 0));
+    else cap = capArq;
     let pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
     if (d === hojeISO && ancora !== null) pos = ancora;   // amanhecemos hoje com o backlog real
     posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
-    saidaEf[d] = cap; backlogEf[d] = Math.round(corrente); informada[d] = true;
+    saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
   });
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
