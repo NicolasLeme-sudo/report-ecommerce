@@ -477,6 +477,12 @@ table.matrix tbody tr.total th {
 }
 .btn-upload:hover    { opacity: .85; }
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
+.cap-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 4px; }
+.cap-row input { padding: 8px 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 7px; font-family: inherit; font-size: 13px; }
+.cap-lista { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-label); }
+.cap-lista .cap-item { display: flex; align-items: center; gap: 10px; }
+.cap-lista button { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 5px; cursor: pointer; padding: 1px 8px; }
+.cap-lista button:hover { color: var(--red); border-color: var(--red); }
 .progress-box {
   margin-top: 12px; background: var(--bg-input); border: 1px solid var(--border);
   border-radius: 7px; padding: 10px 12px; font-size: 12px; color: var(--text-muted);
@@ -1335,6 +1341,17 @@ table.matrix tbody tr.total th {
         </div>
         <button class="btn-upload" id="btnForecast">Atualizar Forecast Mensal</button>
         <div class="progress-box" id="progressForecast"></div>
+      </div>
+      <div class="upload-card">
+        <h2>Capacidade de saída do E-commerce</h2>
+        <div class="freq">Muda com o quadro, a mão de obra terceira e a integração de itens. Vale a partir da data informada, até a próxima informação. Não é apagada quando o forecast é atualizado.</div>
+        <div class="cap-row">
+          <div class="file-field"><label>Itens por dia útil</label><input type="number" id="capValor" min="1" step="100" placeholder="ex.: 10000"></div>
+          <div class="file-field"><label>Vale a partir de</label><input type="date" id="capDesde"></div>
+          <button class="btn-upload" id="btnCapacidade">Salvar capacidade</button>
+        </div>
+        <div class="progress-box" id="progressCapacidade"></div>
+        <div id="capLista" class="cap-lista"></div>
       </div>
     </div>
 
@@ -3174,8 +3191,8 @@ function desenharExpedicao() {
       '<div class="item"><div class="lab">Pico previsto</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (fim do dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
-      '<span><i style="background:var(--olive)"></i>Saída prevista (capacity)</span>';
-    nota.textContent = 'Backlog = posição inicial + entrada prevista − capacity. Passe o mouse nos pontos para ver os valores; fonte: forecast do planejamento.';
+      '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
+    nota.textContent = 'Backlog = posição inicial + entrada prevista − capacidade de saída' + (d.capacidade_informada ? ' (capacidade informada em Abastecimento)' : ' (capacity do arquivo do planejamento)') + '. Passe o mouse nos pontos para ver os valores.';
   }
 
   d.dias.forEach((lab, i) => {
@@ -3278,6 +3295,32 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   const c = document.getElementById('fileCusto').files[0];
   return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
 });
+/* Capacidade de saída informada (usada na Análise Prevista de Backlog) */
+async function renderCapacidades() {
+  const el = document.getElementById('capLista'); if (!el) return;
+  try {
+    const lista = await listarCapacidadesSaida();
+    el.innerHTML = lista.length ? lista.slice().reverse().map(g =>
+      '<div class="cap-item"><span>' + fmtInt(g.valor) + ' itens/dia útil a partir de ' + g.data.slice(8,10) + '/' + g.data.slice(5,7) + '/' + g.data.slice(0,4) +
+      '</span><button type="button" data-cap="' + g.data + '" title="Remover">×</button></div>').join('')
+      : 'Nenhuma capacidade informada — a análise usa a capacity do arquivo do forecast.';
+    el.querySelectorAll('button[data-cap]').forEach(b => b.addEventListener('click', async () => {
+      try { await removerCapacidadeSaida(b.dataset.cap); mostrar('progressCapacidade', 'Removida. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok'); }
+      catch (e) { mostrar('progressCapacidade', '✗ Erro: ' + e.message, 'erro'); }
+      renderCapacidades();
+    }));
+  } catch (e) { el.textContent = e.message; }
+}
+document.getElementById('capDesde').value = new Date().toLocaleDateString('sv-SE'); // hoje (yyyy-mm-dd)
+document.getElementById('btnCapacidade').addEventListener('click', async () => {
+  try {
+    await salvarCapacidadeSaida(document.getElementById('capValor').value, document.getElementById('capDesde').value);
+    mostrar('progressCapacidade', '✓ Capacidade salva. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok');
+    document.getElementById('capValor').value = '';
+  } catch (e) { mostrar('progressCapacidade', '✗ Erro: ' + e.message, 'erro'); }
+  renderCapacidades();
+});
+
 ligarBotao('btnForecast',   'progressForecast',   processarForecastMensal, () => document.getElementById('fileForecast').files[0]  || null);
 
 /* ============================================================
@@ -4162,6 +4205,7 @@ async function aplicarSessao(session) {
 
   mostrarSecao('outbound');
   carregarDatasHistorico();
+  if (perfilAtual === 'admin') renderCapacidades();
 }
 
 function aplicarVisibilidadeMenu() {

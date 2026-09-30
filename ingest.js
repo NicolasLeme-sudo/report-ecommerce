@@ -1035,7 +1035,7 @@ async function gravarForecastCru(cru, file, onProgress) {
   // apaga só os dias deste arquivo (todas as marcas) e regrava — corrigir um
   // mês já lançado substitui; subir um mês novo só acrescenta
   const datas = total.map(function(r){ return r.data; });
-  falharSeErro(await supabaseClient.from("forecast_diario").delete().in("data", datas), "Erro ao limpar forecast_diario");
+  falharSeErro(await supabaseClient.from("forecast_diario").delete().in("data", datas).neq("marca", MARCA_CAPACIDADE_INFORMADA), "Erro ao limpar forecast_diario");
 
   const TAMANHO_LOTE = 200;
   for (let i = 0; i < total.length; i += TAMANHO_LOTE) {
@@ -1143,7 +1143,7 @@ async function processarForecastMensal(file, options) {
   // data, subir um mês novo só adiciona; subir de novo um mês já lançado
   // continua substituindo (comportamento de correção preservado).
   const datasDoArquivo = registros.map(function(r){ return r.data; });
-  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo);
+  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo).neq("marca", MARCA_CAPACIDADE_INFORMADA);
   falharSeErro(resultadoDeleteForecast, "Erro ao limpar forecast_diario");
 
   let erros = 0;
@@ -1404,6 +1404,37 @@ async function refecharExpedicaoDoMesPeloBanco() {
   console.log("Expedição refechada pelo banco (dia, itens, pedidos):");
   console.table(Object.keys(porDia).sort().map(function(d){ return { dia: d, itens: porDia[d].itens, pedidos: porDia[d].pedidos }; }));
 }
+// -------------------------------------------------------------------------
+// CAPACIDADE DE SAÍDA INFORMADA (Abastecimento → Capacidade de saída)
+// A capacity do arquivo do planejamento é fixa (ex.: 7.500 / 11.700), mas a
+// capacidade real varia por semana com o quadro, a mão de obra terceira e a
+// integração de itens. O usuário informa "X itens por dia útil a partir do dia
+// D"; cada informação vale até a próxima (degrau). Fica em forecast_diario
+// como marca CAPACIDADE_INFORMADA (data = início da vigência), que os uploads
+// de forecast preservam (ver .neq acima).
+// -------------------------------------------------------------------------
+const MARCA_CAPACIDADE_INFORMADA = "CAPACIDADE_INFORMADA";
+
+async function listarCapacidadesSaida() {
+  const { data, error } = await supabaseClient.from("forecast_diario")
+    .select("data, itens_forecast").eq("marca", MARCA_CAPACIDADE_INFORMADA).order("data", { ascending: true });
+  if (error) throw new Error("Erro ao ler as capacidades informadas: " + error.message);
+  return (data || []).map(function(r){ return { data: r.data, valor: Number(r.itens_forecast) }; });
+}
+async function salvarCapacidadeSaida(valor, desdeISO) {
+  valor = Math.round(Number(valor));
+  if (!isFinite(valor) || valor <= 0) throw new Error("Informe uma capacidade maior que zero (itens por dia útil).");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desdeISO || "")) throw new Error("Informe a data a partir da qual a capacidade vale.");
+  // (data, marca) é única: informar de novo para a mesma data substitui
+  falharSeErro(await supabaseClient.from("forecast_diario").upsert(
+    { data: desdeISO, marca: MARCA_CAPACIDADE_INFORMADA, itens_forecast: valor, pedidos_forecast: 0, faturamento_forecast: 0 },
+    { onConflict: "data,marca" }), "Erro ao salvar a capacidade");
+}
+async function removerCapacidadeSaida(desdeISO) {
+  falharSeErro(await supabaseClient.from("forecast_diario").delete()
+    .eq("marca", MARCA_CAPACIDADE_INFORMADA).eq("data", desdeISO), "Erro ao remover a capacidade");
+}
+
 // "Análise Prevista de Backlog": entrada prevista, saída prevista (capacity) e
 // backlog previsto por dia, de D-15 a D+15 — tudo vindo do forecast (marcas extras
 // de forecast_diario, ver gravarForecastCru). null quando o forecast ainda não
@@ -1412,24 +1443,52 @@ async function computarBacklogPrevisto() {
   const hoje = new Date();
   const dias = [];
   for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
+
+  // capacidade informada: degraus (vale da data em diante, até o próximo degrau)
+  let vig = [];
+  try { vig = await listarCapacidadesSaida(); } catch (e) { console.error(e); }
+  // se um degrau começou antes da janela, a conta do backlog precisa partir dele
+  const inicioConta = vig.length && vig[0].data < dias[0] ? vig[0].data : dias[0];
+
   const { data, error } = await supabaseClient
     .from("forecast_diario")
     .select("data, marca, itens_forecast")
-    .in("marca", ["ENT_PREVISTA", "CAPACITY", "BACKLOG_PREVISTO"])
-    .gte("data", dias[0]).lte("data", dias[dias.length - 1]);
+    .in("marca", ["ENT_PREVISTA", "CAPACITY", "POSICAO_INICIAL", "BACKLOG_PREVISTO"])
+    .gte("data", inicioConta).lte("data", dias[dias.length - 1]);
   if (error) { console.error("Erro ao buscar backlog previsto:", error); return null; }
-  const porMarca = { ENT_PREVISTA: {}, CAPACITY: {}, BACKLOG_PREVISTO: {} };
+  const porMarca = { ENT_PREVISTA: {}, CAPACITY: {}, POSICAO_INICIAL: {}, BACKLOG_PREVISTO: {} };
   (data || []).forEach(function(r){ if (porMarca[r.marca]) porMarca[r.marca][r.data] = Number(r.itens_forecast); });
   if (!Object.keys(porMarca.BACKLOG_PREVISTO).length) return null;
   const val = function(marca, d){ return porMarca[marca][d] === undefined ? null : porMarca[marca][d]; };
+
+  // Recalcula o backlog dia a dia: backlog = posição inicial + entrada − capacidade,
+  // com a posição inicial de um dia = backlog do dia anterior. Dia sem capacidade
+  // no arquivo (fim de semana/feriado) continua sem saída. Sem degrau vigente,
+  // vale o backlog do próprio arquivo.
+  const capInformada = function(d){
+    let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
+  };
+  const todos = Object.keys(porMarca.BACKLOG_PREVISTO).sort();
+  const saidaEf = {}, backlogEf = {}, informada = {};
+  let corrente = null;
+  todos.forEach(function(d){
+    const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
+    if (ci === null || capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
+    const cap = capArq === 0 ? 0 : ci;
+    const pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
+    corrente = Math.max(0, (pos || 0) + ent - cap);
+    saidaEf[d] = cap; backlogEf[d] = Math.round(corrente); informada[d] = true;
+  });
+
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const hojeISO = paraDataISOLocal(hoje);
   return {
     dias: dias.map(function(d){ return d.slice(8, 10) + "/" + d.slice(5, 7); }),
     dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
-    saida: dias.map(function(d){ return val("CAPACITY", d); }),
-    backlog: dias.map(function(d){ return val("BACKLOG_PREVISTO", d); }),
+    saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
+    backlog: dias.map(function(d){ return backlogEf[d] === undefined ? null : backlogEf[d]; }),
+    capacidade_informada: dias.some(function(d){ return informada[d]; }),
     hoje_idx: dias.indexOf(hojeISO),
   };
 }
