@@ -3103,7 +3103,10 @@ function desenharExpedicao() {
   const n = d.dias.length;
   const hi = (d.hoje_idx !== undefined && d.hoje_idx >= 0) ? d.hoje_idx : n - 1;
   const w0 = sc.clientWidth || 1000, h = 210, pL = 30, pR = 30, pT = 46, pB = 44;
-  const step = (w0 - pL - pR) / (_expJanela - 1);
+  // snapshot antigo (7 dias) ou janela maior que os dados: distribui os pontos que existem
+  // pela largura toda, em vez de espremer tudo à esquerda
+  const vis = Math.max(2, Math.min(_expJanela, n));
+  const step = (w0 - pL - pR) / (vis - 1);
   const W = pL + pR + (n - 1) * step;
   svg.setAttribute('width', W); svg.setAttribute('height', h); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + h);
   const NS = 'http://www.w3.org/2000/svg';
@@ -3146,12 +3149,15 @@ function desenharExpedicao() {
       } else if (a) labelComFundo(svg, a[0], a[1] - 10, fmtInt(a[2]), { fontSize: 10, cor: 'var(--accent)' });
       else if (b) labelComFundo(svg, b[0], b[1] - 10, fmtInt(b[2]), { fontSize: 10, cor: 'var(--olive)' });
     }
-    const a7 = Math.max(0, hi - 6);
-    const soma = arr => arr.slice(a7, hi + 1).reduce((s, v) => s + (v || 0), 0);
-    tot.innerHTML = '<div class="item"><div class="lab">Expedido (7 dias)</div><div class="val">' + fmtInt(soma(d.expedido)) + '</div></div>' +
-      '<div class="item"><div class="lab">Forecast (7 dias)</div><div class="val">' + fmtInt(soma(d.forecast)) + '</div></div>';
+    // totais = parte já decorrida do período que o filtro mostra (do início da janela até hoje),
+    // mesmos dias para expedido e forecast
+    const ini = Math.max(0, hi - Math.floor(_expJanela / 2));
+    const soma = arr => arr.slice(ini, hi + 1).reduce((s, v) => s + (v || 0), 0);
+    const per = d.dias[ini] + ' a ' + d.dias[hi];
+    tot.innerHTML = '<div class="item"><div class="lab">Expedido · ' + per + '</div><div class="val">' + fmtInt(soma(d.expedido)) + '</div></div>' +
+      '<div class="item"><div class="lab">Forecast · ' + per + '</div><div class="val">' + fmtInt(soma(d.forecast)) + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--olive)"></i>Expedido</span><span><i style="background:var(--accent)"></i>Forecast</span>';
-    nota.textContent = 'Arraste ou use a barra para ver outros dias. Totais = 7 dias até hoje.';
+    nota.textContent = 'Arraste ou use a barra para ver outros dias. Totais = período do filtro, do início da janela até hoje.';
   } else {
     // backlog previsto = barras; entrada e saída previstas = linhas
     const bw = Math.min(30, step * 0.55);
