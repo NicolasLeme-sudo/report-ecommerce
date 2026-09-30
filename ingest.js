@@ -850,23 +850,56 @@ async function processarBaseEmbalagem(file, options) {
   onProgress("Validando e lendo Embalas.xlsx...");
   const linhas = await validarArquivoXLSX(file, "embalas", "Base de Embalagem");
 
-  const registros = linhas.map(function(r){
-    return {
+  // Deduplica por código de barras ANTES de enviar — o arquivo consolida as
+  // abas Mizuno/Olympikus/Under Armour, e se o mesmo código aparecer duas
+  // vezes no MESMO lote de 1000, o upsert (onConflict: codigo_barra) falha
+  // inteiro com "ON CONFLICT DO UPDATE command cannot affect row a second
+  // time" — um erro de servidor (500) que o Postgres levanta em runtime, não
+  // uma validação que a gente possa contornar registro a registro. Fica com
+  // a ÚLTIMA ocorrência (mesma regra já usada pra duplicata de arquivo em
+  // outras bases deste ingest — dado mais recente da mesma extração vence).
+  const porBarra = new Map();
+  linhas.forEach(function(r){
+    porBarra.set(String(r["Códigodebarras"]), {
       codigo_barra: String(r["Códigodebarras"]),
       sku: r["SKU"],
       material_vulca: r["MaterialVulca"],
       marca: r["MARCA"],
       segmento: r["SEGMENTO"],
       descricao_item: r["Descrição do item"],
-    };
+    });
   });
+  const registros = Array.from(porBarra.values());
+  const duplicados = linhas.length - registros.length;
 
-  onProgress("Enviando " + registros.length + " SKUs para o Supabase...");
+  onProgress("Enviando " + registros.length + " SKUs para o Supabase..." +
+    (duplicados > 0 ? " (" + duplicados + " código(s) de barras duplicado(s) no arquivo, mantida a última ocorrência)" : ""));
   const TAMANHO_LOTE = 1000;
+  // CRÍTICO: sem isso, um lote que falhasse (500 do servidor, rede) era só
+  // logado no console e o processamento seguia em frente dizendo
+  // "Concluído." — o usuário saía achando que a base estava completa com
+  // ela pela metade (foi exatamente o que aconteceu: 133.823 de 266.828
+  // linhas gravadas, sem nenhum aviso na tela). Agora tenta cada lote até 3
+  // vezes (falha de servidor costuma ser passageira) e, se ainda assim
+  // sobrar erro, avisa quantos lotes falharam em vez de dizer que deu certo.
+  const errosLotes = [];
   for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
     const lote = registros.slice(i, i + TAMANHO_LOTE);
-    const resultado = await supabaseClient.from("dim_embalas").upsert(lote, { onConflict: "codigo_barra" });
-    if (resultado.error) console.error("Erro ao gravar dim_embalas:", resultado.error);
+    let erro = null;
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      const resultado = await supabaseClient.from("dim_embalas").upsert(lote, { onConflict: "codigo_barra" });
+      erro = resultado.error;
+      if (!erro) break;
+      console.error("Erro ao gravar dim_embalas (lote " + i + ", tentativa " + tentativa + "):", erro);
+      if (tentativa < 3) await new Promise(function(resolve){ setTimeout(resolve, 1500); });
+    }
+    if (erro) errosLotes.push(erro);
+  }
+  if (errosLotes.length > 0) {
+    throw new Error(
+      errosLotes.length + " de " + Math.ceil(registros.length / TAMANHO_LOTE) +
+      " lote(s) da Base de Embalagem falharam ao gravar, mesmo após 3 tentativas: " + errosLotes[0].message
+    );
   }
 
   await registrarLog("embalagem", file.name, registros.length);
