@@ -3261,7 +3261,10 @@ function desenharExpedicao() {
       if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v), 'var(--amber)');
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
-    tot.innerHTML = '';   // sem indicadores no topo da Análise de Backlog por enquanto
+    // topo: só o previsto de HOJE (importação/entrada e saída)
+    const nv = v => v == null ? '—' : fmtInt(v);
+    tot.innerHTML = '<div class="item"><div class="lab">Importação prevista · hoje</div><div class="val">' + nv(d.entrada[hi]) + '</div></div>' +
+      '<div class="item"><div class="lab">Saída prevista · hoje</div><div class="val">' + nv(d.saida[hi]) + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (amanhecer no dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
