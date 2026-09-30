@@ -433,11 +433,20 @@ table.matrix tbody tr.total th {
 .week-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 4px; cursor: grab; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 .week-scroll:active { cursor: grabbing; }
 .week-scroll svg { display: block; }
-.week-nota { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+.week-nota { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.exp-col { fill: transparent; cursor: inherit; }
+.exp-col:hover { fill: rgba(147,165,184,.08); }
+.exp-tip { position: fixed; z-index: 500; display: none; pointer-events: none; min-width: 210px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 9px; padding: 10px 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.5); font-size: 12.5px; color: var(--text); }
+.exp-tip .et-h { font-weight: 700; margin-bottom: 6px; color: var(--text-label); }
+.exp-tip .et-l { display: flex; justify-content: space-between; gap: 18px; padding: 1.5px 0; }
+.exp-tip .et-l span { color: var(--text-muted); }
+
 .week-totais { display: flex; gap: 22px; }
 .week-totais .item .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); }
 .week-totais .item .val { font-size: 16px; font-weight: 700; color: var(--text); }
-.legend-line { display: flex; gap: 16px; font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+.legend-line { display: flex; gap: 16px; font-size: 12.5px; color: var(--text-muted); margin-top: 6px; }
 .legend-line span { display: flex; align-items: center; gap: 6px; }
 .legend-line i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .spark-label { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -3109,6 +3118,7 @@ function desenharExpedicao() {
     ? 'Expedição × Forecast — hoje ±15 dias' : 'Análise Prevista de Backlog — hoje ±15 dias';
   const nota = document.getElementById('expNota'), tot = document.getElementById('weekTotais'), leg = document.getElementById('expLegenda');
   svg.innerHTML = '';
+  esconderTipExp();
   const d = _expVisao === 'forecast' ? _expDados : _expBacklog;
   if (!d) {
     svg.setAttribute('width', 10); svg.setAttribute('height', 10); tot.innerHTML = ''; leg.innerHTML = '';
@@ -3119,7 +3129,9 @@ function desenharExpedicao() {
 
   const n = d.dias.length;
   const hi = (d.hoje_idx !== undefined && d.hoje_idx >= 0) ? d.hoje_idx : n - 1;
-  const w0 = sc.clientWidth || 1000, h = 210, pL = 30, pR = 30, pT = 46, pB = 44;
+  // gráfico maior e com letra maior (pedido do usuário: "difícil de visualizar")
+  const w0 = sc.clientWidth || 1000, h = 320, pL = 34, pR = 34, pT = 62, pB = 54;
+  const FS = 12;                                  // fonte dos rótulos de valor
   // snapshot antigo (7 dias) ou janela maior que os dados: distribui os pontos que existem
   // pela largura toda, em vez de espremer tudo à esquerda
   const vis = Math.max(2, Math.min(_expJanela, n));
@@ -3128,43 +3140,54 @@ function desenharExpedicao() {
   svg.setAttribute('width', W); svg.setAttribute('height', h); svg.setAttribute('viewBox', '0 0 ' + W + ' ' + h);
   const NS = 'http://www.w3.org/2000/svg';
   const el = (tag, attrs, txt) => { const e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(k => e.setAttribute(k, attrs[k])); if (txt != null) e.textContent = txt; svg.appendChild(e); return e; };
+  // recorta as curvas suavizadas no eixo: entre dois zeros (fim de semana) a spline
+  // "afundava" abaixo do eixo e passava por cima da data/dia da semana
+  const defs = el('defs', {}), cp = document.createElementNS(NS, 'clipPath');
+  cp.setAttribute('id', 'expClip');
+  const cr = document.createElementNS(NS, 'rect');
+  cr.setAttribute('x', 0); cr.setAttribute('y', 0); cr.setAttribute('width', W); cr.setAttribute('height', h - pB + 1.5);
+  cp.appendChild(cr); defs.appendChild(cp);
   const series = _expVisao === 'forecast' ? [d.expedido, d.forecast] : [d.entrada, d.saida, d.backlog];
-  const mx = Math.max(1, ...series.flat().filter(v => v != null)) * 1.15;
+  const mx = Math.max(1, ...series.flat().filter(v => v != null)) * 1.18;
   const xF = i => pL + i * step, yF = v => (h - pB) - (v / mx) * (h - pT - pB);
 
   // futuro = só previsto: faixa sutil à direita de HOJE
   if (hi < n - 1) {
-    el('rect', { x: xF(hi), y: pT - 30, width: W - xF(hi) - 4, height: h - pB - pT + 30, fill: 'var(--accent-soft)', opacity: .55, rx: 6 });
-    el('text', { x: xF(hi) + 26, y: pT - 22, 'font-size': 10, 'font-weight': 700, fill: 'var(--text-muted)' }, 'PREVISTO — somente forecast');
+    el('rect', { x: xF(hi), y: pT - 40, width: W - xF(hi) - 4, height: h - pB - pT + 40, fill: 'var(--accent-soft)', opacity: .55, rx: 6 });
+    el('text', { x: xF(hi) + 34, y: pT - 30, 'font-size': 11, 'font-weight': 700, fill: 'var(--text-muted)' }, 'PREVISTO — somente forecast');
   }
   el('line', { x1: pL, x2: W - pR, y1: h - pB, y2: h - pB, stroke: 'var(--border)', 'stroke-width': 1 });
-  el('line', { x1: xF(hi), x2: xF(hi), y1: pT - 26, y2: h - pB, stroke: 'var(--amber)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' });
-  labelComFundo(svg, xF(hi), pT - 26, 'HOJE', { fontSize: 10, cor: '#111', fundo: 'var(--amber)' });
+  el('line', { x1: xF(hi), x2: xF(hi), y1: pT - 34, y2: h - pB, stroke: 'var(--amber)', 'stroke-width': 1.5, 'stroke-dasharray': '4 3' });
+
+  // camadas: barras → linhas/pontos → RÓTULOS por cima de tudo (antes o rótulo do backlog
+  // era desenhado junto da barra e as linhas passavam por cima dele)
+  const rotulos = [];
+  const rot = (x, y, txt, cor) => rotulos.push(() => labelComFundo(svg, x, Math.min(y, h - pB - 8), txt, { fontSize: FS, cor: cor }));
 
   const linha = (vals, cor, dash, reta) => {
     const pts = vals.map((v, i) => v == null ? null : [xF(i), yF(v), v, i]).filter(Boolean);
-    if (pts.length > 1) el('path', { d: reta ? 'M' + pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') : pathSuave(pts), fill: 'none', stroke: cor, 'stroke-width': 2.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': dash || '' });
-    pts.forEach(pt => { const c = el('circle', { cx: pt[0], cy: pt[1], r: 3, fill: cor }); c.appendChild(document.createElementNS(NS, 'title')).textContent = d.dias[pt[3]] + ': ' + fmtInt(pt[2]); });
+    if (pts.length > 1) el('path', { d: reta ? 'M' + pts.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') : pathSuave(pts),
+      fill: 'none', 'clip-path': 'url(#expClip)', stroke: cor, 'stroke-width': 3.2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-dasharray': dash || '' });
+    pts.forEach(pt => el('circle', { cx: pt[0], cy: pt[1], r: 4.2, fill: cor }));
     return pts;
   };
   // com o dia apertado (janela de 30), rotula um dia sim, um não (e sempre hoje)
-  const mostra = i => step >= 48 || i % 2 === hi % 2;
+  const mostra = i => step >= 58 || i === hi || (i - hi) % 2 === 0;
 
   if (_expVisao === 'forecast') {
     const pF = linha(d.forecast, 'var(--accent)'), pE = linha(d.expedido, 'var(--olive)');
-    const yl = y => Math.min(y, h - pB - 6);
     const byI = a => { const m = {}; a.forEach(p => m[p[3]] = p); return m; }, mF = byI(pF), mE = byI(pE);
     for (let i = 0; i < n; i++) {
       if (!mostra(i)) continue;
       const a = mF[i], b = mE[i];
       if (a && b) {
-        let oA = 10, oB = 18; const dist = Math.abs(a[1] - b[1]);
-        if (dist < 24) { const ex = (24 - dist) / 2 + 4; oA += ex; oB += ex; }
+        let oA = 12, oB = 22; const dist = Math.abs(a[1] - b[1]);
+        if (dist < 30) { const ex = (30 - dist) / 2 + 4; oA += ex; oB += ex; }
         const fAlto = a[1] <= b[1];
-        labelComFundo(svg, a[0], yl(fAlto ? a[1] - oA : a[1] + oB), fmtInt(a[2]), { fontSize: 10, cor: 'var(--accent)' });
-        labelComFundo(svg, b[0], yl(fAlto ? b[1] + oB : b[1] - oA), fmtInt(b[2]), { fontSize: 10, cor: 'var(--olive)' });
-      } else if (a) labelComFundo(svg, a[0], a[1] - 10, fmtInt(a[2]), { fontSize: 10, cor: 'var(--accent)' });
-      else if (b) labelComFundo(svg, b[0], b[1] - 10, fmtInt(b[2]), { fontSize: 10, cor: 'var(--olive)' });
+        rot(a[0], fAlto ? a[1] - oA : a[1] + oB, fmtInt(a[2]), 'var(--accent)');
+        rot(b[0], fAlto ? b[1] + oB : b[1] - oA, fmtInt(b[2]), 'var(--olive)');
+      } else if (a) rot(a[0], a[1] - 12, fmtInt(a[2]), 'var(--accent)');
+      else if (b) rot(b[0], b[1] - 12, fmtInt(b[2]), 'var(--olive)');
     }
     // totais = parte já decorrida do período que o filtro mostra (do início da janela até hoje),
     // mesmos dias para expedido e forecast
@@ -3174,16 +3197,15 @@ function desenharExpedicao() {
     tot.innerHTML = '<div class="item"><div class="lab">Expedido · ' + per + '</div><div class="val">' + fmtInt(soma(d.expedido)) + '</div></div>' +
       '<div class="item"><div class="lab">Forecast · ' + per + '</div><div class="val">' + fmtInt(soma(d.forecast)) + '</div></div>';
     leg.innerHTML = '<span><i style="background:var(--olive)"></i>Expedido</span><span><i style="background:var(--accent)"></i>Forecast</span>';
-    nota.textContent = 'Arraste ou use a barra para ver outros dias. Totais = período do filtro, do início da janela até hoje.';
+    nota.textContent = 'Passe o mouse sobre um dia para ver expedido × forecast e a diferença. Arraste ou use a barra para ver outros dias. Totais = período do filtro, do início da janela até hoje.';
   } else {
     // backlog previsto = barras; entrada e saída previstas = linhas
-    const bw = Math.min(30, step * 0.55);
+    const bw = Math.min(40, step * 0.6);
     d.backlog.forEach((v, i) => {
       if (v == null) return;
-      const r = el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 3,
-        fill: 'color-mix(in srgb, var(--amber) 30%, transparent)', stroke: 'var(--amber)', 'stroke-width': 1 });
-      r.appendChild(document.createElementNS(NS, 'title')).textContent = d.dias[i] + ' — backlog previsto: ' + fmtInt(v);
-      if (mostra(i)) labelComFundo(svg, xF(i), yF(v) - 6, fmtInt(v), { fontSize: 10, cor: 'var(--amber)' });
+      el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 4,
+        fill: 'color-mix(in srgb, var(--amber) 30%, transparent)', stroke: 'var(--amber)', 'stroke-width': 1.2 });
+      if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v), 'var(--amber)');
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     const bl = d.backlog.filter(v => v != null);
@@ -3192,16 +3214,55 @@ function desenharExpedicao() {
     leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (fim do dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
-    nota.textContent = 'Backlog = posição inicial + entrada prevista − capacidade de saída' + (d.capacidade_informada ? ' (capacidade informada em Abastecimento)' : ' (capacity do arquivo do planejamento)') + '. Passe o mouse nos pontos para ver os valores.';
+    nota.textContent = 'Passe o mouse sobre um dia para ver a entrada efetiva × prevista e a diferença (acuracidade do planejamento). Backlog = posição inicial + entrada prevista − capacidade de saída' +
+      (d.capacidade_informada ? ' (capacidade informada em Abastecimento).' : ' (capacity do arquivo do planejamento).');
   }
+  rotulos.forEach(f => f());
 
+  labelComFundo(svg, xF(hi), pT - 40, 'HOJE', { fontSize: FS, cor: '#111', fundo: 'var(--amber)' });
   d.dias.forEach((lab, i) => {
-    el('text', { x: xF(i), y: h - 24, 'text-anchor': 'middle', 'font-size': 10, fill: i === hi ? 'var(--amber)' : 'var(--text-muted)', 'font-weight': i === hi ? 700 : 400 }, lab);
-    if (d.dias_semana) el('text', { x: xF(i), y: h - 11, 'text-anchor': 'middle', 'font-size': 9, fill: 'var(--text-muted)', opacity: .8 }, d.dias_semana[i]);
+    el('text', { x: xF(i), y: h - 28, 'text-anchor': 'middle', 'font-size': 12, fill: i === hi ? 'var(--amber)' : 'var(--text-label)', 'font-weight': i === hi ? 700 : 500 }, lab);
+    if (d.dias_semana) el('text', { x: xF(i), y: h - 12, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--text-muted)' }, d.dias_semana[i]);
+  });
+
+  // colunas de hover (por cima de tudo): tooltip com os valores do dia e a diferença efetivo × previsto
+  const pct = (ef, pr) => (ef == null || !pr) ? null : (ef / pr - 1) * 100;
+  const fmtPct = p => p == null ? '—' : (p > 0 ? '+' : '') + p.toFixed(1).replace('.', ',') + '%';
+  const corPct = p => p == null ? 'var(--text-muted)' : Math.abs(p) <= 10 ? 'var(--olive)' : 'var(--amber)';
+  const lin = (rot, val, cor) => '<div class="et-l"><span>' + rot + '</span><b' + (cor ? ' style="color:' + cor + '"' : '') + '>' + val + '</b></div>';
+  d.dias.forEach((lab, i) => {
+    let html = '<div class="et-h">' + lab + (d.dias_semana ? ' · ' + d.dias_semana[i] : '') + (i === hi ? ' · hoje' : '') + '</div>';
+    if (_expVisao === 'forecast') {
+      const p = pct(d.expedido[i], d.forecast[i]);
+      html += lin('Forecast', d.forecast[i] == null ? '—' : fmtInt(d.forecast[i]), 'var(--accent)') +
+        lin('Expedido', d.expedido[i] == null ? '—' : fmtInt(d.expedido[i]), 'var(--olive)') +
+        (p == null ? '' : lin('Diferença', fmtPct(p) + ' · ' + fmtInt(d.expedido[i] - d.forecast[i]), corPct(p)));
+    } else {
+      const ef = d.entrada_efetiva ? d.entrada_efetiva[i] : null, p = pct(ef, d.entrada[i]);
+      html += lin('Backlog previsto', d.backlog[i] == null ? '—' : fmtInt(d.backlog[i]), 'var(--amber)') +
+        lin('Saída prevista', d.saida[i] == null ? '—' : fmtInt(d.saida[i]), 'var(--olive)') +
+        lin('Entrada prevista', d.entrada[i] == null ? '—' : fmtInt(d.entrada[i]), 'var(--accent)') +
+        (ef == null ? '' : lin('Entrada efetiva' + (i === hi ? ' (parcial)' : ''), fmtInt(ef))) +
+        (p == null || i === hi ? '' : lin('Efetiva × prevista', fmtPct(p) + ' · ' + fmtInt(ef - d.entrada[i]), corPct(p)));
+    }
+    const col = el('rect', { x: xF(i) - step / 2, y: 0, width: step, height: h - pB + 4, class: 'exp-col' });
+    col.addEventListener('mouseenter', e => mostrarTipExp(html, e));
+    col.addEventListener('mousemove', e => mostrarTipExp(html, e));
+    col.addEventListener('mouseleave', esconderTipExp);
   });
   // abre com HOJE no meio da janela visível
   sc.scrollLeft = Math.max(0, xF(hi) - w0 / 2);
 }
+
+function mostrarTipExp(html, e) {
+  let t = document.getElementById('expTip');
+  if (!t) { t = document.createElement('div'); t.id = 'expTip'; t.className = 'exp-tip'; document.body.appendChild(t); }
+  t.innerHTML = html; t.style.display = 'block';
+  const w = t.offsetWidth, hh = t.offsetHeight;
+  t.style.left = Math.max(8, Math.min(e.clientX + 16, window.innerWidth - w - 8)) + 'px';
+  t.style.top = Math.max(8, Math.min(e.clientY - hh / 2, window.innerHeight - hh - 8)) + 'px';
+}
+function esconderTipExp() { const t = document.getElementById('expTip'); if (t) t.style.display = 'none'; }
 
 /* ============================================================
    ABASTECIMENTO — botões de atualização

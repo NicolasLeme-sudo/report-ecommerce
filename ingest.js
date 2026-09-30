@@ -1231,10 +1231,15 @@ async function buscarSegmentos() {
 // da rodada atual) e usa isso como teto fixo — o piso do eixo Y fica em
 // zero (escala absoluta, não relativa). Paginado por página vazia, nunca
 // por tamanho fixo (ver README 3.1).
-async function buscarTetoHistoricoIntegracao() {
-  const JANELA_DIAS = 60;
+// Itens integrados por dia (importado_em) dos últimos 60 dias, direto da tabela
+// pedidos. Alimenta o teto da mini-curva de integração e a "entrada efetiva" do
+// gráfico de backlog previsto — buscado uma vez por processamento (cache curto).
+// Ordenado e paginado até a página vazia, senão a paginação pula/repete linhas.
+let _integracaoCache = null;
+async function buscarIntegracaoPorDia() {
+  if (_integracaoCache && Date.now() - _integracaoCache.ts < 120000) return _integracaoCache.porDia;
   const desde = new Date();
-  desde.setDate(desde.getDate() - JANELA_DIAS);
+  desde.setDate(desde.getDate() - 60);
   const desdeISO = paraDataISOLocal(desde);
 
   const porDia = {};
@@ -1245,8 +1250,9 @@ async function buscarTetoHistoricoIntegracao() {
       .from("pedidos")
       .select("importado_em, qtd_total_produto")
       .gte("importado_em", desdeISO)
+      .order("pedido_venda", { ascending: true })
       .range(offset, offset + LOTE - 1);
-    if (error) { console.error("Erro ao buscar teto histórico de integração:", error); break; }
+    if (error) { console.error("Erro ao buscar integração por dia:", error); break; }
     if (!data || data.length === 0) break;
 
     data.forEach(function(r) {
@@ -1256,10 +1262,13 @@ async function buscarTetoHistoricoIntegracao() {
     });
 
     offset += data.length;
-    if (data.length < LOTE) break;
   }
+  _integracaoCache = { ts: Date.now(), porDia: porDia };
+  return porDia;
+}
 
-  const totaisDiarios = Object.values(porDia);
+async function buscarTetoHistoricoIntegracao() {
+  const totaisDiarios = Object.values(await buscarIntegracaoPorDia());
   return totaisDiarios.length ? Math.max(...totaisDiarios) : 0;
 }
 
@@ -1482,10 +1491,14 @@ async function computarBacklogPrevisto() {
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
   const hojeISO = paraDataISOLocal(hoje);
+  const integracao = await buscarIntegracaoPorDia();
   return {
     dias: dias.map(function(d){ return d.slice(8, 10) + "/" + d.slice(5, 7); }),
     dias_semana: dias.map(function(d){ return SEM[new Date(d + "T00:00:00Z").getUTCDay()]; }),
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
+    // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
+    // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
+    entrada_efetiva: dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
     backlog: dias.map(function(d){ return backlogEf[d] === undefined ? null : backlogEf[d]; }),
     capacidade_informada: dias.some(function(d){ return informada[d]; }),
