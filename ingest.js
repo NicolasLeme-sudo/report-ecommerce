@@ -1035,7 +1035,7 @@ async function gravarForecastCru(cru, file, onProgress) {
   // apaga só os dias deste arquivo (todas as marcas) e regrava — corrigir um
   // mês já lançado substitui; subir um mês novo só acrescenta
   const datas = total.map(function(r){ return r.data; });
-  falharSeErro(await supabaseClient.from("forecast_diario").delete().in("data", datas).neq("marca", MARCA_CAPACIDADE_INFORMADA), "Erro ao limpar forecast_diario");
+  falharSeErro(await supabaseClient.from("forecast_diario").delete().in("data", datas).not("marca", "in", MARCAS_PRESERVADAS), "Erro ao limpar forecast_diario");
 
   const TAMANHO_LOTE = 200;
   for (let i = 0; i < total.length; i += TAMANHO_LOTE) {
@@ -1143,7 +1143,7 @@ async function processarForecastMensal(file, options) {
   // data, subir um mês novo só adiciona; subir de novo um mês já lançado
   // continua substituindo (comportamento de correção preservado).
   const datasDoArquivo = registros.map(function(r){ return r.data; });
-  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo).neq("marca", MARCA_CAPACIDADE_INFORMADA);
+  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo).not("marca", "in", MARCAS_PRESERVADAS);
   falharSeErro(resultadoDeleteForecast, "Erro ao limpar forecast_diario");
 
   let erros = 0;
@@ -1451,6 +1451,12 @@ async function refecharExpedicaoDoMesPeloBanco() {
 // de forecast preservam (ver .neq acima).
 // -------------------------------------------------------------------------
 const MARCA_CAPACIDADE_INFORMADA = "CAPACIDADE_INFORMADA";
+// Dias fora do calendário do planejamento (a capacity do arquivo é 0 em sábado/domingo/feriado):
+//  DIA_EXTRA = dia TRABALHADO mesmo assim (sábado de HE, troca de feriado). itens_forecast = capacidade
+//              só desse dia; 0 = usa a capacidade vigente.
+//  DIA_FOLGA = dia NÃO trabalhado mesmo com capacity no arquivo (feriado/ponte).
+const MARCA_DIA_EXTRA = "DIA_EXTRA", MARCA_DIA_FOLGA = "DIA_FOLGA";
+const MARCAS_PRESERVADAS = "(" + MARCA_CAPACIDADE_INFORMADA + "," + MARCA_DIA_EXTRA + "," + MARCA_DIA_FOLGA + ")";
 
 async function listarCapacidadesSaida() {
   const { data, error } = await supabaseClient.from("forecast_diario")
@@ -1466,6 +1472,26 @@ async function salvarCapacidadeSaida(valor, desdeISO) {
   falharSeErro(await supabaseClient.from("forecast_diario").upsert(
     { data: desdeISO, marca: MARCA_CAPACIDADE_INFORMADA, itens_forecast: valor, pedidos_forecast: 0, faturamento_forecast: 0 },
     { onConflict: "data,marca" }), "Erro ao salvar a capacidade");
+}
+async function listarDiasEspeciais() {
+  const { data, error } = await supabaseClient.from("forecast_diario")
+    .select("data, marca, itens_forecast").in("marca", [MARCA_DIA_EXTRA, MARCA_DIA_FOLGA]).order("data", { ascending: true });
+  if (error) throw new Error("Erro ao ler os dias especiais: " + error.message);
+  return (data || []).map(function(r){ return { data: r.data, tipo: r.marca === MARCA_DIA_EXTRA ? "extra" : "folga", itens: Number(r.itens_forecast) || 0 }; });
+}
+async function salvarDiaEspecial(tipo, dataISO, itens) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dataISO || "")) throw new Error("Informe a data.");
+  const marca = tipo === "extra" ? MARCA_DIA_EXTRA : MARCA_DIA_FOLGA;
+  const outra = tipo === "extra" ? MARCA_DIA_FOLGA : MARCA_DIA_EXTRA;
+  // um dia não pode ser trabalhado e folga ao mesmo tempo: marcar um desmarca o outro
+  falharSeErro(await supabaseClient.from("forecast_diario").delete().eq("marca", outra).eq("data", dataISO), "Erro ao atualizar o dia");
+  falharSeErro(await supabaseClient.from("forecast_diario").upsert(
+    { data: dataISO, marca: marca, itens_forecast: tipo === "extra" ? Math.max(0, Math.round(Number(itens) || 0)) : 1, pedidos_forecast: 0, faturamento_forecast: 0 },
+    { onConflict: "data,marca" }), "Erro ao salvar o dia");
+}
+async function removerDiaEspecial(tipo, dataISO) {
+  falharSeErro(await supabaseClient.from("forecast_diario").delete()
+    .eq("marca", tipo === "extra" ? MARCA_DIA_EXTRA : MARCA_DIA_FOLGA).eq("data", dataISO), "Erro ao remover o dia");
 }
 async function removerCapacidadeSaida(desdeISO) {
   falharSeErro(await supabaseClient.from("forecast_diario").delete()
@@ -1490,10 +1516,10 @@ async function computarBacklogPrevisto() {
   const { data, error } = await supabaseClient
     .from("forecast_diario")
     .select("data, marca, itens_forecast")
-    .in("marca", ["ENT_PREVISTA", "CAPACITY", "POSICAO_INICIAL", "BACKLOG_PREVISTO"])
+    .in("marca", ["ENT_PREVISTA", "CAPACITY", "POSICAO_INICIAL", "BACKLOG_PREVISTO", MARCA_DIA_EXTRA, MARCA_DIA_FOLGA])
     .gte("data", inicioConta).lte("data", dias[dias.length - 1]);
   if (error) { console.error("Erro ao buscar backlog previsto:", error); return null; }
-  const porMarca = { ENT_PREVISTA: {}, CAPACITY: {}, POSICAO_INICIAL: {}, BACKLOG_PREVISTO: {} };
+  const porMarca = { ENT_PREVISTA: {}, CAPACITY: {}, POSICAO_INICIAL: {}, BACKLOG_PREVISTO: {}, DIA_EXTRA: {}, DIA_FOLGA: {} };
   (data || []).forEach(function(r){ if (porMarca[r.marca]) porMarca[r.marca][r.data] = Number(r.itens_forecast); });
   if (!Object.keys(porMarca.BACKLOG_PREVISTO).length) return null;
   const val = function(marca, d){ return porMarca[marca][d] === undefined ? null : porMarca[marca][d]; };
@@ -1512,7 +1538,13 @@ async function computarBacklogPrevisto() {
     const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
     posEf[d] = val("POSICAO_INICIAL", d);
     if (ci === null || capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
-    const cap = capArq === 0 ? 0 : ci;
+    // calendário do planejamento (capacity 0 = fim de semana/feriado), com as exceções que o
+    // usuário marcou: dia extra trabalhado (sábado de HE, troca de feriado) e folga
+    const extra = porMarca.DIA_EXTRA[d], folga = porMarca.DIA_FOLGA[d] !== undefined;
+    let cap;
+    if (folga) cap = 0;
+    else if (extra !== undefined) cap = extra > 0 ? extra : ci;
+    else cap = capArq === 0 ? 0 : ci;
     const pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
     posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
@@ -1539,6 +1571,7 @@ async function computarBacklogPrevisto() {
     // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
     // dia anterior), previsto e efetivo na mesma base.
     backlog: dias.map(function(d){ return posEf[d] === undefined ? null : posEf[d]; }),
+    dia_especial: dias.map(function(d){ return porMarca.DIA_FOLGA[d] !== undefined ? "folga" : (porMarca.DIA_EXTRA[d] !== undefined ? "extra" : null); }),
     capacidade_informada: dias.some(function(d){ return informada[d]; }),
     hoje_idx: dias.indexOf(hojeISO),
   };

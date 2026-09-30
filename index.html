@@ -1361,6 +1361,16 @@ table.matrix tbody tr.total th {
         </div>
         <div class="progress-box" id="progressCapacidade"></div>
         <div id="capLista" class="cap-lista"></div>
+        <h2 style="margin-top:18px">Dias fora do calendário</h2>
+        <div class="freq">A capacidade só entra em dia útil do planejamento (fim de semana e feriado ficam sem saída). Marque aqui o que foge disso: sábado de HE, troca de feriado ou folga.</div>
+        <div class="cap-row">
+          <div class="file-field"><label>Data</label><input type="date" id="diaData"></div>
+          <div class="file-field"><label>Itens nesse dia (opcional)</label><input type="number" id="diaItens" min="0" step="100" placeholder="vazio = capacidade vigente"></div>
+          <button class="btn-upload" id="btnDiaExtra">Dia trabalhado</button>
+          <button class="btn-upload" id="btnDiaFolga" style="background:transparent;color:var(--text);border-color:var(--border)">Dia sem trabalho</button>
+        </div>
+        <div class="progress-box" id="progressDias"></div>
+        <div id="diasLista" class="cap-lista"></div>
       </div>
     </div>
 
@@ -3232,7 +3242,7 @@ function desenharExpedicao() {
   labelComFundo(svg, xF(hi), pT - 40, 'HOJE', { fontSize: FS, cor: '#111', fundo: 'var(--amber)' });
   d.dias.forEach((lab, i) => {
     el('text', { x: xF(i), y: h - 28, 'text-anchor': 'middle', 'font-size': 12, fill: i === hi ? 'var(--amber)' : 'var(--text-label)', 'font-weight': i === hi ? 700 : 500 }, lab);
-    if (d.dias_semana) el('text', { x: xF(i), y: h - 12, 'text-anchor': 'middle', 'font-size': 11, fill: 'var(--text-muted)' }, d.dias_semana[i]);
+    if (d.dias_semana) el('text', { x: xF(i), y: h - 12, 'text-anchor': 'middle', 'font-size': 11, fill: d.dia_especial && d.dia_especial[i] ? 'var(--amber)' : 'var(--text-muted)', 'font-weight': d.dia_especial && d.dia_especial[i] ? 700 : 400 }, d.dias_semana[i] + (d.dia_especial && d.dia_especial[i] ? '*' : ''));
   });
 
   // colunas de hover (por cima de tudo): tooltip com os valores do dia e a diferença efetivo × previsto
@@ -3241,7 +3251,8 @@ function desenharExpedicao() {
   const corPct = p => p == null ? 'var(--text-muted)' : Math.abs(p) <= 10 ? 'var(--olive)' : 'var(--amber)';
   const lin = (rot, val, cor) => '<div class="et-l"><span>' + rot + '</span><b' + (cor ? ' style="color:' + cor + '"' : '') + '>' + val + '</b></div>';
   d.dias.forEach((lab, i) => {
-    let html = '<div class="et-h">' + lab + (d.dias_semana ? ' · ' + d.dias_semana[i] : '') + (i === hi ? ' · hoje' : '') + '</div>';
+    let html = '<div class="et-h">' + lab + (d.dias_semana ? ' · ' + d.dias_semana[i] : '') + (i === hi ? ' · hoje' : '') +
+      (d.dia_especial && d.dia_especial[i] === 'extra' ? ' · dia trabalhado (extra)' : d.dia_especial && d.dia_especial[i] === 'folga' ? ' · sem trabalho' : '') + '</div>';
     if (_expVisao === 'forecast') {
       const p = pct(d.expedido[i], d.forecast[i]);
       html += lin('Forecast', d.forecast[i] == null ? '—' : fmtInt(d.forecast[i]), 'var(--accent)') +
@@ -3389,6 +3400,31 @@ async function renderCapacidades() {
     }));
   } catch (e) { el.textContent = e.message; }
 }
+async function renderDiasEspeciais() {
+  const el = document.getElementById('diasLista'); if (!el) return;
+  try {
+    const lista = await listarDiasEspeciais();
+    el.innerHTML = lista.length ? lista.slice().reverse().map(g =>
+      '<div class="cap-item"><span>' + g.data.slice(8,10) + '/' + g.data.slice(5,7) + '/' + g.data.slice(0,4) + ' — ' +
+      (g.tipo === 'extra' ? 'dia trabalhado' + (g.itens > 0 ? ' (' + fmtInt(g.itens) + ' itens)' : '') : 'sem trabalho') +
+      '</span><button type="button" data-tipo="' + g.tipo + '" data-dia="' + g.data + '" title="Remover">×</button></div>').join('')
+      : 'Nenhum dia marcado — vale o calendário do arquivo do planejamento.';
+    el.querySelectorAll('button[data-dia]').forEach(b => b.addEventListener('click', async () => {
+      try { await removerDiaEspecial(b.dataset.tipo, b.dataset.dia); mostrar('progressDias', 'Removido. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok'); }
+      catch (e) { mostrar('progressDias', '✗ Erro: ' + e.message, 'erro'); }
+      renderDiasEspeciais();
+    }));
+  } catch (e) { el.textContent = e.message; }
+}
+['btnDiaExtra', 'btnDiaFolga'].forEach(id => document.getElementById(id).addEventListener('click', async () => {
+  const tipo = id === 'btnDiaExtra' ? 'extra' : 'folga';
+  try {
+    await salvarDiaEspecial(tipo, document.getElementById('diaData').value, document.getElementById('diaItens').value);
+    mostrar('progressDias', '✓ Salvo. Rode "Atualizar Relatórios da Operação" para o gráfico refletir.', 'ok');
+    document.getElementById('diaItens').value = '';
+  } catch (e) { mostrar('progressDias', '✗ Erro: ' + e.message, 'erro'); }
+  renderDiasEspeciais();
+}));
 document.getElementById('capDesde').value = new Date().toLocaleDateString('sv-SE'); // hoje (yyyy-mm-dd)
 document.getElementById('btnCapacidade').addEventListener('click', async () => {
   try {
@@ -4283,7 +4319,7 @@ async function aplicarSessao(session) {
 
   mostrarSecao('outbound');
   carregarDatasHistorico();
-  if (perfilAtual === 'admin') renderCapacidades();
+  if (perfilAtual === 'admin') { renderCapacidades(); renderDiasEspeciais(); }
 }
 
 function aplicarVisibilidadeMenu() {
