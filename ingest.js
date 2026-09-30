@@ -1506,13 +1506,15 @@ async function computarBacklogPrevisto() {
     let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
   };
   const todos = Object.keys(porMarca.BACKLOG_PREVISTO).sort();
-  const saidaEf = {}, backlogEf = {}, informada = {};
+  const saidaEf = {}, backlogEf = {}, posEf = {}, informada = {};
   let corrente = null;
   todos.forEach(function(d){
     const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
+    posEf[d] = val("POSICAO_INICIAL", d);
     if (ci === null || capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
     const cap = capArq === 0 ? 0 : ci;
     const pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
+    posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente); informada[d] = true;
   });
@@ -1526,10 +1528,17 @@ async function computarBacklogPrevisto() {
     entrada: dias.map(function(d){ return val("ENT_PREVISTA", d); }),
     // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
     // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
-    backlog_efetivo: await calcularBacklogEfetivo(dias, hojeISO),
+    backlog_efetivo: await (async function(){
+      const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
+      const base = [paraDataISOLocal(ontem0)].concat(dias);
+      const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
+      return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
+    })(),
     entrada_efetiva: dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
-    backlog: dias.map(function(d){ return backlogEf[d] === undefined ? null : backlogEf[d]; }),
+    // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
+    // dia anterior), previsto e efetivo na mesma base.
+    backlog: dias.map(function(d){ return posEf[d] === undefined ? null : posEf[d]; }),
     capacidade_informada: dias.some(function(d){ return informada[d]; }),
     hoje_idx: dias.indexOf(hojeISO),
   };

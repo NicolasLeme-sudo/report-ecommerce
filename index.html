@@ -3219,12 +3219,12 @@ function desenharExpedicao() {
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     const bl = d.backlog.filter(v => v != null);
-    tot.innerHTML = '<div class="item"><div class="lab">Backlog hoje (fim do dia)</div><div class="val">' + (d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div></div>' +
+    tot.innerHTML = '<div class="item"><div class="lab">Amanhecemos hoje com</div><div class="val">' + (d.backlog[hi] == null ? '—' : fmtInt(d.backlog[hi])) + '</div></div>' +
       '<div class="item"><div class="lab">Pico previsto</div><div class="val">' + (bl.length ? fmtInt(Math.max(...bl)) : '—') + '</div></div>';
-    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (fim do dia)</span>' +
+    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (amanhecer no dia)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
-    nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = posição inicial + entrada prevista − capacidade de saída' +
+    nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = quanto amanhecemos em tela no dia (fim do dia anterior = posição inicial); o do dia seguinte = backlog + entrada prevista − capacidade de saída' +
       (d.capacidade_informada ? ' (capacidade informada em Abastecimento).' : ' (capacity do arquivo do planejamento).');
   }
   rotulos.forEach(f => f());
