@@ -3008,11 +3008,11 @@ function renderSparkline(dados) {
     row.appendChild(card);
     return;
   }
-  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="86" viewBox="0 0 380 86" id="sparkSvg"></svg>`;
+  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="124" viewBox="0 0 380 124" id="sparkSvg"></svg>`;
   row.appendChild(card);
 
   const svg = card.querySelector('#sparkSvg');
-  const w=380,h=86,pL=8,pR=8,pT=18,pB=16;
+  const w=380,h=124,pL=24,pR=24,pT=30,pB=24;
   const vals = dados.itens_integrados;
   const dias = dados.dias;
   // Escala fixa (piso 0, teto calculado em cima dos últimos 60 dias de
@@ -3026,16 +3026,16 @@ function renderSparkline(dados) {
   const pts = vals.map((v,i) => [pL+i*((w-pL-pR)/(vals.length-1)), (h-pB)-((v-mn)/rng)*(h-pT-pB)]);
   const d = document.createElementNS('http://www.w3.org/2000/svg','path');
   d.setAttribute('d', pathSuave(pts));
-  d.setAttribute('fill','none'); d.setAttribute('stroke','var(--accent)'); d.setAttribute('stroke-width','2.5');
+  d.setAttribute('fill','none'); d.setAttribute('stroke','var(--accent)'); d.setAttribute('stroke-width','3');
   d.setAttribute('stroke-linecap','round'); d.setAttribute('stroke-linejoin','round');
   svg.appendChild(d);
   pts.forEach((p,i) => {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
-    c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
+    c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?4.5:3.5);
     c.setAttribute('fill',i===pts.length-1?'var(--text)':'var(--accent)'); svg.appendChild(c);
-    labelComFundo(svg, p[0], p[1]-7, fmtInt(vals[i]), {fontSize:10, cor:'var(--label-chip-texto)', fundo:'var(--accent-soft)'});
+    labelComFundo(svg, p[0], p[1]-9, fmtInt(vals[i]), {fontSize:13, cor:'var(--label-chip-texto)', fundo:'var(--accent-soft)'});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
-    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-3); dt.setAttribute('text-anchor','middle');
+    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-4); dt.setAttribute('font-size','11.5'); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
     dt.textContent=dias[i]; svg.appendChild(dt);
   });
