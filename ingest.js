@@ -1514,7 +1514,7 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   let vig = [];
   try { vig = await listarCapacidadesSaida(); } catch (e) { console.error(e); }
   // se um degrau começou antes da janela, a conta do backlog precisa partir dele
-  const inicioConta = vig.length && vig[0].data < dias[0] ? vig[0].data : dias[0];
+  const inicioConta = dias[0];
 
   const { data, error } = await supabaseClient
     .from("forecast_diario")
@@ -1527,7 +1527,7 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   if (!Object.keys(porMarca.BACKLOG_PREVISTO).length) return null;
   const val = function(marca, d){ return porMarca[marca][d] === undefined ? null : porMarca[marca][d]; };
 
-  // Efetivos primeiro: o backlog real de hoje é a âncora da projeção (como no Excel do planejamento).
+  // Efetivos (real) para comparar com o previsto.
   const hojeISO = paraDataISOLocal(hoje);
   const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
   const backlogEfetivo = efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
@@ -1536,12 +1536,10 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
     const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
     return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
   })();
-  const idxHoje = dias.indexOf(hojeISO);
-  const ancora = idxHoje >= 0 && backlogEfetivo && backlogEfetivo[idxHoje] != null ? Number(backlogEfetivo[idxHoje]) : null;
 
   // Mesma conta do Excel: backlog (amanhecer) de D = backlog de D-1 + entrada de D-1 − saída de D-1,
-  // nunca abaixo de zero. Até hoje vale a cadeia do arquivo; de amanhã em diante a projeção parte do
-  // backlog REAL de hoje (quando há), com entrada e saída previstas. Dia sem capacidade no arquivo
+  // nunca abaixo de zero. Parte da posição inicial do arquivo (1º dia e virada do mês) e segue
+  // a cadeia com a entrada prevista e a Capacity do planejamento. Dia sem capacidade no arquivo
   // (fim de semana/feriado) continua sem saída, salvo dia extra marcado.
   const capInformada = function(d){
     let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
@@ -1560,8 +1558,10 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
     if (folga) cap = 0;
     else if (extra !== undefined) cap = extra > 0 ? extra : (capArq > 0 ? capArq : (ci || 0));
     else cap = capArq;
-    let pos = corrente === null ? val("POSICAO_INICIAL", d) : corrente;
-    if (d === hojeISO && ancora !== null) pos = ancora;   // amanhecemos hoje com o backlog real
+    // posição inicial: a do arquivo no 1º dia da janela e na virada do mês (excedente do mês anterior
+    // informado no planejamento); nos demais, o backlog do dia anterior
+    const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
+    let pos = corrente === null || viradaMes ? val("POSICAO_INICIAL", d) : corrente;
     posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
