@@ -3012,7 +3012,8 @@ function renderSparkline(dados) {
   row.appendChild(card);
 
   const svg = card.querySelector('#sparkSvg');
-  const w=380,h=124,pL=24,pR=24,pT=30,pB=24;
+  const w=Math.round(svg.getBoundingClientRect().width) || 380, h=124, pL=26, pR=26, pT=30, pB=26;
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);   // largura real do card: os pontos ocupam toda a área
   const vals = dados.itens_integrados;
   const dias = dados.dias;
   // Escala fixa (piso 0, teto calculado em cima dos últimos 60 dias de
@@ -3035,7 +3036,7 @@ function renderSparkline(dados) {
     c.setAttribute('fill',i===pts.length-1?'var(--text)':'var(--accent)'); svg.appendChild(c);
     labelComFundo(svg, p[0], p[1]-9, fmtInt(vals[i]), {fontSize:13, cor:'var(--label-chip-texto)', fundo:'var(--accent-soft)'});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
-    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-4); dt.setAttribute('font-size','11.5'); dt.setAttribute('text-anchor','middle');
+    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-5); dt.setAttribute('font-size','13'); dt.setAttribute('text-anchor','middle');
     dt.setAttribute('class','spark-date'); dt.setAttribute('fill','var(--text-muted)');
     dt.textContent=dias[i]; svg.appendChild(dt);
   });
