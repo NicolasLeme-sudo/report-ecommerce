@@ -351,7 +351,9 @@ body {
 .kpi-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
 .kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
 .kpi-card .delta { font-size: 11.5px; margin-top: 5px; font-weight: 600; }
-.kpi-card .prev  { font-size: 13px; line-height: 1.1; margin-top: 2px; font-weight: 700; color: var(--text); opacity: .85; }
+.kpi-card .prev { margin-top: 6px; line-height: 1.1; }
+.kpi-card .prev-l { display: block; font-size: 10.5px; font-weight: 600; color: var(--text-muted); }
+.kpi-card .prev-v { display: block; font-size: 17px; font-weight: 700; color: var(--text); margin-top: 1px; }
 .delta-up   { color: var(--olive); }
 .delta-down { color: var(--red); }
 .delta-flat { color: var(--text-muted); }
@@ -2958,14 +2960,14 @@ function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos, mesAnter
   const kpis = [
     { tag: 'Pedidos em fluxo', val: fmtInt(atual.kpis.pedidos_em_fluxo), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: fmtInt(atual.kpis.itens_em_fluxo),   delta: '—', bar: 'bar-info', dc: 'delta-flat' },
-    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', prevK: 'pedidos', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.pedidos) : '', bar: 'bar-ok', dc: 'delta-flat' },
-    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', prevK: 'itens', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.itens) : '', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', prevK: 'pedidos', prev: mesAnterior ? prevHtml(mesAnterior.mes, mesAnterior.pedidos) : '', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', prevK: 'itens', prev: mesAnterior ? prevHtml(mesAnterior.mes, mesAnterior.itens) : '', bar: 'bar-ok', dc: 'delta-flat' },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
     const d = document.createElement('div');
     d.className = 'kpi-card';
-    d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>${k.prev ? `<div class="prev">${k.prev}</div>` : ''}`;
+    d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>${k.prev || ''}`;
     if (k.prevK) d.dataset.prevK = k.prevK;
     row.appendChild(d);
   });
@@ -2973,6 +2975,10 @@ function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos, mesAnter
   if (!mesAnterior) completarMesAnteriorKpis(row);
 }
 
+const MESES_NOME = { jan:'Janeiro', fev:'Fevereiro', mar:'Março', abr:'Abril', mai:'Maio', jun:'Junho', jul:'Julho', ago:'Agosto', set:'Setembro', out:'Outubro', nov:'Novembro', dez:'Dezembro' };
+function prevHtml(mes, valor) {
+  return '<div class="prev"><span class="prev-l">Fechamento ' + (MESES_NOME[mes] || mes) + ':</span><span class="prev-v">' + fmtInt(valor) + '</span></div>';
+}
 async function completarMesAnteriorKpis(row) {
   try {
     const hoje = new Date();
@@ -2985,9 +2991,7 @@ async function completarMesAnteriorKpis(row) {
     const mes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][ini.getMonth()];
     row.querySelectorAll('.kpi-card[data-prev-k]').forEach(function(c){
       if (c.querySelector('.prev')) return;
-      const p = document.createElement('div'); p.className = 'prev';
-      p.textContent = 'fechou ' + mes + ': ' + fmtInt(tot[c.dataset.prevK]);
-      c.appendChild(p);
+      c.insertAdjacentHTML('beforeend', prevHtml(mes, tot[c.dataset.prevK]));
     });
   } catch (e) { console.error(e); }
 }
