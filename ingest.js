@@ -1817,6 +1817,22 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     (acumExpedRows || []).filter(function(r){ return r.data !== hojeExpedISO; })
       .reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0) + hojeAoVivo.pedidos;
 
+  // Mês passado fechado (valor cheio), para comparar com o acumulado do mês corrente.
+  const iniMesAnt = new Date(anoAtualExped, mesAtualExped - 1, 1);
+  const iniMesAtual = new Date(anoAtualExped, mesAtualExped, 1);
+  const { data: mesAntRows, error: mesAntErr } = await supabaseClient
+    .from("expedicao_diaria")
+    .select("itens_expedidos, pedidos_expedidos")
+    .gte("data", paraDataISOLocal(iniMesAnt))
+    .lt("data", paraDataISOLocal(iniMesAtual));
+  if (!mesAntErr && mesAntRows && mesAntRows.length) {
+    kpis.expedicao_mes_anterior = {
+      mes: ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][iniMesAnt.getMonth()],
+      itens: mesAntRows.reduce(function(s, r){ return s + (r.itens_expedidos || 0); }, 0),
+      pedidos: mesAntRows.reduce(function(s, r){ return s + (r.pedidos_expedidos || 0); }, 0),
+    };
+  }
+
   // MARKETPLACE: calculado diretamente dos pedidos abertos (marketplace_acronimo já vem do SAP).
   // Exibição usa a razão social (dim_acronimos, base "Acrônimos" carregada em Abastecimento de
   // Dados) em vez do acrônimo cru — fallback pro próprio acrônimo se não houver mapeamento.

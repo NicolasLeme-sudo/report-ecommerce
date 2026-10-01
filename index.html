@@ -351,6 +351,7 @@ body {
 .kpi-card .tag   { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); font-weight: 600; }
 .kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
 .kpi-card .delta { font-size: 11.5px; margin-top: 5px; font-weight: 600; }
+.kpi-card .prev  { font-size: 13px; line-height: 1.1; margin-top: 2px; font-weight: 700; color: var(--text); opacity: .85; }
 .delta-up   { color: var(--olive); }
 .delta-down { color: var(--red); }
 .delta-flat { color: var(--text-muted); }
@@ -2821,7 +2822,7 @@ function renderizarOutbound(atual, anterior) {
     aplicarFiltrosOutbound(anterior);
   });
 
-  renderKpis(atual, anterior, atual.kpis.acumulado_expedicao_mes, atual.kpis.acumulado_expedicao_mes_pedidos);
+  renderKpis(atual, anterior, atual.kpis.acumulado_expedicao_mes, atual.kpis.acumulado_expedicao_mes_pedidos, atual.kpis.expedicao_mes_anterior);
   renderSparkline(atual.integracao_7dias);
   renderMatriz(atual.status_por_etapa_itens, 'matrixItens');
   renderMatriz(atual.status_por_etapa_pedidos, 'matrixPedidos');
@@ -2943,7 +2944,7 @@ function aplicarFiltrosOutbound(anterior) {
   const recalculado = recalcularOutboundFiltrado(pedidosFiltrados);
 
   document.getElementById('kpiRow').innerHTML = '';
-  renderKpis(recalculado, anterior, outboundPayloadAtual.kpis.acumulado_expedicao_mes, outboundPayloadAtual.kpis.acumulado_expedicao_mes_pedidos);
+  renderKpis(recalculado, anterior, outboundPayloadAtual.kpis.acumulado_expedicao_mes, outboundPayloadAtual.kpis.acumulado_expedicao_mes_pedidos, outboundPayloadAtual.kpis.expedicao_mes_anterior);
   renderSparkline(outboundPayloadAtual.integracao_7dias);
   renderMatriz(recalculado.status_por_etapa_itens, 'matrixItens');
   renderMatriz(recalculado.status_por_etapa_pedidos, 'matrixPedidos');
@@ -2953,18 +2954,18 @@ function aplicarFiltrosOutbound(anterior) {
 }
 
 /* ---------- KPIs ---------- */
-function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos) {
+function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos, mesAnterior) {
   const kpis = [
     { tag: 'Pedidos em fluxo', val: fmtInt(atual.kpis.pedidos_em_fluxo), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: fmtInt(atual.kpis.itens_em_fluxo),   delta: '—', bar: 'bar-info', dc: 'delta-flat' },
-    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', bar: 'bar-ok', dc: 'delta-flat' },
-    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.pedidos) : '', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.itens) : '', bar: 'bar-ok', dc: 'delta-flat' },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
     const d = document.createElement('div');
     d.className = 'kpi-card';
-    d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>`;
+    d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>${k.prev ? `<div class="prev">${k.prev}</div>` : ''}`;
     row.appendChild(d);
   });
 }
