@@ -1505,7 +1505,7 @@ async function removerCapacidadeSaida(desdeISO) {
 // backlog previsto por dia, de D-15 a D+15 — tudo vindo do forecast (marcas extras
 // de forecast_diario, ver gravarForecastCru). null quando o forecast ainda não
 // foi carregado no layout do planejamento.
-async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: reaproveita os efetivos de um snapshot do dia (evita reler milhares de pedidos)
+async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // itensEmFluxo: itens em operação (KPI "Itens em fluxo") = backlog real de hoje   // efetivosProntos: reaproveita os efetivos de um snapshot do dia (evita reler milhares de pedidos)
   const hoje = new Date();
   const dias = [];
   for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
@@ -1530,7 +1530,7 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   // Efetivos (real) para comparar com o previsto.
   const hojeISO = paraDataISOLocal(hoje);
   const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
-  const backlogEfetivo = efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
+  let backlogEfetivo = efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
     const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
     const base = [paraDataISOLocal(ontem0)].concat(dias);
     const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
@@ -1538,6 +1538,8 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
   })();
 
   const idxHoje = dias.indexOf(hojeISO);
+  // Backlog real de hoje = itens em operação (Itens em fluxo, calculado só em itens), não o derivado dos pedidos
+  if (idxHoje >= 0 && itensEmFluxo != null && backlogEfetivo) { backlogEfetivo = backlogEfetivo.slice(); backlogEfetivo[idxHoje] = Number(itensEmFluxo); }
   const ancora = idxHoje >= 0 && backlogEfetivo && backlogEfetivo[idxHoje] != null ? Number(backlogEfetivo[idxHoje]) : null;
 
   // Mesma conta do Excel: backlog (amanhecer) de D = backlog de D-1 + entrada de D-1 − saída de D-1,
@@ -1607,7 +1609,8 @@ async function atualizarForecastNoSnapshotOutbound() {
 
   const antigo = p.backlog_previsto || null;
   p.backlog_previsto = await computarBacklogPrevisto(antigo && antigo.backlog_efetivo && antigo.entrada_efetiva
-    ? { backlog_efetivo: antigo.backlog_efetivo, entrada_efetiva: antigo.entrada_efetiva } : undefined);
+    ? { backlog_efetivo: antigo.backlog_efetivo, entrada_efetiva: antigo.entrada_efetiva } : undefined,
+    p.kpis ? p.kpis.itens_em_fluxo : undefined);
 
   if (p.expedicao_semana && p.expedicao_semana.dias && p.expedicao_semana.dias.length === 31) {
     const rows = await buscarForecastJanela15();
@@ -1785,7 +1788,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   // isso nunca foi fechado como "ontem" de nenhuma execução.
   await refecharExpedicaoDoMesPeloBanco();
   const expedicao_semana = await computarExpedicaoSemana(pedidos, forecastRows);
-  const backlog_previsto = await computarBacklogPrevisto();
+  const backlog_previsto = await computarBacklogPrevisto(undefined, kpis.itens_em_fluxo);
   const integracao_7dias = await computarIntegracao7Dias(pedidos);
 
   // Expedição acumulada do mês (soma do histórico completo do mês em expedicao_diaria).

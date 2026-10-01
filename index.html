@@ -2958,16 +2958,38 @@ function renderKpis(atual, anterior, acumuladoMes, acumuladoMesPedidos, mesAnter
   const kpis = [
     { tag: 'Pedidos em fluxo', val: fmtInt(atual.kpis.pedidos_em_fluxo), delta: '—', bar: 'bar-flat', dc: 'delta-flat' },
     { tag: 'Itens em fluxo',   val: fmtInt(atual.kpis.itens_em_fluxo),   delta: '—', bar: 'bar-info', dc: 'delta-flat' },
-    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.pedidos) : '', bar: 'bar-ok', dc: 'delta-flat' },
-    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.itens) : '', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Pedidos expedidos', val: acumuladoMesPedidos == null ? '—' : fmtInt(acumuladoMesPedidos), delta: 'acumulado do mês', prevK: 'pedidos', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.pedidos) : '', bar: 'bar-ok', dc: 'delta-flat' },
+    { tag: 'Itens expedidos',   val: fmtInt(acumuladoMes), delta: 'acumulado do mês', prevK: 'itens', prev: mesAnterior ? 'fechou ' + mesAnterior.mes + ': ' + fmtInt(mesAnterior.itens) : '', bar: 'bar-ok', dc: 'delta-flat' },
   ];
   const row = document.getElementById('kpiRow');
   kpis.forEach(k => {
     const d = document.createElement('div');
     d.className = 'kpi-card';
     d.innerHTML = `<div class="bar ${k.bar}"></div><div class="tag">${k.tag}</div><div class="value">${k.val}</div><div class="delta ${k.dc}">${k.delta}</div>${k.prev ? `<div class="prev">${k.prev}</div>` : ''}`;
+    if (k.prevK) d.dataset.prevK = k.prevK;
     row.appendChild(d);
   });
+  // snapshot salvo antes dessa informação existir: busca o fechamento do mês passado direto no banco
+  if (!mesAnterior) completarMesAnteriorKpis(row);
+}
+
+async function completarMesAnteriorKpis(row) {
+  try {
+    const hoje = new Date();
+    const ini = new Date(hoje.getFullYear(), hoje.getMonth() - 1, 1), fim = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const iso = function(d){ return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'; };
+    const { data, error } = await supabaseClient.from('expedicao_diaria').select('itens_expedidos, pedidos_expedidos').gte('data', iso(ini)).lt('data', iso(fim));
+    if (error || !data || !data.length) return;
+    const tot = { itens: 0, pedidos: 0 };
+    data.forEach(function(r){ tot.itens += r.itens_expedidos || 0; tot.pedidos += r.pedidos_expedidos || 0; });
+    const mes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][ini.getMonth()];
+    row.querySelectorAll('.kpi-card[data-prev-k]').forEach(function(c){
+      if (c.querySelector('.prev')) return;
+      const p = document.createElement('div'); p.className = 'prev';
+      p.textContent = 'fechou ' + mes + ': ' + fmtInt(tot[c.dataset.prevK]);
+      c.appendChild(p);
+    });
+  } catch (e) { console.error(e); }
 }
 
 /* ---------- Sparkline Integração ---------- */
