@@ -339,7 +339,7 @@ body {
 .kpi-row-2x3 > .kpi-card.spark { flex: 2.1 1 0; min-width: 0; display: flex; flex-direction: column; }
 .kpi-card {
   background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 10px; padding: 14px 15px 12px;
+  border-radius: 10px; padding: 11px 15px 9px;
   position: relative; overflow: hidden; box-shadow: var(--shadow);
 }
 .kpi-card .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; }
@@ -352,7 +352,7 @@ body {
 .kpi-card .value { font-size: 23px; font-weight: 700; margin-top: 6px; color: var(--text); }
 .kpi-card .delta { font-size: 11.5px; margin-top: 5px; font-weight: 600; }
 .kpi-card .kpi-split { display: block; }
-.kpi-card .prev { margin-top: 8px; padding-top: 7px; border-top: 1px solid var(--border); line-height: 1.1; }
+.kpi-card .prev { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); line-height: 1.1; }
 .kpi-card .prev-l { font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: var(--text-muted); }
 .kpi-card .prev-l, .kpi-card .prev-v { display: block; }
 .kpi-card .prev-v { font-size: 17px; font-weight: 700; color: var(--text); margin-top: 3px; }
@@ -3008,11 +3008,11 @@ function renderSparkline(dados) {
     row.appendChild(card);
     return;
   }
-  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="124" viewBox="0 0 380 124" id="sparkSvg"></svg>`;
+  card.innerHTML = `<div class="tag">Integração de Itens no WMS (últimos 7 dias)</div><svg width="100%" height="104" viewBox="0 0 380 104" id="sparkSvg"></svg>`;
   row.appendChild(card);
 
   const svg = card.querySelector('#sparkSvg');
-  const w=Math.round(svg.getBoundingClientRect().width) || 380, h=124, pL=26, pR=26, pT=30, pB=26;
+  const w=Math.round(svg.getBoundingClientRect().width) || 380, h=104, pL=26, pR=26, pT=26, pB=24;
   svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);   // largura real do card: os pontos ocupam toda a área
   const vals = dados.itens_integrados;
   const dias = dados.dias;
