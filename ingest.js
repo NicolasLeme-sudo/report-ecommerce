@@ -1537,9 +1537,13 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
     return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
   })();
 
+  const idxHoje = dias.indexOf(hojeISO);
+  const ancora = idxHoje >= 0 && backlogEfetivo && backlogEfetivo[idxHoje] != null ? Number(backlogEfetivo[idxHoje]) : null;
+
   // Mesma conta do Excel: backlog (amanhecer) de D = backlog de D-1 + entrada de D-1 − saída de D-1,
-  // nunca abaixo de zero. Parte da posição inicial do arquivo (1º dia e virada do mês) e segue
-  // a cadeia com a entrada prevista e a Capacity do planejamento. Dia sem capacidade no arquivo
+  // nunca abaixo de zero. Até hoje vale a cadeia do arquivo (posição inicial no 1º dia e na virada
+  // do mês); de hoje em diante parte do backlog REAL de hoje (aba Plan1 do planejamento) e segue
+  // com a entrada prevista e a Capacity. Dia sem capacidade no arquivo
   // (fim de semana/feriado) continua sem saída, salvo dia extra marcado.
   const capInformada = function(d){
     let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
@@ -1562,6 +1566,7 @@ async function computarBacklogPrevisto(efetivosProntos) {   // efetivosProntos: 
     // informado no planejamento); nos demais, o backlog do dia anterior
     const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
     let pos = corrente === null || viradaMes ? val("POSICAO_INICIAL", d) : corrente;
+    if (d === hojeISO && ancora !== null) pos = ancora;   // amanhecemos hoje com o backlog real
     posEf[d] = pos === null ? null : Math.round(pos);
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
