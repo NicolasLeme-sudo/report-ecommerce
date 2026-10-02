@@ -763,7 +763,7 @@ async function upsertPedidoItens(itensPorPedido, pedidosValidos) {
 // Storage, pra alimentar o botão "Exportar Arquivo" de cada tela. Sempre
 // sobrescreve (upsert) — o mesmo caminho fixo é usado a cada reabastecimento.
 async function uploadArquivoOriginal(caminho, file) {
-  if (!file) return;
+  if (!file) return false;
   // Comprime em gzip antes de subir — os relatórios maiores (Estoque_Picking,
   // Controle_NF_Reversa) passavam do limite de tamanho do bucket. O texto de
   // um TSV comprime bem, então isso resolve a maior parte dos casos sem
@@ -795,7 +795,18 @@ async function uploadArquivoOriginal(caminho, file) {
       ? "arquivo grande demais pra guardar a cópia de backup — segue processando normal"
       : error.message;
     console.error("Aviso: não guardou cópia de backup de " + caminho + " (" + mensagemAmigavel + ")");
+    return false;
   }
+  return true;
+}
+
+// Lê (e descompacta) um arquivo que o Inbound guardou em Storage. A Reversa usa o mesmo
+// Itens_de_NF_de_Entrada.tsv do Inbound, então não precisa ser abastecido duas vezes.
+async function lerArquivoGuardado(caminho) {
+  const { data, error } = await supabaseClient.storage.from("arquivos-abastecimento").download(caminho);
+  if (error || !data) return null;
+  const desc = await descomprimirGzip(data);
+  return (desc || data).text();
 }
 
 // Carimbo de versão do ingest.js. Serve para saber QUAL código gerou um
@@ -1192,8 +1203,8 @@ async function buscarForecastUltimos7Dias() {
 // Forecast TOTAL de D-15 a D+15 (gráfico Expedição × Forecast, com rolagem).
 async function buscarForecastJanela15() {
   const hoje = new Date();
-  const ini = new Date(hoje); ini.setDate(hoje.getDate() - 15);
-  const fim = new Date(hoje); fim.setDate(hoje.getDate() + 15);
+  const ini = new Date(hoje); ini.setDate(hoje.getDate() - 30);
+  const fim = new Date(hoje); fim.setDate(hoje.getDate() + 30);
   const resultado = await supabaseClient
     .from("forecast_diario")
     .select("*")
@@ -1508,7 +1519,7 @@ async function removerCapacidadeSaida(desdeISO) {
 async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // itensEmFluxo: itens em operação (KPI "Itens em fluxo") = backlog real de hoje   // efetivosProntos: reaproveita os efetivos de um snapshot do dia (evita reler milhares de pedidos)
   const hoje = new Date();
   const dias = [];
-  for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
+  for (let i = -30; i <= 30; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); dias.push(paraDataISOLocal(d)); }
 
   // capacidade informada: degraus (vale da data em diante, até o próximo degrau)
   let vig = [];
@@ -1612,11 +1623,11 @@ async function atualizarForecastNoSnapshotOutbound() {
     ? { backlog_efetivo: antigo.backlog_efetivo, entrada_efetiva: antigo.entrada_efetiva } : undefined,
     p.kpis ? p.kpis.itens_em_fluxo : undefined);
 
-  if (p.expedicao_semana && p.expedicao_semana.dias && p.expedicao_semana.dias.length === 31) {
+  if (p.expedicao_semana && p.expedicao_semana.dias && p.expedicao_semana.dias.length === 61) {
     const rows = await buscarForecastJanela15();
     const porDia = {}; rows.forEach(function(r){ porDia[r.data] = r.itens_forecast; });
     const forecast = [];
-    for (let i = -15; i <= 15; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); const k = paraDataISOLocal(d); forecast.push(porDia[k] === undefined ? null : porDia[k]); }
+    for (let i = -30; i <= 30; i++) { const d = new Date(hoje); d.setDate(hoje.getDate() + i); const k = paraDataISOLocal(d); forecast.push(porDia[k] === undefined ? null : porDia[k]); }
     p.expedicao_semana.forecast = forecast;
   }
   await salvarSnapshot("outbound", "auto", p);
@@ -1624,12 +1635,12 @@ async function atualizarForecastNoSnapshotOutbound() {
 }
 
 async function computarExpedicaoSemana(pedidos, forecastRows) {
-  // Janela de D-15 a D+15 (31 dias): passado com expedição fechada, hoje ao
+  // Janela de D-30 a D+30 (61 dias): passado com expedição fechada, hoje ao
   // vivo, futuro só com forecast (expedido = null, a linha não desce a zero).
   const hoje = new Date();
   const hojeISO = paraDataISOLocal(hoje);
   const dias = [];
-  for (let i = -15; i <= 15; i++) {
+  for (let i = -30; i <= 30; i++) {
     const d = new Date(hoje);
     d.setDate(hoje.getDate() + i);
     dias.push(paraDataISOLocal(d));
@@ -1964,6 +1975,9 @@ async function processarRelatoriosInbound(files, options) {
 
   onProgress("Lendo arquivos do Inbound...");
   await uploadArquivoOriginal("inbound/Controle_de_NF_Recebs.tsv", files.arquivoRecebs);
+  // a Reversa reaproveita este mesmo arquivo (não precisa abastecer lá de novo)
+  const guardouItens = await uploadArquivoOriginal("inbound/Itens_de_NF_de_Entrada.tsv", files.arquivoItens);
+  if (!guardouItens) onProgress("Aviso: não consegui guardar o Itens de NF de Entrada para a Reversa — anexe o arquivo também na Reversa.");
   const textoRecebs  = await files.arquivoRecebs.text();
   const textoItens   = await files.arquivoItens.text();
   const textoOR      = await files.arquivoOR.text();
@@ -3363,7 +3377,14 @@ var embalasBarraMap = new Map();
   onProgress("Controle: " + nfsPendentes.size + " NFs pendentes. Lendo Itens...");
 
   // ---- ITENS NF ENTRADA (1 linha por item/SKU) ----
-  var textoItens = await files.arquivoItens.text();
+  var textoItens;
+  if (files.arquivoItens) {
+    textoItens = await files.arquivoItens.text();
+  } else {
+    onProgress("Usando o Itens_de_NF_de_Entrada abastecido no Inbound...");
+    textoItens = await lerArquivoGuardado("inbound/Itens_de_NF_de_Entrada.tsv");
+    if (!textoItens) throw new Error("Não achei o Itens_de_NF_de_Entrada do Inbound. Abasteça o Inbound primeiro (ou anexe o arquivo aqui na Reversa).");
+  }
   var linhasItens = parseTSVSelecionado(textoItens, [
     "Nota Fiscal", "Status", "Quantidade", "Barra", "Código do Produto"
   ]);
