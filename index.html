@@ -1292,7 +1292,6 @@ table.matrix tbody tr.total th {
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
           <div class="file-field"><label>Controle_NF_Reversa.tsv</label><input type="file" id="fileControleReversa"></div>
-          <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv <small style="color:var(--text-muted)">(opcional — usa o do Inbound)</small></label><input type="file" id="fileItensReversa"></div>
           <div class="file-field"><label>Troca_Ecomm.csv</label><input type="file" id="fileTrocaEcomm"></div>
         </div>
         <button class="btn-upload" id="btnReversa">Atualizar Relatórios da Reversa</button>
@@ -3406,9 +3405,8 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
 
 ligarBotao('btnReversa', 'progressReversa', processarRelatoriosReversa, () => {
   const c = document.getElementById('fileControleReversa').files[0];
-  const i = document.getElementById('fileItensReversa').files[0];
   const t = document.getElementById('fileTrocaEcomm').files[0];
-  return (c&&t) ? { arquivoControle: c, arquivoItens: i || null, arquivoTroca: t } : null;
+  return (c&&t) ? { arquivoControle: c, arquivoItens: null, arquivoTroca: t } : null;
 });
 
 async function salvarAnaliseQualidade() {
