@@ -3292,7 +3292,9 @@ function desenharExpedicao() {
       el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 4,
         fill: 'color-mix(in srgb, var(--amber) ' + (real ? 42 : 20) + '%, transparent)', stroke: 'var(--amber)', 'stroke-width': real ? 1.6 : 1.1,
         'stroke-dasharray': real ? '' : '4 3' });
-      if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v), 'var(--amber)');
+      // dia ainda aberto (hoje): o efetivo é o saldo da última atualização — fecha só com a do dia seguinte
+      const parcial = real && (d.backlog_efetivo_origem ? d.backlog_efetivo_origem[i] === 'parcial' : i === hi);
+      if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v) + (parcial ? ' (Parcial)' : ''), 'var(--amber)');
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     // topo: só o previsto de HOJE (importação/entrada e saída)
@@ -3336,7 +3338,7 @@ function desenharExpedicao() {
         const p = (sub || ef == null) ? null : pct(ef, pr);
         return '<div class="et-c"><div class="et-t" style="color:' + cor + '">' + titulo + '</div>' +
           '<div class="et-k">Previsto</div><div class="et-v">' + num(pr) + '</div>' +
-          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem ? ({ calc: ' (calculado)', seguinte: ' (pela atualização seguinte)', parcial: ' (parcial)' }[d.backlog_efetivo_origem[i]] || '') : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
+          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem ? ({ calc: ' (calculado)', seguinte: ' (pela atualização seguinte)', parcial: ' (Parcial)' }[d.backlog_efetivo_origem[i]] || '') : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
           '<div class="et-k">Diferença</div><div class="et-v"' + (p == null ? '' : ' style="color:' + corPct(p) + '"') + '>' + (p == null ? '—' : fmtPct(p)) + '</div></div>';
       };
       html += '<div class="et-cols">' +
