@@ -1311,9 +1311,9 @@ async function calcularBacklogEfetivo(dias, hojeISO) {
   return dias.map(function(d, i){ acum += diff[i]; return d <= hojeISO ? Math.round(acum) : null; });
 }
 
-// Horário em que "amanhecemos" para os dias SEM foto (a operação começa às 05h e os relatórios
-// costumam ser exportados por volta das 08h30; pedidos processados entre 05h e 08h30 já saíram de tela).
-const CORTE_AMANHECER = { h: 8, m: 30 };
+// Dias SEM foto (fim de semana, feriado): o backlog conta tudo até o FIM do dia (23h59), pelos
+// horários reais de importação e de processamento dos pedidos.
+const CORTE_AMANHECER = { h: 23, m: 59, s: 59, ms: 999 };
 
 // "Foto" do backlog de cada dia = Itens em fluxo da PRIMEIRA atualização da Operação daquele dia,
 // lida dos snapshots já salvos (kpis.itens_em_fluxo). Devolve { "YYYY-MM-DD": { itens, t } }.
@@ -1342,8 +1342,8 @@ async function buscarFotosBacklog(desdeISO) {
 // Backlog EFETIVO no "amanhecer" de cada dia da janela (até hoje):
 //  - dia com foto (você atualizou a Operação): vale o Itens em fluxo daquela manhã;
 //  - dia sem foto (fim de semana, feriado): parte da última foto e soma o que foi importado e tira o que
-//    foi processado entre o horário da foto e o corte do dia (08h30), pelos horários reais dos pedidos;
-//  - antes da primeira foto: estado do dia calculado direto dos pedidos no horário de corte.
+//    foi processado entre o horário da foto e o fim do dia, pelos horários reais dos pedidos;
+//  - antes da primeira foto: estado do fim do dia calculado direto dos pedidos.
 // Devolve { valores, origem } com origem "foto" | "calc" | null.
 async function calcularBacklogEfetivoPorFoto(dias, hojeISO, itensEmFluxo) {
   const { ordens } = await carregarPedidosJanela();
@@ -1351,7 +1351,7 @@ async function calcularBacklogEfetivoPorFoto(dias, hojeISO, itensEmFluxo) {
   const fotos = await buscarFotosBacklog(paraDataISOLocal(ini));
   if (itensEmFluxo != null) fotos[hojeISO] = { itens: Number(itensEmFluxo), t: Date.now() };
 
-  const corte = function(dia) { const p = dia.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], CORTE_AMANHECER.h, CORTE_AMANHECER.m).getTime(); };
+  const corte = function(dia) { const p = dia.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], CORTE_AMANHECER.h, CORTE_AMANHECER.m, CORTE_AMANHECER.s, CORTE_AMANHECER.ms).getTime(); };
   const diasFoto = Object.keys(fotos).sort();
   const valores = [], origem = [];
   dias.forEach(function(d) {
