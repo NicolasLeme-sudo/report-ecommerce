@@ -3229,7 +3229,7 @@ function desenharExpedicao() {
   const cr = document.createElementNS(NS, 'rect');
   cr.setAttribute('x', 0); cr.setAttribute('y', 0); cr.setAttribute('width', W); cr.setAttribute('height', h - pB + 1.5);
   cp.appendChild(cr); defs.appendChild(cp);
-  const series = _expVisao === 'forecast' ? [d.expedido, d.forecast] : [d.entrada, d.saida, d.backlog];
+  const series = _expVisao === 'forecast' ? [d.expedido, d.forecast] : [d.entrada, d.saida, d.backlog, d.backlog_efetivo || []];
   const mx = Math.max(1, ...series.flat().filter(v => v != null)) * 1.18;
   const xF = i => pL + i * step, yF = v => (h - pB) - (v / mx) * (h - pT - pB);
 
@@ -3281,12 +3281,17 @@ function desenharExpedicao() {
     leg.innerHTML = '<span><i style="background:var(--olive)"></i>Expedido</span><span><i style="background:var(--accent)"></i>Forecast</span>';
     nota.textContent = 'Passe o mouse sobre um dia para ver expedido × forecast e a diferença. Arraste ou use a barra para ver outros dias. Totais = período do filtro, do início da janela até hoje.';
   } else {
-    // backlog previsto = barras; entrada e saída previstas = linhas
+    // barras = backlog: do dia de HOJE para trás vale o EFETIVO (o previsto só aparece no tooltip);
+    // dias futuros continuam previstos (barra mais clara, tracejada)
     const bw = Math.min(40, step * 0.6);
-    d.backlog.forEach((v, i) => {
+    d.backlog.forEach((vPrev, i) => {
+      const ef = d.backlog_efetivo ? d.backlog_efetivo[i] : null;
+      const real = i <= hi && ef != null;
+      const v = real ? ef : vPrev;
       if (v == null) return;
       el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 4,
-        fill: 'color-mix(in srgb, var(--amber) 30%, transparent)', stroke: 'var(--amber)', 'stroke-width': 1.2 });
+        fill: 'color-mix(in srgb, var(--amber) ' + (real ? 42 : 20) + '%, transparent)', stroke: 'var(--amber)', 'stroke-width': real ? 1.6 : 1.1,
+        'stroke-dasharray': real ? '' : '4 3' });
       if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v), 'var(--amber)');
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
@@ -3294,7 +3299,7 @@ function desenharExpedicao() {
     const nv = v => v == null ? '—' : fmtInt(v);
     tot.innerHTML = '<div class="item"><div class="lab">Importação prevista · hoje</div><div class="val">' + nv(d.entrada[hi]) + '</div></div>' +
       '<div class="item"><div class="lab">Saída prevista · hoje</div><div class="val">' + nv(d.saida[hi]) + '</div></div>';
-    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog previsto (amanhecer no dia)</span>' +
+    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog (amanhecer no dia): efetivo até hoje · previsto à frente (tracejado)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
     nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = quanto amanhecemos em tela no dia (fim do dia anterior = posição inicial); o do dia seguinte = backlog + entrada prevista − capacidade de saída' +
