@@ -1579,8 +1579,10 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     // informado no planejamento); nos demais, o backlog do dia anterior
     const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
     let pos = corrente === null || viradaMes ? val("POSICAO_INICIAL", d) : corrente;
-    if (d === hojeISO && ancora !== null) pos = ancora;   // amanhecemos hoje com o backlog real
+    // o PREVISTO de hoje continua sendo o do planejamento (para comparar com o real); é a projeção
+    // dos dias seguintes que parte do backlog real de hoje (Itens em fluxo)
     posEf[d] = pos === null ? null : Math.round(pos);
+    if (d === hojeISO && ancora !== null) pos = ancora;
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
   });
