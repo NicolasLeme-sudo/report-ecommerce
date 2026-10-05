@@ -1277,7 +1277,9 @@ async function carregarPedidosJanela() {
       // pedido cancelado vem com situacao CANCELADO (o status_calculado dele pode ser uma etapa qualquer)
       const cancelado = r.situacao === "CANCELADO" || r.status_calculado === "Cancelado";
       const exp = (r.situacao === "EXPEDIDO" && r.processado_em) ? paraDataISOLocal(dataDoBanco(r.processado_em)) : null;
-      if (!cancelado) ordens.push({ imp: imp, exp: exp, qtd: qtd });
+      if (!cancelado) ordens.push({ imp: imp, exp: exp, qtd: qtd,
+        impT: dataDoBanco(r.importado_em).getTime(),
+        expT: (r.situacao === "EXPEDIDO" && r.processado_em) ? dataDoBanco(r.processado_em).getTime() : null });
     });
 
     offset += data.length;
@@ -1307,6 +1309,72 @@ async function calcularBacklogEfetivo(dias, hojeISO) {
   });
   let acum = 0;
   return dias.map(function(d, i){ acum += diff[i]; return d <= hojeISO ? Math.round(acum) : null; });
+}
+
+// Horário em que "amanhecemos" para os dias SEM foto (a operação começa às 05h e os relatórios
+// costumam ser exportados por volta das 08h30; pedidos processados entre 05h e 08h30 já saíram de tela).
+const CORTE_AMANHECER = { h: 8, m: 30 };
+
+// "Foto" do backlog de cada dia = Itens em fluxo da PRIMEIRA atualização da Operação daquele dia,
+// lida dos snapshots já salvos (kpis.itens_em_fluxo). Devolve { "YYYY-MM-DD": { itens, t } }.
+async function buscarFotosBacklog(desdeISO) {
+  const fotos = {};
+  try {
+    const { data, error } = await supabaseClient
+      .from("dashboard_snapshots")
+      .select("gerado_em, itens:payload->kpis->>itens_em_fluxo")
+      .eq("pagina", "outbound")
+      .gte("gerado_em", desdeISO)
+      .order("gerado_em", { ascending: true })
+      .limit(1000);
+    if (error) throw error;
+    (data || []).forEach(function(r) {
+      const itens = Number(r.itens);
+      if (!isFinite(itens) || r.itens === null) return;
+      const t = dataDoBanco(r.gerado_em);
+      const dia = paraDataISOLocal(t);
+      if (!fotos[dia]) fotos[dia] = { itens: itens, t: t.getTime() };   // ordenado: a primeira do dia fica
+    });
+  } catch (e) { console.error("Erro ao ler as fotos do backlog:", e); }
+  return fotos;
+}
+
+// Backlog EFETIVO no "amanhecer" de cada dia da janela (até hoje):
+//  - dia com foto (você atualizou a Operação): vale o Itens em fluxo daquela manhã;
+//  - dia sem foto (fim de semana, feriado): parte da última foto e soma o que foi importado e tira o que
+//    foi processado entre o horário da foto e o corte do dia (08h30), pelos horários reais dos pedidos;
+//  - antes da primeira foto: estado do dia calculado direto dos pedidos no horário de corte.
+// Devolve { valores, origem } com origem "foto" | "calc" | null.
+async function calcularBacklogEfetivoPorFoto(dias, hojeISO, itensEmFluxo) {
+  const { ordens } = await carregarPedidosJanela();
+  const ini = new Date(dias[0] + "T12:00:00"); ini.setDate(ini.getDate() - 10);
+  const fotos = await buscarFotosBacklog(paraDataISOLocal(ini));
+  if (itensEmFluxo != null) fotos[hojeISO] = { itens: Number(itensEmFluxo), t: Date.now() };
+
+  const corte = function(dia) { const p = dia.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], CORTE_AMANHECER.h, CORTE_AMANHECER.m).getTime(); };
+  const diasFoto = Object.keys(fotos).sort();
+  const valores = [], origem = [];
+  dias.forEach(function(d) {
+    if (d > hojeISO) { valores.push(null); origem.push(null); return; }
+    if (fotos[d]) { valores.push(Math.round(fotos[d].itens)); origem.push("foto"); return; }
+    const T = corte(d);
+    let base = null;
+    diasFoto.forEach(function(fd) { if (fd < d) base = fd; });
+    let v = 0, tem = false;
+    if (base) {
+      const a = fotos[base].t;
+      ordens.forEach(function(o) {
+        if (o.impT > a && o.impT <= T) { v += o.qtd; tem = true; }
+        if (o.expT && o.expT > a && o.expT <= T) { v -= o.qtd; tem = true; }
+      });
+      v += fotos[base].itens;
+    } else {
+      ordens.forEach(function(o) { if (o.impT <= T && !(o.expT && o.expT <= T)) { v += o.qtd; tem = true; } });
+    }
+    if (!tem && !base) { valores.push(null); origem.push(null); return; }
+    valores.push(Math.max(0, Math.round(v))); origem.push("calc");
+  });
+  return { valores: valores, origem: origem };
 }
 
 async function buscarTetoHistoricoIntegracao() {
@@ -1541,12 +1609,9 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
   // Efetivos (real) para comparar com o previsto.
   const hojeISO = paraDataISOLocal(hoje);
   const integracao = efetivosProntos ? {} : await buscarIntegracaoPorDia();
-  let backlogEfetivo = efetivosProntos ? efetivosProntos.backlog_efetivo : await (async function(){
-    const ontem0 = new Date(dias[0] + "T12:00:00"); ontem0.setDate(ontem0.getDate() - 1);
-    const base = [paraDataISOLocal(ontem0)].concat(dias);
-    const fimDoDia = await calcularBacklogEfetivo(base, hojeISO);   // fimDoDia[i] = fim do dia base[i]
-    return dias.map(function(d, i){ return d <= hojeISO ? fimDoDia[i] : null; });  // amanhecer de d = fim de d-1
-  })();
+  let backlogEfetivo, origemEfetivo;
+  if (efetivosProntos) { backlogEfetivo = efetivosProntos.backlog_efetivo; origemEfetivo = efetivosProntos.backlog_efetivo_origem || null; }
+  else { const r = await calcularBacklogEfetivoPorFoto(dias, hojeISO, itensEmFluxo); backlogEfetivo = r.valores; origemEfetivo = r.origem; }
 
   const idxHoje = dias.indexOf(hojeISO);
   // Backlog real de hoje = itens em operação (Itens em fluxo, calculado só em itens), não o derivado dos pedidos
@@ -1595,6 +1660,7 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     // entrada EFETIVA: itens integrados no WMS no dia (importado_em, hora de Brasília) —
     // bate com o que o time apura à mão. Só até hoje; dias sem nenhum pedido no banco = null.
     backlog_efetivo: backlogEfetivo,
+    backlog_efetivo_origem: origemEfetivo,
     entrada_efetiva: efetivosProntos ? efetivosProntos.entrada_efetiva : dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
     // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
@@ -1622,7 +1688,7 @@ async function atualizarForecastNoSnapshotOutbound() {
 
   const antigo = p.backlog_previsto || null;
   p.backlog_previsto = await computarBacklogPrevisto(antigo && antigo.backlog_efetivo && antigo.entrada_efetiva
-    ? { backlog_efetivo: antigo.backlog_efetivo, entrada_efetiva: antigo.entrada_efetiva } : undefined,
+    ? { backlog_efetivo: antigo.backlog_efetivo, backlog_efetivo_origem: antigo.backlog_efetivo_origem, entrada_efetiva: antigo.entrada_efetiva } : undefined,
     p.kpis ? p.kpis.itens_em_fluxo : undefined);
 
   if (p.expedicao_semana && p.expedicao_semana.dias && p.expedicao_semana.dias.length === 61) {

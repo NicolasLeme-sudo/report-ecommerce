@@ -3336,7 +3336,7 @@ function desenharExpedicao() {
         const p = (sub || ef == null) ? null : pct(ef, pr);
         return '<div class="et-c"><div class="et-t" style="color:' + cor + '">' + titulo + '</div>' +
           '<div class="et-k">Previsto</div><div class="et-v">' + num(pr) + '</div>' +
-          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
+          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem && d.backlog_efetivo_origem[i] === 'calc' ? ' (calculado)' : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
           '<div class="et-k">Diferença</div><div class="et-v"' + (p == null ? '' : ' style="color:' + corPct(p) + '"') + '>' + (p == null ? '—' : fmtPct(p)) + '</div></div>';
       };
       html += '<div class="et-cols">' +
