@@ -1311,48 +1311,6 @@ async function calcularBacklogEfetivo(dias, hojeISO) {
   return dias.map(function(d, i){ acum += diff[i]; return d <= hojeISO ? Math.round(acum) : null; });
 }
 
-// Regras do backlog EFETIVO por tipo de dia (editáveis em Abastecimento → "Backlog efetivo").
-// fonte: "foto"     = Itens em fluxo da 1ª atualização da Operação do próprio dia (sem ela, calcula);
-//        "seguinte" = estado no horário de corte, reconstruído a partir da atualização SEGUINTE
-//                     (foto seguinte − importados + processados entre o corte e a foto);
-//        "calculo"  = estado no horário de corte, calculado a partir da atualização ANTERIOR
-//                     (foto anterior + importados − processados entre a foto e o corte).
-// corte: horário (minutos desde 00h) até onde o dia conta. Guardado em forecast_diario
-// (marca CFG_EF_*, data fixa 2000-01-01): itens_forecast = fonte, pedidos_forecast = corte.
-const CFG_EF_DATA = "2000-01-01";
-const CFG_EF_FONTES = ["foto", "seguinte", "calculo"];
-const CFG_EF_MARCAS = { util: "CFG_EF_UTIL", sab: "CFG_EF_SAB", dom: "CFG_EF_DOM" };
-const CFG_EF_PADRAO = { util: { fonte: "foto", corte: 1439 }, sab: { fonte: "calculo", corte: 1439 }, dom: { fonte: "calculo", corte: 1439 } };
-
-async function lerRegrasBacklogEfetivo() {
-  const regras = JSON.parse(JSON.stringify(CFG_EF_PADRAO));
-  try {
-    const { data, error } = await supabaseClient.from("forecast_diario")
-      .select("marca, itens_forecast, pedidos_forecast").eq("data", CFG_EF_DATA)
-      .in("marca", Object.values(CFG_EF_MARCAS));
-    if (error) throw error;
-    (data || []).forEach(function(r) {
-      const tipo = Object.keys(CFG_EF_MARCAS).find(function(k){ return CFG_EF_MARCAS[k] === r.marca; });
-      const fonte = CFG_EF_FONTES[Number(r.itens_forecast)];
-      const corte = Number(r.pedidos_forecast);
-      if (tipo && fonte) regras[tipo] = { fonte: fonte, corte: isFinite(corte) && corte >= 0 && corte <= 1439 ? corte : 1439 };
-    });
-  } catch (e) { console.error("Erro ao ler as regras do backlog efetivo (usando o padrão):", e); }
-  return regras;
-}
-
-async function salvarRegrasBacklogEfetivo(regras) {
-  const linhas = Object.keys(CFG_EF_MARCAS).map(function(tipo) {
-    const r = regras[tipo] || CFG_EF_PADRAO[tipo];
-    const i = CFG_EF_FONTES.indexOf(r.fonte);
-    if (i < 0) throw new Error("Fonte inválida: " + r.fonte);
-    const corte = Math.round(Number(r.corte));
-    if (!isFinite(corte) || corte < 0 || corte > 1439) throw new Error("Horário de corte inválido.");
-    return { data: CFG_EF_DATA, marca: CFG_EF_MARCAS[tipo], itens_forecast: i, pedidos_forecast: corte, faturamento_forecast: 0 };
-  });
-  falharSeErro(await supabaseClient.from("forecast_diario").upsert(linhas, { onConflict: "data,marca" }), "Erro ao salvar as regras do backlog efetivo");
-}
-
 // "Foto" do backlog de cada dia = Itens em fluxo da PRIMEIRA atualização da Operação daquele dia,
 // lida dos snapshots já salvos (kpis.itens_em_fluxo). Devolve { "YYYY-MM-DD": { itens, t } }.
 async function buscarFotosBacklog(desdeISO) {
@@ -1377,54 +1335,43 @@ async function buscarFotosBacklog(desdeISO) {
   return fotos;
 }
 
-// Backlog EFETIVO de cada dia da janela (até hoje), conforme as regras por tipo de dia
-// (lerRegrasBacklogEfetivo). Hoje = Itens em fluxo de agora. Devolve { valores, origem } com
-// origem "foto" | "seguinte" | "calc" | "parcial" | null.
+// Backlog EFETIVO de cada dia da janela = o que ficou em tela no FIM do dia (23h59), sempre:
+//  - reconstruído a partir da atualização SEGUINTE (1ª atualização da Operação do dia seguinte, ou
+//    a próxima que houver — ex.: a de segunda para sábado e domingo): foto − importados + processados
+//    entre o fim do dia e a foto, pelos horários reais dos pedidos (devolve o que saiu de 05h às 08h30);
+//  - sem atualização depois do dia: calculado a partir da atualização anterior (foto + importados −
+//    processados até o fim do dia);
+//  - hoje: Itens em fluxo de agora (parcial — é refeito quando entrar a atualização de amanhã).
+// Devolve { valores, origem } com origem "foto" | "seguinte" | "calc" | "parcial" | null.
 async function calcularBacklogEfetivoPorFoto(dias, hojeISO, itensEmFluxo) {
   const { ordens } = await carregarPedidosJanela();
-  const regras = await lerRegrasBacklogEfetivo();
   const ini = new Date(dias[0] + "T12:00:00"); ini.setDate(ini.getDate() - 10);
   const fotos = await buscarFotosBacklog(paraDataISOLocal(ini));
   if (itensEmFluxo != null) fotos[hojeISO] = { itens: Number(itensEmFluxo), t: Date.now() };
   const listaFotos = Object.keys(fotos).sort().map(function(k){ return fotos[k]; });
 
-  const tipoDia = function(dia) { const w = new Date(dia + "T12:00:00").getDay(); return w === 6 ? "sab" : (w === 0 ? "dom" : "util"); };
-  const corte = function(dia, min) { const p = dia.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], Math.floor(min / 60), min % 60, 59, 999).getTime(); };
+  const fimDoDia = function(dia) { const p = dia.split("-"); return new Date(+p[0], +p[1] - 1, +p[2], 23, 59, 59, 999).getTime(); };
   // movimento entre dois instantes: + importados, − processados
   const mov = function(a, b) {
-    let v = 0, tem = false;
+    let v = 0;
     ordens.forEach(function(o) {
-      if (o.impT > a && o.impT <= b) { v += o.qtd; tem = true; }
-      if (o.expT && o.expT > a && o.expT <= b) { v -= o.qtd; tem = true; }
+      if (o.impT > a && o.impT <= b) v += o.qtd;
+      if (o.expT && o.expT > a && o.expT <= b) v -= o.qtd;
     });
-    return { v: v, tem: tem };
-  };
-  const calcularDaAnterior = function(T) {
-    let base = null;
-    listaFotos.forEach(function(f){ if (f.t <= T) base = f; });
-    if (base) return Math.max(0, Math.round(base.itens + mov(base.t, T).v));
-    let v = 0, tem = false;   // antes da 1ª foto: estado direto dos pedidos
-    ordens.forEach(function(o) { if (o.impT <= T && !(o.expT && o.expT <= T)) { v += o.qtd; tem = true; } });
-    return tem ? Math.max(0, Math.round(v)) : null;
+    return v;
   };
 
   const valores = [], origem = [];
   dias.forEach(function(d) {
     if (d > hojeISO) { valores.push(null); origem.push(null); return; }
-    const regra = regras[tipoDia(d)];
-    if (d === hojeISO) {
-      valores.push(fotos[d] ? Math.round(fotos[d].itens) : null);
-      origem.push(regra.fonte === "foto" ? "foto" : "parcial");
-      return;
-    }
-    const T = corte(d, regra.corte);
-    if (regra.fonte === "foto" && fotos[d]) { valores.push(Math.round(fotos[d].itens)); origem.push("foto"); return; }
-    if (regra.fonte === "seguinte") {
-      const prox = listaFotos.find(function(f){ return f.t >= T; });
-      if (prox) { valores.push(Math.max(0, Math.round(prox.itens - mov(T, prox.t).v))); origem.push("seguinte"); return; }
-    }
-    const v = calcularDaAnterior(T);
-    valores.push(v); origem.push(v == null ? null : "calc");
+    if (d === hojeISO) { valores.push(fotos[d] ? Math.round(fotos[d].itens) : null); origem.push("parcial"); return; }
+    const T = fimDoDia(d);
+    const prox = listaFotos.find(function(f){ return f.t >= T; });
+    if (prox) { valores.push(Math.max(0, Math.round(prox.itens - mov(T, prox.t)))); origem.push("seguinte"); return; }
+    let base = null;
+    listaFotos.forEach(function(f){ if (f.t <= T) base = f; });
+    if (base) { valores.push(Math.max(0, Math.round(base.itens + mov(base.t, T)))); origem.push("calc"); return; }
+    valores.push(null); origem.push(null);
   });
   return { valores: valores, origem: origem };
 }
@@ -1590,7 +1537,7 @@ const MARCA_CAPACIDADE_INFORMADA = "CAPACIDADE_INFORMADA";
 //              só desse dia; 0 = usa a capacidade vigente.
 //  DIA_FOLGA = dia NÃO trabalhado mesmo com capacity no arquivo (feriado/ponte).
 const MARCA_DIA_EXTRA = "DIA_EXTRA", MARCA_DIA_FOLGA = "DIA_FOLGA";
-const MARCAS_PRESERVADAS = "(" + MARCA_CAPACIDADE_INFORMADA + "," + MARCA_DIA_EXTRA + "," + MARCA_DIA_FOLGA + ",CFG_EF_UTIL,CFG_EF_SAB,CFG_EF_DOM)";
+const MARCAS_PRESERVADAS = "(" + MARCA_CAPACIDADE_INFORMADA + "," + MARCA_DIA_EXTRA + "," + MARCA_DIA_FOLGA + ")";
 
 async function listarCapacidadesSaida() {
   const { data, error } = await supabaseClient.from("forecast_diario")
@@ -1729,7 +1676,7 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
 // Backlog), sem precisar reprocessar os relatórios da operação. Reaproveita do snapshot o resto
 // (inclusive os efetivos já calculados). Devolve false se não houver snapshot de hoje — aí vale rodar
 // "Atualizar Relatórios da Operação".
-async function atualizarForecastNoSnapshotOutbound(recalcularEfetivo) {
+async function atualizarForecastNoSnapshotOutbound() {
   const res = await supabaseClient.from("dashboard_snapshots").select("payload, gerado_em")
     .eq("pagina", "outbound").order("gerado_em", { ascending: false }).limit(1);
   const snap = res.data && res.data[0];
@@ -1739,7 +1686,7 @@ async function atualizarForecastNoSnapshotOutbound(recalcularEfetivo) {
   if (paraDataISOLocal(dataDoBanco(snap.gerado_em)) !== hojeISO) return false;   // snapshot de outro dia: janela de datas não bate
 
   const antigo = p.backlog_previsto || null;
-  p.backlog_previsto = await computarBacklogPrevisto(!recalcularEfetivo && antigo && antigo.backlog_efetivo && antigo.entrada_efetiva
+  p.backlog_previsto = await computarBacklogPrevisto(antigo && antigo.backlog_efetivo && antigo.entrada_efetiva
     ? { backlog_efetivo: antigo.backlog_efetivo, backlog_efetivo_origem: antigo.backlog_efetivo_origem, entrada_efetiva: antigo.entrada_efetiva } : undefined,
     p.kpis ? p.kpis.itens_em_fluxo : undefined);
 
