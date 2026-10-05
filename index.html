@@ -501,6 +501,11 @@ table.matrix tbody tr.total th {
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
 .cap-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 4px; }
 .cap-row input { padding: 8px 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 7px; font-family: inherit; font-size: 13px; }
+.ef-regras { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.ef-regra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 13px; }
+.ef-regra .ef-tipo { width: 70px; font-weight: 700; color: var(--text); }
+.ef-regra select, .ef-regra input { padding: 7px 9px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 7px; font-family: inherit; font-size: 13px; }
+.ef-regra .ef-corte { color: var(--text-label); display: flex; align-items: center; gap: 6px; }
 .cap-lista { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-label); }
 .cap-lista .cap-item { display: flex; align-items: center; gap: 10px; }
 .cap-lista button { border: 1px solid var(--border); background: transparent; color: var(--text-muted); border-radius: 5px; cursor: pointer; padding: 1px 8px; }
@@ -1383,6 +1388,36 @@ table.matrix tbody tr.total th {
         </div>
         <div class="progress-box" id="progressDias"></div>
         <div id="diasLista" class="cap-lista"></div>
+        <h2 style="margin-top:18px">Backlog efetivo — como cada dia é calculado</h2>
+        <div class="freq">"Atualização" = a 1ª vez que a Operação é atualizada no dia (Itens em fluxo daquela manhã). Pelos horários reais de importação e processamento dos pedidos, o sistema leva o backlog até o horário de corte do dia. Hoje sempre mostra o Itens em fluxo atual.</div>
+        <div class="ef-regras">
+          <div class="ef-regra"><span class="ef-tipo">Dia útil</span>
+            <select id="efFonte_util" class="ef-sel">
+              <option value="foto">Atualização da manhã do próprio dia</option>
+              <option value="seguinte">Fim do dia, pela atualização seguinte</option>
+              <option value="calculo">Calculado a partir da atualização anterior</option>
+            </select>
+            <label class="ef-corte">conta até <input type="time" id="efCorte_util" step="60"></label>
+          </div>
+          <div class="ef-regra"><span class="ef-tipo">Sábado</span>
+            <select id="efFonte_sab" class="ef-sel">
+              <option value="foto">Atualização da manhã do próprio dia</option>
+              <option value="seguinte">Fim do dia, pela atualização seguinte</option>
+              <option value="calculo">Calculado a partir da atualização anterior</option>
+            </select>
+            <label class="ef-corte">conta até <input type="time" id="efCorte_sab" step="60"></label>
+          </div>
+          <div class="ef-regra"><span class="ef-tipo">Domingo</span>
+            <select id="efFonte_dom" class="ef-sel">
+              <option value="foto">Atualização da manhã do próprio dia</option>
+              <option value="seguinte">Fim do dia, pela atualização seguinte</option>
+              <option value="calculo">Calculado a partir da atualização anterior</option>
+            </select>
+            <label class="ef-corte">conta até <input type="time" id="efCorte_dom" step="60"></label>
+          </div>
+        </div>
+        <button class="btn-upload" id="btnRegrasEfetivo" style="width:auto;padding:8px 16px;margin-top:8px">Salvar regras</button>
+        <div class="progress-box" id="progressRegrasEfetivo"></div>
       </div>
     </div>
 
@@ -3336,7 +3371,7 @@ function desenharExpedicao() {
         const p = (sub || ef == null) ? null : pct(ef, pr);
         return '<div class="et-c"><div class="et-t" style="color:' + cor + '">' + titulo + '</div>' +
           '<div class="et-k">Previsto</div><div class="et-v">' + num(pr) + '</div>' +
-          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem && d.backlog_efetivo_origem[i] === 'calc' ? ' (calculado)' : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
+          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem ? ({ calc: ' (calculado)', seguinte: ' (pela atualização seguinte)', parcial: ' (parcial)' }[d.backlog_efetivo_origem[i]] || '') : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
           '<div class="et-k">Diferença</div><div class="et-v"' + (p == null ? '' : ' style="color:' + corPct(p) + '"') + '>' + (p == null ? '—' : fmtPct(p)) + '</div></div>';
       };
       html += '<div class="et-cols">' +
@@ -3454,6 +3489,31 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   const a = document.getElementById('fileAcronimos').files[0];
   const c = document.getElementById('fileCusto').files[0];
   return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
+});
+/* Regras do backlog efetivo por tipo de dia */
+const _efTipos = ['util', 'sab', 'dom'];
+const _minParaHora = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+async function renderRegrasEfetivo() {
+  if (!document.getElementById('efFonte_util')) return;
+  const r = await lerRegrasBacklogEfetivo();
+  _efTipos.forEach(t => {
+    document.getElementById('efFonte_' + t).value = r[t].fonte;
+    document.getElementById('efCorte_' + t).value = _minParaHora(r[t].corte);
+  });
+}
+document.getElementById('btnRegrasEfetivo').addEventListener('click', async () => {
+  try {
+    const regras = {};
+    _efTipos.forEach(t => {
+      const hhmm = (document.getElementById('efCorte_' + t).value || '23:59').split(':');
+      regras[t] = { fonte: document.getElementById('efFonte_' + t).value, corte: Number(hhmm[0]) * 60 + Number(hhmm[1]) };
+    });
+    await salvarRegrasBacklogEfetivo(regras);
+    mostrar('progressRegrasEfetivo', 'Salvo. Recalculando o backlog efetivo...', 'ok');
+    let msg = 'Para o gráfico refletir, rode "Atualizar Relatórios da Operação".';
+    try { if (await atualizarForecastNoSnapshotOutbound(true)) msg = 'Gráfico do Outbound atualizado.'; } catch (e) { console.error(e); }
+    mostrar('progressRegrasEfetivo', '✓ Regras salvas. ' + msg, 'ok');
+  } catch (e) { mostrar('progressRegrasEfetivo', '✗ Erro: ' + e.message, 'erro'); }
 });
 /* Capacidade de saída informada (usada na Análise Prevista de Backlog) */
 // Refaz o forecast/backlog do snapshot de Outbound de hoje; se não houver um, avisa o que fazer.
@@ -4396,7 +4456,7 @@ async function aplicarSessao(session) {
 
   mostrarSecao('outbound');
   carregarDatasHistorico();
-  if (perfilAtual === 'admin') { renderCapacidades(); renderDiasEspeciais(); }
+  if (perfilAtual === 'admin') { renderCapacidades(); renderDiasEspeciais(); renderRegrasEfetivo(); }
 }
 
 function aplicarVisibilidadeMenu() {
