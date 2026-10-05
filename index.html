@@ -451,6 +451,7 @@ table.matrix tbody tr.total th {
 .exp-tip .et-c:last-child { padding-right: 0; }
 .exp-tip .et-t { font-weight: 700; margin-bottom: 4px; }
 .exp-tip .et-k { color: var(--text-muted); font-size: 11.5px; margin-top: 4px; }
+.exp-tip .et-parc { font-size: 10.5px; font-weight: 600; color: var(--amber); }
 .exp-tip .et-v { font-weight: 700; }
 .exp-tip .et-h { font-weight: 700; margin-bottom: 6px; color: var(--text-label); }
 .exp-tip .et-l { display: flex; justify-content: space-between; gap: 18px; padding: 1.5px 0; }
@@ -3335,10 +3336,15 @@ function desenharExpedicao() {
       // um bloco por assunto, lado a lado e separados por "|": Backlog | Entrada | Saída
       const bloco = (titulo, cor, pr, ef, ehBacklog) => {
         const sub = parcial && !ehBacklog;
+        const origem = ehBacklog && d.backlog_efetivo_origem ? d.backlog_efetivo_origem[i] : null;
         const p = (sub || ef == null) ? null : pct(ef, pr);
+        // hoje o efetivo ainda é parcial (fecha com a atualização do dia seguinte): marca ao lado do valor
+        const marca = ef != null && (parcial || origem === 'parcial') ? ' <small class="et-parc">(Parcial)</small>'
+          : (ef != null && origem === 'calc' ? ' <small class="et-parc">(calculado)</small>'
+          : (ef != null && origem === 'seguinte' ? ' <small class="et-parc">(pela atualização seguinte)</small>' : ''));
         return '<div class="et-c"><div class="et-t" style="color:' + cor + '">' + titulo + '</div>' +
           '<div class="et-k">Previsto</div><div class="et-v">' + num(pr) + '</div>' +
-          '<div class="et-k">Efetivo' + (sub && ef != null ? ' (parcial)' : '') + (ehBacklog && ef != null && d.backlog_efetivo_origem ? ({ calc: ' (calculado)', seguinte: ' (pela atualização seguinte)', parcial: ' (Parcial)' }[d.backlog_efetivo_origem[i]] || '') : '') + '</div><div class="et-v">' + num(ef) + '</div>' +
+          '<div class="et-k">Efetivo</div><div class="et-v">' + num(ef) + marca + '</div>' +
           '<div class="et-k">Diferença</div><div class="et-v"' + (p == null ? '' : ' style="color:' + corPct(p) + '"') + '>' + (p == null ? '—' : fmtPct(p)) + '</div></div>';
       };
       html += '<div class="et-cols">' +
