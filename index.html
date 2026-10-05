@@ -3293,9 +3293,7 @@ function desenharExpedicao() {
       el('rect', { x: xF(i) - bw / 2, y: yF(v), width: bw, height: Math.max(1, (h - pB) - yF(v)), rx: 4,
         fill: 'color-mix(in srgb, var(--amber) ' + (real ? 42 : 20) + '%, transparent)', stroke: 'var(--amber)', 'stroke-width': real ? 1.6 : 1.1,
         'stroke-dasharray': real ? '' : '4 3' });
-      // dia ainda aberto (hoje): o efetivo é o saldo da última atualização — fecha só com a do dia seguinte
-      const parcial = real && (d.backlog_efetivo_origem ? d.backlog_efetivo_origem[i] === 'parcial' : i === hi);
-      if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v) + (parcial ? ' (Parcial)' : ''), 'var(--amber)');
+      if (mostra(i)) rot(xF(i), yF(v) - 9, fmtInt(v), 'var(--amber)');
     });
     linha(d.entrada, 'var(--accent)', '', true); linha(d.saida, 'var(--olive)', '6 4', true);
     // topo: só o previsto de HOJE (importação/entrada e saída)
