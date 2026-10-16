@@ -1341,6 +1341,11 @@ table.matrix tbody tr.total th {
           <button class="btn-upload" id="btnAplicarGabaritoExcecao" onclick="aplicarGabaritoEnderecosNaoConformes()">Aplicar Gabarito Preenchido</button>
           <div class="progress-box" id="statusAplicarGabarito"></div>
         </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="freq" style="margin-bottom:6px"><b>Exceções ativas no gabarito</b> — prefixos que valem acima da regra padrão (inclui os provisórios). Remover volta o prefixo para a regra padrão; depois rode <b>Atualizar Balanço</b>.</div>
+          <div id="listaGabaritoExcecoes" class="cap-lista">Carregando…</div>
+          <div class="progress-box" id="statusRemoverExcecao"></div>
+        </div>
       </div>
 
       <div class="section-title" style="margin-top:24px">Relatórios Bases</div>
@@ -3461,6 +3466,49 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   const c = document.getElementById('fileCusto').files[0];
   return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
 });
+/* Exceções do gabarito de endereços: listar e remover (ex.: K04/K05 provisórios) */
+async function renderExcecoesGabarito() {
+  const el = document.getElementById('listaGabaritoExcecoes'); if (!el) return;
+  try {
+    const { data, error } = await supabaseClient.from('gabarito_endereco_excecao').select('prefixo, classificacao, observacao').order('prefixo');
+    if (error) throw error;
+    el.innerHTML = (data || []).length ? data.map(e =>
+      '<div class="cap-item"><span><b>' + e.prefixo + '</b> → ' + e.classificacao + (e.observacao && /provis/i.test(e.observacao) ? ' <em style="color:var(--amber)">(provisório)</em>' : '') +
+      '</span><button type="button" data-prefixo="' + e.prefixo + '" title="Remover do gabarito">×</button></div>').join('')
+      : 'Nenhuma exceção — vale só a regra padrão do gabarito.';
+    el.querySelectorAll('button[data-prefixo]').forEach(b => b.addEventListener('click', async () => {
+      const p = b.dataset.prefixo;
+      if (!confirm('Remover ' + p + ' do gabarito? O endereço volta para a regra padrão.')) return;
+      try {
+        const r = await supabaseClient.from('gabarito_endereco_excecao').delete().eq('prefixo', p);
+        if (r.error) throw r.error;
+        let extra = '';
+        try { extra = await tirarPrefixoDoMapaFluxo(p) ? ' O mapa do estoque do Fluxo também foi atualizado.' : ''; } catch (e2) { console.error(e2); }
+        mostrar('statusRemoverExcecao', '✓ ' + p + ' removido.' + extra + ' Rode "Atualizar Balanço" para recalcular.', 'ok');
+      } catch (e) { mostrar('statusRemoverExcecao', '✗ Erro: ' + e.message, 'erro'); }
+      renderExcecoesGabarito();
+    }));
+  } catch (e) { el.textContent = e.message; }
+}
+// O mapa do estoque (Fluxo de Processos) cita os prefixos de exceção; publica uma versão nova sem eles.
+async function tirarPrefixoDoMapaFluxo(prefixo) {
+  const { data, error } = await supabaseClient.from('dashboard_snapshots').select('payload')
+    .eq('pagina', 'ecom_fluxo').order('gerado_em', { ascending: false }).limit(1);
+  if (error || !data || !data[0] || !data[0].payload || !Array.isArray(data[0].payload.mapa)) return false;
+  const payload = data[0].payload;
+  const re = new RegExp(',\\s*' + prefixo + '(?![0-9A-Za-z])', 'g'), reIni = new RegExp('(^|\\s)' + prefixo + ',\\s*', 'g'), reNegado = new RegExp(',\\s*' + prefixo + '(?=\\))', 'g');
+  let mudou = false;
+  payload.mapa.forEach(m => {
+    if (typeof m.wms !== 'string') return;
+    const novo = m.wms.replace(reNegado, '').replace(re, '').replace(reIni, '$1');
+    if (novo !== m.wms) { m.wms = novo; mudou = true; }
+  });
+  if (!mudou) return false;
+  const ins = await supabaseClient.from('dashboard_snapshots').insert({ pagina: 'ecom_fluxo', tipo_snapshot: 'manual',
+    data_snapshot: new Date().toISOString().slice(0, 10), gerado_em: new Date().toISOString(), payload: payload });
+  if (ins.error) throw ins.error;
+  return true;
+}
 /* Capacidade de saída informada (usada na Análise Prevista de Backlog) */
 // Refaz o forecast/backlog do snapshot de Outbound de hoje; se não houver um, avisa o que fazer.
 async function refletirForecastNoGrafico() {
@@ -4402,7 +4450,7 @@ async function aplicarSessao(session) {
 
   mostrarSecao('outbound');
   carregarDatasHistorico();
-  if (perfilAtual === 'admin') { renderCapacidades(); renderDiasEspeciais(); }
+  if (perfilAtual === 'admin') { renderCapacidades(); renderDiasEspeciais(); renderExcecoesGabarito(); }
 }
 
 function aplicarVisibilidadeMenu() {
