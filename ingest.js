@@ -2668,20 +2668,15 @@ async function processarEstoqueOperacao(files, options) {
   onProgress("Lendo Estoque Picking...");
   await uploadArquivoOriginal("estoque/Estoque_Picking.tsv", files.arquivoEstoque);
   const texto = await files.arquivoEstoque.text();
-  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Local", "Barra", "Estoque (UN)"]);
-  const temLocal = texto.split("\n")[0].split("\t").indexOf("Local") >= 0;
+  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)"]);
 
   const saldoPorPiso = {};
-  const locaisPorPiso = {};   // piso -> { local: saldo do endereço }
   linhas.forEach(function(r) {
     const tipo = normalizarEncoding(r["Tipo do Local"] || "");
     if (!tipo.toUpperCase().includes("PICKING")) return;
     const regiao = normalizarEncoding(r["Região"] || "").toUpperCase().trim();
     if (!regiao.startsWith("PISO")) return;
-    const qtd = Number(r["Estoque (UN)"]) || 0;
-    saldoPorPiso[regiao] = (saldoPorPiso[regiao] || 0) + qtd;
-    const loc = String(r["Local"] || "").trim();
-    if (loc) { (locaisPorPiso[regiao] = locaisPorPiso[regiao] || {})[loc] = ((locaisPorPiso[regiao][loc]) || 0) + qtd; }
+    saldoPorPiso[regiao] = (saldoPorPiso[regiao] || 0) + (Number(r["Estoque (UN)"]) || 0);
   });
 
   const registros = Object.keys(CAPACIDADES).map(function(pb) {
@@ -2696,20 +2691,7 @@ async function processarEstoqueOperacao(files, options) {
   const resultado = await supabaseClient.from("estoque_picking").insert(registros);
   falharSeErro(resultado, "Erro ao gravar estoque_picking");
 
-  // Endereços de picking por piso (só no snapshot — a tabela estoque_picking não tem essas colunas):
-  // total = endereços listados no arquivo; ocupados = com saldo > 0; livres = total − ocupados.
-  const payloadEstoque = gerarPayloadEstoque(registros);
-  if (temLocal) {
-    payloadEstoque.pisos.forEach(function(p) {
-      const l = locaisPorPiso[p.piso_bloco] || {};
-      const total = Object.keys(l).length;
-      const ocupados = Object.keys(l).filter(function(k){ return l[k] > 0; }).length;
-      p.enderecos_total = total; p.enderecos_ocupados = ocupados; p.enderecos_livres = total - ocupados;
-    });
-    payloadEstoque.total.enderecos_total = payloadEstoque.pisos.reduce(function(s, p){ return s + (p.enderecos_total || 0); }, 0);
-    payloadEstoque.total.enderecos_livres = payloadEstoque.pisos.reduce(function(s, p){ return s + (p.enderecos_livres || 0); }, 0);
-  }
-  await salvarSnapshot("estoque", "auto", payloadEstoque);
+  await salvarSnapshot("estoque", "auto", gerarPayloadEstoque(registros));
   await registrarLog("estoque", "Estoque_Picking", registros.length);
   onProgress("✓ Estoque atualizado! " + registros.length + " pisos/blocos gravados.");
 }
