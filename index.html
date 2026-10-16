@@ -1870,6 +1870,7 @@ async function gerarDivergenciaBalancoSkus() {
 
   // Agrupa WMS por BIN+SKU (SOMASES) — mesma classificação da regra oficial.
   const wmsAgrupado = new Map();
+  const wmsEnderecos = new Map();   // chave BIN|SKU -> Map(endereço -> qtde)
   wmsLinhas.forEach(function(r) {
     let classif = classifBaseDaLinha(r);
     if (classif === 'Vendável') {
@@ -1882,6 +1883,12 @@ async function gerarDivergenciaBalancoSkus() {
     if (!sku) return;
     const chave = cross.bin + '|' + sku;
     wmsAgrupado.set(chave, (wmsAgrupado.get(chave) || 0) + (Number(r.estoque_total) || 0));
+    // endereços do WMS que guardam esse saldo (BIN+SKU) — usado no export "Saldo a mais no WMS"
+    const q = Number(r.estoque_total) || 0, loc = String(r.local || '').trim();
+    if (loc && q) {
+      let m = wmsEnderecos.get(chave); if (!m) { m = new Map(); wmsEnderecos.set(chave, m); }
+      m.set(loc, (m.get(loc) || 0) + q);
+    }
   });
 
   // SAP já vem agrupado por BIN+SKU (soma defensiva, caso não esteja).
@@ -1913,6 +1920,12 @@ async function gerarDivergenciaBalancoSkus() {
       qtdeSap: qtdeSap,
       qtdeWms: qtdeWms,
       diferenca: diferenca,
+      enderecos: (function() {
+        const m = wmsEnderecos.get(chave); if (!m) return '';
+        const lista = [...m.entries()].sort(function(a, b) { return b[1] - a[1]; });
+        const txt = lista.slice(0, 12).map(function(e) { return e[0] + (lista.length > 1 ? ' (' + e[1] + ')' : ''); }).join('; ');
+        return txt + (lista.length > 12 ? ' … +' + (lista.length - 12) : '');
+      })(),
     });
   });
   return linhas;
@@ -1933,8 +1946,9 @@ async function exportarSaldoDivergente(tipo) {
       return tipo === 'sap' ? (a.diferenca - b.diferenca) : (b.diferenca - a.diferenca);
     });
     const linhasExport = filtradas.map(function(l) {
+      // Saldo a mais no WMS: no lugar do BIN, o(s) endereço(s) do WMS que têm esse saldo
       return {
-        'BIN': l.bin,
+        [tipo === 'wms' ? 'Endereço WMS' : 'BIN']: tipo === 'wms' ? l.enderecos : l.bin,
         'Classificação do BIN': l.classificacao,
         'SKU': l.sku,
         'Qtde SAP': l.qtdeSap,
