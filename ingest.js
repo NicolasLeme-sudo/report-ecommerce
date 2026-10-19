@@ -3232,23 +3232,27 @@ async function processarBaseCusto(file, options) {
   // mas quem reflete o valor real usado pela empresa é "Préço médio".
   // coluna()/montarKeyMap() tolera variação de acentuação/maiúsculas no
   // cabeçalho (ex.: "Preço médio" sem acento no É, export diferente).
+  // 19/10/2026: a base passa a ser a do FISCAL ("Base_Custo_Att": Nº do item / Código de depósito /
+  // Preço médio), mais efetiva que a anterior. Continua aceitando o layout antigo (Item / Préço médio).
   const km = montarKeyMap(linhas);
-  const registros = linhas
-    .filter(function(r){
-      return coluna(r, km, "Item") && (coluna(r, km, "Préço médio") || coluna(r, km, "Preço médio"));
-    })
-    .map(function(r){
-      var preco = coluna(r, km, "Préço médio") || coluna(r, km, "Preço médio");
-      return { sku: String(coluna(r, km, "Item")).trim(), custo_unitario: Number(preco) || 0 };
-    });
+  const skuDe = function(r){ return String(coluna(r, km, "Nº do item") || coluna(r, km, "Item") || "").trim(); };
+  const precoDe = function(r){ return coluna(r, km, "Preço médio") || coluna(r, km, "Préço médio"); };
+  const porSku = new Map();
+  linhas.forEach(function(r){
+    const sku = skuDe(r), preco = Number(precoDe(r));
+    if (!sku || !isFinite(preco) || preco <= 0) return;
+    porSku.set(sku, preco);   // SKU repetido (outro depósito): fica o último
+  });
+  if (!porSku.size) throw new Error("Não achei as colunas \"Nº do item\" e \"Preço médio\" na Base de Custo.");
+  const registros = Array.from(porSku, function(e){ return { sku: e[0], custo_unitario: e[1] }; });
   onProgress("Gravando " + registros.length + " SKUs de custo...");
   const LOTE = 1000;
   for (let i = 0; i < registros.length; i += LOTE) {
-    const { error } = await supabaseClient.from("dim_custo").upsert(registros.slice(i, i+LOTE), { onConflict: "sku" });
-    if (error) console.error("Erro dim_custo:", error);
+    falharSeErro(await supabaseClient.from("dim_custo").upsert(registros.slice(i, i+LOTE), { onConflict: "sku" }), "Erro ao gravar dim_custo");
+    onProgress("Gravando custo: " + Math.min(i + LOTE, registros.length) + " de " + registros.length + "...");
   }
   await registrarLog("custo", file.name, registros.length);
-  onProgress("✓ Base de Custo atualizada! " + registros.length + " SKUs.");
+  onProgress("✓ Base de Custo atualizada! " + registros.length + " SKUs. Rode \"Atualizar Balanço\" para os valores refletirem.");
 }
 
 // =========================================================
