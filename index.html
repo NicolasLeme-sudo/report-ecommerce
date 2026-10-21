@@ -2843,7 +2843,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do dia
-      <div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Pedidos SAP</span></button><button class="btn-export" onclick="exportarIntegracaoPeriodo()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Integração por período</span></button><button class="btn-export" onclick="exportarHistoricoOutbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Pedidos SAP</span></button><button class="btn-export" onclick="exportarHistoricoOutbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row" id="kpiRow"></div>
     
@@ -3617,50 +3617,43 @@ async function snapshotsPorDia(pagina, de, ate, campos, progresso) {
 const horaBR = t => t ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
 const r2 = v => Math.round(v * 100) / 100;
 
-/* ---------- Outbound: integração de pedidos e itens por dia (tabela pedidos) ---------- */
-function exportarIntegracaoPeriodo() {
-  abrirExportPeriodo({
-    titulo: 'Integração de pedidos e itens',
-    descricao: 'Pedidos importados por dia (data de importação, horário de Brasília), incluindo cancelados.',
-    exportar: async ({ de, ate, progresso }) => {
-      const lim = limitesUTC(de, ate);
-      const porDia = {}; listaDias(de, ate).forEach(d => porDia[d] = { p: 0, i: 0 });
-      let off = 0;
-      while (true) {
-        const { data, error } = await supabaseClient.from('pedidos').select('pedido_venda, importado_em, qtd_total_produto')
-          .gte('importado_em', lim.ini).lt('importado_em', lim.fim)
-          .order('importado_em', { ascending: true }).order('pedido_venda', { ascending: true }).range(off, off + 999);
-        if (error) throw new Error('Erro ao ler pedidos: ' + error.message);
-        if (!data || !data.length) break;
-        data.forEach(r => {
-          const d = dataDoBanco(r.importado_em).toLocaleDateString('sv-SE');
-          if (porDia[d]) { porDia[d].p += 1; porDia[d].i += Number(r.qtd_total_produto) || 0; }
-        });
-        off += data.length; progresso('Lendo pedidos… ' + fmtInt(off));
-      }
-      const linhas = Object.keys(porDia).sort().map(d => ({ 'DATA': isoParaBR(d), 'Qtde Pedidos': porDia[d].p, 'Qtde Itens': porDia[d].i }));
-      linhas.push({ 'DATA': 'TOTAL', 'Qtde Pedidos': linhas.reduce((s, l) => s + l['Qtde Pedidos'], 0), 'Qtde Itens': linhas.reduce((s, l) => s + l['Qtde Itens'], 0) });
-      await baixarXLSXAbas([{ nome: 'Integração', linhas: linhas, inteiro: ['Qtde Pedidos', 'Qtde Itens'] }],
-        'Integracao_Pedidos_' + de + '_a_' + ate + '.xlsx');
-    },
-  });
+/* ---------- Outbound: pedidos e itens importados por dia (tabela pedidos, com cancelados) ---------- */
+async function importacaoPorDia(de, ate, progresso) {
+  const lim = limitesUTC(de, ate);
+  const porDia = {}; listaDias(de, ate).forEach(d => porDia[d] = { p: 0, i: 0 });
+  let off = 0;
+  while (true) {
+    const { data, error } = await supabaseClient.from('pedidos').select('pedido_venda, importado_em, qtd_total_produto')
+      .gte('importado_em', lim.ini).lt('importado_em', lim.fim)
+      .order('importado_em', { ascending: true }).order('pedido_venda', { ascending: true }).range(off, off + 999);
+    if (error) throw new Error('Erro ao ler pedidos: ' + error.message);
+    if (!data || !data.length) break;
+    data.forEach(r => {
+      const d = dataDoBanco(r.importado_em).toLocaleDateString('sv-SE');
+      if (porDia[d]) { porDia[d].p += 1; porDia[d].i += Number(r.qtd_total_produto) || 0; }
+    });
+    off += data.length; if (progresso) progresso('Lendo pedidos importados… ' + fmtInt(off));
+  }
+  return porDia;
 }
 
 /* ---------- Outbound: histórico de atualizações ---------- */
 function exportarHistoricoOutbound() {
   abrirExportPeriodo({
     titulo: 'Histórico de atualizações — Outbound',
-    descricao: 'Por dia (última atualização do dia): pedidos e itens em fluxo, quebra por data FIFO e o expedido no dia.',
+    descricao: 'Por dia: pedidos e itens importados (data de importação, com cancelados), pedidos e itens em fluxo na última atualização do dia, o expedido no dia e a quebra por data FIFO.',
     exportar: async ({ de, ate, progresso }) => {
       const snaps = await snapshotsPorDia('outbound', de, ate,
         { kpis: 'payload->kpis', fifo: 'payload->backlog_fifo' }, progresso);
       const { data: exp, error } = await supabaseClient.from('expedicao_diaria').select('data, itens_expedidos, pedidos_expedidos').gte('data', de).lte('data', ate);
       if (error) throw new Error('Erro ao ler a expedição: ' + error.message);
       const expDia = {}; (exp || []).forEach(r => expDia[r.data] = r);
+      const imp = await importacaoPorDia(de, ate, progresso);
       const resumo = [], fifo = [];
       listaDias(de, ate).forEach(d => {
         const s = snaps[d], k = (s && s.kpis) || {}, e = expDia[d];
         resumo.push({ 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
+          'Pedidos importados': imp[d].p, 'Itens importados': imp[d].i,
           'Pedidos em fluxo': s ? k.pedidos_em_fluxo : null, 'Itens em fluxo': s ? k.itens_em_fluxo : null,
           'Itens expedidos no dia': e ? e.itens_expedidos : null, 'Pedidos expedidos no dia': e ? e.pedidos_expedidos : null });
         if (!s) return;
@@ -3669,7 +3662,7 @@ function exportarHistoricoOutbound() {
           'Itens': Number(f.valor) || 0, '%': r2((Number(f.valor) || 0) / tf * 100) }));
       });
       await baixarXLSXAbas([
-        { nome: 'Resumo diário', linhas: resumo, inteiro: ['Pedidos em fluxo', 'Itens em fluxo', 'Itens expedidos no dia', 'Pedidos expedidos no dia'] },
+        { nome: 'Resumo diário', linhas: resumo, inteiro: ['Pedidos importados', 'Itens importados', 'Pedidos em fluxo', 'Itens em fluxo', 'Itens expedidos no dia', 'Pedidos expedidos no dia'] },
         { nome: 'Backlog FIFO', linhas: fifo, inteiro: ['Itens'], pct: ['%'] },
       ], 'Historico_Outbound_' + de + '_a_' + ate + '.xlsx');
     },
