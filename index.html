@@ -3669,48 +3669,39 @@ function exportarHistoricoOutbound() {
   });
 }
 
-/* ---------- Inbound: movimento diário (importado / armazenado / recebido) ---------- */
-function exportarMovimentoInbound() {
-  abrirExportPeriodo({
-    titulo: 'Atividade Inbound',
-    descricao: 'Itens importados (NFs cadastradas), armazenados e recebidos por dia.',
-    exportar: async ({ de, ate }) => {
-      const [imp, arm, rec] = await Promise.all([
-        supabaseClient.from('inbound_integracao_diaria').select('data_cadastro, itens_integrados').gte('data_cadastro', de).lte('data_cadastro', ate),
-        supabaseClient.from('inbound_armazenagem_diario').select('data_alocacao, itens_armazenados').gte('data_alocacao', de).lte('data_alocacao', ate),
-        supabaseClient.from('inbound_recebimento_diario').select('data_conferencia, itens_recebidos, nfs_recebidas').gte('data_conferencia', de).lte('data_conferencia', ate),
-      ]);
-      [imp, arm, rec].forEach(r => { if (r.error) throw new Error('Erro ao ler o movimento do Inbound: ' + r.error.message); });
-      const m = (rows, kd, kv) => { const o = {}; (rows || []).forEach(r => o[String(r[kd]).slice(0, 10)] = (o[String(r[kd]).slice(0, 10)] || 0) + (Number(r[kv]) || 0)); return o; };
-      const mi = m(imp.data, 'data_cadastro', 'itens_integrados'), ma = m(arm.data, 'data_alocacao', 'itens_armazenados'), mr = m(rec.data, 'data_conferencia', 'itens_recebidos');
-      const linhas = listaDias(de, ate).map(d => ({ 'DATA': isoParaBR(d), 'Itens importados': mi[d] || 0, 'Itens armazenados': ma[d] || 0, 'Itens recebidos': mr[d] || 0 }));
-      linhas.push({ 'DATA': 'TOTAL', 'Itens importados': linhas.reduce((s, l) => s + l['Itens importados'], 0),
-        'Itens armazenados': linhas.reduce((s, l) => s + l['Itens armazenados'], 0), 'Itens recebidos': linhas.reduce((s, l) => s + l['Itens recebidos'], 0) });
-      await baixarXLSXAbas([{ nome: 'Atividade Inbound', linhas: linhas, inteiro: ['Itens importados', 'Itens armazenados', 'Itens recebidos'] }],
-        'Atividade_Inbound_' + de + '_a_' + ate + '.xlsx');
-    },
-  });
+/* ---------- Inbound: itens importados / armazenados / recebidos por dia ---------- */
+async function atividadeInboundPorDia(de, ate) {
+  const [imp, arm, rec] = await Promise.all([
+    supabaseClient.from('inbound_integracao_diaria').select('data_cadastro, itens_integrados').gte('data_cadastro', de).lte('data_cadastro', ate),
+    supabaseClient.from('inbound_armazenagem_diario').select('data_alocacao, itens_armazenados').gte('data_alocacao', de).lte('data_alocacao', ate),
+    supabaseClient.from('inbound_recebimento_diario').select('data_conferencia, itens_recebidos').gte('data_conferencia', de).lte('data_conferencia', ate),
+  ]);
+  [imp, arm, rec].forEach(r => { if (r.error) throw new Error('Erro ao ler a atividade do Inbound: ' + r.error.message); });
+  const m = (rows, kd, kv) => { const o = {}; (rows || []).forEach(r => { const d = String(r[kd]).slice(0, 10); o[d] = (o[d] || 0) + (Number(r[kv]) || 0); }); return o; };
+  return { imp: m(imp.data, 'data_cadastro', 'itens_integrados'), arm: m(arm.data, 'data_alocacao', 'itens_armazenados'), rec: m(rec.data, 'data_conferencia', 'itens_recebidos') };
 }
 
 /* ---------- Inbound: histórico de atualizações ---------- */
 function exportarHistoricoInbound() {
   abrirExportPeriodo({
     titulo: 'Histórico de atualizações — Inbound',
-    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, o total pendente de entrada (recebimento + armazenagem), e a data de emissão da NF pendente mais antiga em tela.',
+    descricao: 'Por dia: itens importados, armazenados e recebidos; e, na última atualização do dia, NFs e itens pendentes de recebimento e de armazenagem, o total pendente de entrada e a data de emissão da NF pendente mais antiga em tela.',
     exportar: async ({ de, ate, progresso }) => {
       const snaps = await snapshotsPorDia('inbound', de, ate, { kpis: 'payload->kpis', top: 'payload->top10_nfs_fifo' }, progresso);
+      const atv = await atividadeInboundPorDia(de, ate);
       const linhas = listaDias(de, ate).map(d => {
         const s = snaps[d], k = (s && s.kpis) || {};
         const datasTop = ((s && s.top) || []).map(n => n.data_emissao).filter(Boolean).sort();
         const antiga = k.nf_mais_antiga || datasTop[0] || null;
         return { 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
+          'Itens importados': atv.imp[d] || 0, 'Itens armazenados': atv.arm[d] || 0, 'Itens recebidos': atv.rec[d] || 0,
           'NFs pend. recebimento': s ? k.nfs_pend_recebimento : null, 'Itens pend. recebimento': s ? k.itens_pend_recebimento : null,
           'NFs pend. armazenagem': s ? k.nfs_pend_armazenagem : null, 'Itens pend. armazenagem': s ? k.itens_pend_armazenagem : null,
           'Total pendente de entrada (itens)': s ? (Number(k.itens_pend_recebimento) || 0) + (Number(k.itens_pend_armazenagem) || 0) : null,
           'NF mais antiga em tela (emissão)': antiga ? isoParaBR(antiga) : (s ? '—' : null) };
       });
-      await baixarXLSXAbas([{ nome: 'Pendências', linhas: linhas,
-        inteiro: ['NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem', 'Total pendente de entrada (itens)'] }],
+      await baixarXLSXAbas([{ nome: 'Resumo diário', linhas: linhas,
+        inteiro: ['Itens importados', 'Itens armazenados', 'Itens recebidos', 'NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem', 'Total pendente de entrada (itens)'] }],
         'Historico_Inbound_' + de + '_a_' + ate + '.xlsx');
     },
   });
@@ -4115,7 +4106,7 @@ function renderizarInbound(p, estoquePayload) {
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarMovimentoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Atividade Inbound</span></button><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row-2x3">
       <div class="kpi-row-2x3-cards">
