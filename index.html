@@ -3819,7 +3819,7 @@ function capacidadeEnderecoCalcado(bloco, rua, piso, nivel) {
   return { cap: [50, 60, 60][n - 1], regra: 'Ruas 35–47 · piso 1 · bloco ' + bloco + ' (estimada)', estimada: true };
 }
 function exportarEnderecosComEspaco() {
-  return executarEmSegundoPlano('Endereços com espaço (' + CAIXAS_MINIMAS_LIVRES + '+ caixas)', async aviso => {
+  return executarEmSegundoPlano('Endereços com disponibilidade', async aviso => {
     const saldo = new Map();   // endereço -> saldo (só calçados A/B/C, picking)
     let off = 0, base = null;
     while (true) {
@@ -3872,10 +3872,10 @@ function exportarEnderecosComEspaco() {
     const dataBase = base ? dataDoBanco(base).toLocaleDateString('pt-BR') : '';
     aviso('Montando a planilha… ' + fmtInt(linhas.length) + ' endereços');
     await baixarXLSXAbas([
-      { nome: 'Endereços com espaço', linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre (caixas)'] },
+      { nome: 'Endereços com disponibilidade', linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre (caixas)'] },
       { nome: 'Resumo por piso', linhas: Object.keys(res).sort().map(k => res[k]), inteiro: ['Endereços', 'Vazios', 'Com saldo', 'Caixas livres'] },
       { nome: 'Inativos (fora da lista)', linhas: Object.keys(inativo).sort().map(e => ({ 'Endereço': e, 'Motivo': inativo[e] })) },
-    ], 'Enderecos_com_espaco_' + dataBase.split('/').reverse().join('-') + '.xlsx');
+    ], 'Enderecos_com_disponibilidade_' + dataBase.split('/').reverse().join('-') + '.xlsx');
   });
 }
 
@@ -4757,7 +4757,7 @@ function renderizarEstoque(p) {
 
   document.getElementById('estoque-conteudo').innerHTML =
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
-    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosComEspaco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os com espa\u00E7o (6+ caixas)</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosComEspaco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os com disponibilidade</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px" title="Capacidade \u2212 saldo (em produtos)">Livre</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px">'+fmtInt(Math.max(0, p.total.capacidade - p.total.saldo))+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
