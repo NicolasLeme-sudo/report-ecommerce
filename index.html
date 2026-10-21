@@ -500,6 +500,13 @@ table.matrix tbody tr.total th {
 }
 .btn-upload:hover    { opacity: .85; }
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
+#expToasts { position: fixed; right: 18px; bottom: 18px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 36px)); }
+.exp-toast { background: var(--bg-card); border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 9px; padding: 10px 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); font-size: 12px; color: var(--text); }
+.exp-toast .et-tit { font-weight: 700; margin-bottom: 3px; }
+.exp-toast .et-msg { color: var(--text-muted); }
+.exp-toast.ok { border-left-color: var(--olive); }
+.exp-toast.erro { border-left-color: var(--red); cursor: pointer; }
+.exp-toast.erro .et-msg { color: var(--red); }
 .btn-export { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 0; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-muted); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; overflow: hidden; }
 .btn-export .ico { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 100%; border-right: 1px solid var(--border); }
 .btn-export svg, .ico-inline svg { width: 14px; height: 14px; display: block; }
@@ -3490,7 +3497,7 @@ function abrirExportPeriodo(cfg) {
 (function () {
   const dlg = document.getElementById('dlgExport');
   if (!dlg) return;
-  const ocupado = () => document.getElementById('dlgExpBtn').disabled;
+  const ocupado = () => false;
   const fechar = () => { if (dlg.open && !ocupado()) dlg.close(); };
   dlg.addEventListener('click', e => {
     if (e.target !== dlg) return;   // clique dentro do formulário (inclusive opções de select)
@@ -3509,14 +3516,30 @@ async function confirmarExportPeriodo() {
   if (!de || !ate) { st.textContent = 'Informe a data.'; return; }
   if (ate < de) { st.textContent = 'A data final é anterior à inicial.'; return; }
   if (_expCfg.maxDias && diasEntre(de, ate) + 1 > _expCfg.maxDias) { st.textContent = 'Período máximo: ' + _expCfg.maxDias + ' dias.'; return; }
-  btn.disabled = true;
+  // a janela fecha na hora e o arquivo é gerado em segundo plano — a tela continua livre
+  const cfg = _expCfg, extra = document.getElementById('dlgExpExtra').value;
+  document.getElementById('dlgExport').close();
+  await executarEmSegundoPlano(cfg.titulo, aviso => cfg.exportar({ de: de, ate: ate, extra: extra, progresso: aviso }));
+}
+// Aviso flutuante (canto inferior direito) para exportações em andamento; várias podem rodar juntas.
+async function executarEmSegundoPlano(titulo, fn) {
+  let box = document.getElementById('expToasts');
+  if (!box) { box = document.createElement('div'); box.id = 'expToasts'; document.body.appendChild(box); }
+  const t = document.createElement('div'); t.className = 'exp-toast';
+  t.innerHTML = '<div class="et-tit"></div><div class="et-msg">Preparando…</div>';
+  t.querySelector('.et-tit').textContent = titulo;
+  box.appendChild(t);
+  const msg = m => { t.querySelector('.et-msg').textContent = m; };
   try {
-    await _expCfg.exportar({ de: de, ate: ate, extra: document.getElementById('dlgExpExtra').value, progresso: m => { st.textContent = m; } });
-    document.getElementById('dlgExport').close();
+    await fn(msg);
+    t.classList.add('ok'); msg('✓ Arquivo gerado.');
+    setTimeout(() => t.remove(), 4000);
   } catch (e) {
     console.error(e);
-    st.textContent = '✗ ' + (e.message || e);
-  } finally { btn.disabled = false; }
+    t.classList.add('erro'); msg('✗ ' + (e.message || e));
+    t.onclick = () => t.remove(); t.title = 'Clique para fechar';
+    setTimeout(() => t.remove(), 15000);
+  }
 }
 function diasEntre(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
 function listaDias(de, ate) {
@@ -3642,7 +3665,7 @@ function exportarHistoricoOutbound() {
 /* ---------- Inbound: movimento diário (importado / armazenado / recebido) ---------- */
 function exportarMovimentoInbound() {
   abrirExportPeriodo({
-    titulo: 'Movimento diário do Inbound',
+    titulo: 'Atividade Inbound',
     descricao: 'Itens importados (NFs cadastradas), armazenados e recebidos por dia.',
     exportar: async ({ de, ate }) => {
       const [imp, arm, rec] = await Promise.all([
@@ -3656,8 +3679,8 @@ function exportarMovimentoInbound() {
       const linhas = listaDias(de, ate).map(d => ({ 'DATA': isoParaBR(d), 'Itens importados': mi[d] || 0, 'Itens armazenados': ma[d] || 0, 'Itens recebidos': mr[d] || 0 }));
       linhas.push({ 'DATA': 'TOTAL', 'Itens importados': linhas.reduce((s, l) => s + l['Itens importados'], 0),
         'Itens armazenados': linhas.reduce((s, l) => s + l['Itens armazenados'], 0), 'Itens recebidos': linhas.reduce((s, l) => s + l['Itens recebidos'], 0) });
-      await baixarXLSXAbas([{ nome: 'Movimento diário', linhas: linhas, inteiro: ['Itens importados', 'Itens armazenados', 'Itens recebidos'] }],
-        'Movimento_Inbound_' + de + '_a_' + ate + '.xlsx');
+      await baixarXLSXAbas([{ nome: 'Atividade Inbound', linhas: linhas, inteiro: ['Itens importados', 'Itens armazenados', 'Itens recebidos'] }],
+        'Atividade_Inbound_' + de + '_a_' + ate + '.xlsx');
     },
   });
 }
@@ -3666,7 +3689,7 @@ function exportarMovimentoInbound() {
 function exportarHistoricoInbound() {
   abrirExportPeriodo({
     titulo: 'Histórico de atualizações — Inbound',
-    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, e a data de emissão da NF pendente mais antiga em tela.',
+    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, o total pendente de entrada (recebimento + armazenagem), e a data de emissão da NF pendente mais antiga em tela.',
     exportar: async ({ de, ate, progresso }) => {
       const snaps = await snapshotsPorDia('inbound', de, ate, { kpis: 'payload->kpis', top: 'payload->top10_nfs_fifo' }, progresso);
       const linhas = listaDias(de, ate).map(d => {
@@ -3676,10 +3699,11 @@ function exportarHistoricoInbound() {
         return { 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
           'NFs pend. recebimento': s ? k.nfs_pend_recebimento : null, 'Itens pend. recebimento': s ? k.itens_pend_recebimento : null,
           'NFs pend. armazenagem': s ? k.nfs_pend_armazenagem : null, 'Itens pend. armazenagem': s ? k.itens_pend_armazenagem : null,
+          'Total pendente de entrada (itens)': s ? (Number(k.itens_pend_recebimento) || 0) + (Number(k.itens_pend_armazenagem) || 0) : null,
           'NF mais antiga em tela (emissão)': antiga ? isoParaBR(antiga) : (s ? '—' : null) };
       });
       await baixarXLSXAbas([{ nome: 'Pendências', linhas: linhas,
-        inteiro: ['NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem'] }],
+        inteiro: ['NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem', 'Total pendente de entrada (itens)'] }],
         'Historico_Inbound_' + de + '_a_' + ate + '.xlsx');
     },
   });
@@ -3771,59 +3795,88 @@ const ENDERECOS_INATIVOS = {
   ],
 };
 
-/* ---------- Estoque: endereços de picking sem saldo ----------
-   O WMS só lista endereço COM saldo, então o vazio é inferido pela numeração
-   (bloco 1 + rua 2 + prédio 3 + nível 1 + apto 2): por rua, níveis vistos na rua ×
-   prédios vistos na rua × aptos de 01 até o maior visto no prédio. Fonte: estoque
-   WMS do último Balanço. Saem os ENDERECOS_INATIVOS (validados fisicamente). */
-async function exportarEnderecosSemSaldo() {
-  const btn = document.getElementById('btnExportVazios');
-  const txt = btn ? btn.innerHTML : '';
-  try {
-    const comSaldo = new Set();
+/* ---------- Estoque: endereços de calçados com espaço para 12+ caixas ----------
+   Código do endereço: bloco (1) + rua (2) + prédio (3) + piso (1) + nível (2, = apto 01–03).
+   Capacidade por endereço (régua da operação, 21/10/2026 — em pares/caixas de tênis):
+   - Ruas 01–34, pisos 2–4: 60 por endereço (10 caixas de largura × 6 de altura).
+   - Ruas 01–34, piso 1: nível 1 = 60, nível 2 = 60, nível 3 = 40 (região ainda não 100% validada).
+   - Ruas 35–47, pisos 2–4 (vão até a 46): nível 1 = 50, nível 2 = 60, nível 3 = 60.
+   - Ruas 35–47, piso 1: bloco A 60/60/40 · bloco B 50/50/70 · bloco C sem medida informada →
+     usa 50/60/60 (marcado como "estimada").
+   Saldo = estoque WMS do último Balanço (picking). Endereço vazio é inferido pela numeração
+   (o WMS só lista endereço com saldo). Saem os ENDERECOS_INATIVOS. */
+const CAIXAS_MINIMAS_LIVRES = 12;
+function capacidadeEnderecoCalcado(bloco, rua, piso, nivel) {
+  const r = Number(rua), p = Number(piso), n = Number(nivel);
+  if (!(n >= 1 && n <= 3)) return null;
+  if (r <= 34) {
+    if (p > 1) return { cap: 60, regra: 'Ruas 01–34 · pisos 2–4', estimada: false };
+    return { cap: [60, 60, 40][n - 1], regra: 'Ruas 01–34 · piso 1', estimada: false };
+  }
+  if (p > 1) return { cap: [50, 60, 60][n - 1], regra: 'Ruas 35–47 · pisos 2–4', estimada: false };
+  if (bloco === 'A') return { cap: [60, 60, 40][n - 1], regra: 'Ruas 35–47 · piso 1 · bloco A', estimada: false };
+  if (bloco === 'B') return { cap: [50, 50, 70][n - 1], regra: 'Ruas 35–47 · piso 1 · bloco B', estimada: false };
+  return { cap: [50, 60, 60][n - 1], regra: 'Ruas 35–47 · piso 1 · bloco ' + bloco + ' (estimada)', estimada: true };
+}
+function exportarEnderecosComEspaco() {
+  return executarEmSegundoPlano('Endereços com espaço (' + CAIXAS_MINIMAS_LIVRES + '+ caixas)', async aviso => {
+    const saldo = new Map();   // endereço -> saldo (só calçados A/B/C, picking)
     let off = 0, base = null;
     while (true) {
       const { data, error } = await supabaseClient.from('balanco_wms_detalhado').select('id, local, estoque_total, gerado_em')
         .eq('tipo_local', 'PICKING').order('id', { ascending: true }).range(off, off + 999);
       if (error) throw new Error('Erro ao ler o estoque do WMS: ' + error.message);
       if (!data || !data.length) break;
-      data.forEach(r => { if ((Number(r.estoque_total) || 0) > 0 && /^[A-Z]\d{8}$/.test(r.local || '')) comSaldo.add(r.local); if (!base) base = r.gerado_em; });
+      data.forEach(r => {
+        const l = r.local || '';
+        if (!/^[ABC]\d{8}$/.test(l)) return;
+        saldo.set(l, (saldo.get(l) || 0) + (Number(r.estoque_total) || 0));
+        if (!base) base = r.gerado_em;
+      });
       off += data.length;
-      if (btn) btn.textContent = '⏳ ' + fmtInt(off) + ' linhas…';
+      aviso('Lendo o estoque do WMS… ' + fmtInt(off) + ' linhas');
     }
-    if (!comSaldo.size) throw new Error('Sem estoque do WMS no banco — rode "Atualizar Balanço".');
+    if (!saldo.size) throw new Error('Sem estoque do WMS no banco — rode "Atualizar Balanço".');
     const inativo = {};
     Object.keys(ENDERECOS_INATIVOS).forEach(m => ENDERECOS_INATIVOS[m].forEach(e => inativo[e] = m));
-    const preds = {}, niveis = {};   // bloco+rua -> {prédio: maior apto}, bloco+rua -> Set(nível)
-    comSaldo.forEach(l => {
-      const br = l.slice(0, 3), p = l.slice(3, 6), n = l.slice(6, 7), a = Number(l.slice(7, 9));
-      (preds[br] = preds[br] || {})[p] = Math.max((preds[br] || {})[p] || 0, a);
-      (niveis[br] = niveis[br] || new Set()).add(n);
+    // universo = endereços com saldo + vazios inferidos pela numeração
+    const preds = {}, pisos = {};
+    saldo.forEach((q, l) => {
+      if (q <= 0) return;
+      const br = l.slice(0, 3), p = l.slice(3, 6);
+      (preds[br] = preds[br] || {})[p] = Math.max((preds[br] || {})[p] || 0, Number(l.slice(7, 9)));
+      (pisos[br] = pisos[br] || new Set()).add(l.slice(6, 7));
     });
-    const vazios = [], removidos = [];
-    Object.keys(preds).sort().forEach(br => {
-      const nv = [...niveis[br]].sort();
-      Object.keys(preds[br]).sort().forEach(p => nv.forEach(n => {
-        for (let a = 1; a <= preds[br][p]; a++) {
-          const e = br + p + n + String(a).padStart(2, '0');
-          if (comSaldo.has(e)) continue;
-          (inativo[e] ? removidos : vazios).push(e);
-        }
-      }));
+    const universo = new Set();
+    Object.keys(preds).forEach(br => Object.keys(preds[br]).forEach(p => pisos[br].forEach(pi => {
+      for (let a = 1; a <= preds[br][p]; a++) universo.add(br + p + pi + String(a).padStart(2, '0'));
+    })));
+    saldo.forEach((q, l) => { if (q > 0) universo.add(l); });
+    const linhas = [];
+    universo.forEach(e => {
+      if (inativo[e]) return;
+      const c = capacidadeEnderecoCalcado(e[0], e.slice(1, 3), e.slice(6, 7), e.slice(7, 9));
+      if (!c) return;
+      const q = Math.max(0, saldo.get(e) || 0), livre = c.cap - q;
+      if (livre < CAIXAS_MINIMAS_LIVRES) return;
+      linhas.push({ 'Endereço': e, 'Bloco': e[0], 'Rua': e.slice(1, 3), 'Piso': e.slice(6, 7), 'Prédio': e.slice(3, 6), 'Nível': e.slice(7, 9),
+        'Situação': q > 0 ? 'Com saldo' : 'Vazio', 'Saldo': q, 'Capacidade': c.cap, 'Livre (caixas)': livre, 'Régua': c.regra });
     });
-    const seg = b => 'ABC'.indexOf(b) >= 0 ? 'Calçados' : 'Vestuário';
-    const linha = e => ({ 'Endereço': e, 'Bloco': e[0], 'Rua': e.slice(1, 3), 'Prédio': e.slice(3, 6), 'Nível': e.slice(6, 7), 'Apto': e.slice(7, 9), 'Segmento': seg(e[0]) });
-    const resumo = {};
-    vazios.forEach(e => { const k = e[0] + '|' + e.slice(1, 3); resumo[k] = (resumo[k] || 0) + 1; });
+    linhas.sort((a, b) => b['Livre (caixas)'] - a['Livre (caixas)'] || (a['Endereço'] < b['Endereço'] ? -1 : 1));
+    const res = {};
+    linhas.forEach(l => {
+      const k = 'Piso ' + l['Piso'] + ' - ' + l['Bloco'];
+      const o = res[k] = res[k] || { 'Piso/Bloco': k, 'Endereços': 0, 'Vazios': 0, 'Com saldo': 0, 'Caixas livres': 0 };
+      o['Endereços']++; o[l['Situação'] === 'Vazio' ? 'Vazios' : 'Com saldo']++; o['Caixas livres'] += l['Livre (caixas)'];
+    });
     const dataBase = base ? dataDoBanco(base).toLocaleDateString('pt-BR') : '';
+    aviso('Montando a planilha… ' + fmtInt(linhas.length) + ' endereços');
     await baixarXLSXAbas([
-      { nome: 'Endereços sem saldo', linhas: vazios.map(linha) },
-      { nome: 'Resumo por rua', linhas: Object.keys(resumo).sort().map(k => ({ 'Bloco': k[0], 'Rua': k.slice(2), 'Segmento': seg(k[0]), 'Endereços sem saldo': resumo[k] })), inteiro: ['Endereços sem saldo'] },
-      { nome: 'Inativos (fora da lista)', linhas: Object.keys(inativo).sort().map(e => Object.assign(linha(e), { 'Motivo': inativo[e] })) },
-    ], 'Enderecos_sem_saldo_' + dataBase.split('/').reverse().join('-') + '.xlsx');
-  } catch (e) {
-    alert('Não foi possível gerar a lista de endereços sem saldo.\n\nDetalhe: ' + (e.message || e));
-  } finally { if (btn) btn.innerHTML = txt; }
+      { nome: 'Endereços com espaço', linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre (caixas)'] },
+      { nome: 'Resumo por piso', linhas: Object.keys(res).sort().map(k => res[k]), inteiro: ['Endereços', 'Vazios', 'Com saldo', 'Caixas livres'] },
+      { nome: 'Inativos (fora da lista)', linhas: Object.keys(inativo).sort().map(e => ({ 'Endereço': e, 'Motivo': inativo[e] })) },
+    ], 'Enderecos_com_espaco_' + dataBase.split('/').reverse().join('-') + '.xlsx');
+  });
 }
 
 /* ============================================================
@@ -4055,7 +4108,7 @@ function renderizarInbound(p, estoquePayload) {
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarMovimentoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Movimento diário</span></button><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarMovimentoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Atividade Inbound</span></button><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row-2x3">
       <div class="kpi-row-2x3-cards">
@@ -4704,7 +4757,7 @@ function renderizarEstoque(p) {
 
   document.getElementById('estoque-conteudo').innerHTML =
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
-    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosSemSaldo()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os sem saldo</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosComEspaco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os com espa\u00E7o (12+ caixas)</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px" title="Capacidade \u2212 saldo (em produtos)">Livre</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px">'+fmtInt(Math.max(0, p.total.capacidade - p.total.saldo))+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
