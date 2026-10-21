@@ -500,6 +500,15 @@ table.matrix tbody tr.total th {
 }
 .btn-upload:hover    { opacity: .85; }
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
+.dlg-export { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text); padding: 20px 22px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.dlg-export::backdrop { background: rgba(0,0,0,.55); }
+.dlg-exp-titulo { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.dlg-exp-desc { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-bottom: 14px; }
+.dlg-exp-campos { display: flex; flex-wrap: wrap; gap: 12px; }
+.dlg-exp-campos label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px; color: var(--text-label); flex: 1 1 140px; }
+.dlg-exp-campos input, .dlg-exp-campos select { padding: 8px 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 7px; font-family: inherit; font-size: 13px; text-transform: none; }
+.dlg-exp-status { min-height: 18px; margin: 12px 0 4px; font-size: 12px; color: var(--amber); }
+.dlg-exp-botoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .cap-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 4px; }
 .cap-row input { padding: 8px 10px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text); border-radius: 7px; font-family: inherit; font-size: 13px; }
 .cap-lista { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-label); }
@@ -1386,6 +1395,24 @@ table.matrix tbody tr.total th {
 
   </main>
 </div>
+
+<!-- Janela de exportação por período (ver abrirExportPeriodo) -->
+<dialog id="dlgExport" class="dlg-export">
+  <form method="dialog" onsubmit="event.preventDefault(); confirmarExportPeriodo();">
+    <div class="dlg-exp-titulo" id="dlgExpTitulo"></div>
+    <div class="dlg-exp-desc" id="dlgExpDesc"></div>
+    <div class="dlg-exp-campos">
+      <label><span id="dlgExpLblDe">De</span><input type="date" id="dlgExpDe" required></label>
+      <label id="dlgExpBlocoAte"><span>Até</span><input type="date" id="dlgExpAte"></label>
+      <label id="dlgExpBlocoExtra" style="display:none"><span id="dlgExpLblExtra"></span><select id="dlgExpExtra"></select></label>
+    </div>
+    <div class="dlg-exp-status" id="dlgExpStatus"></div>
+    <div class="dlg-exp-botoes">
+      <button type="button" class="btn-tema" onclick="document.getElementById('dlgExport').close()">Cancelar</button>
+      <button type="submit" class="btn-upload" id="dlgExpBtn" style="width:auto;padding:8px 18px">⬇ Exportar</button>
+    </div>
+  </form>
+</dialog>
 
 <!-- Lógica de ingestão de dados (cálculos, Supabase) -->
 <script src="ingest.js"></script>
@@ -2753,7 +2780,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do dia
-      <button class="btn-tema" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()" style="font-size:11px;padding:4px 10px;">⬇ Pedidos SAP</button>
+      <div style="display:flex;gap:8px;"><button class="btn-tema" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()" style="font-size:11px;padding:4px 10px;">⬇ Pedidos SAP</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarIntegracaoPeriodo()">⬇ Integração por período</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarHistoricoOutbound()">⬇ Exportar histórico de atualizações</button></div>
     </div>
     <div class="kpi-row" id="kpiRow"></div>
     
@@ -3385,6 +3412,364 @@ function mostrarTipExp(html, e, wide) {
 function esconderTipExp() { const t = document.getElementById('expTip'); if (t) t.style.display = 'none'; }
 
 /* ============================================================
+   EXPORTAÇÕES POR PERÍODO / HISTÓRICO DE ATUALIZAÇÕES
+   Uma janela (#dlgExport) reaproveitada por todas as telas: escolhe o período
+   (ou o dia da foto) e, quando a tela pede, um filtro extra. O histórico vem dos
+   snapshots já salvos (dashboard_snapshots): de cada dia vale a ÚLTIMA atualização.
+   ============================================================ */
+let _expCfg = null;
+function abrirExportPeriodo(cfg) {
+  _expCfg = cfg;
+  const dlg = document.getElementById('dlgExport');
+  const hoje = new Date(), ini = new Date(hoje);
+  ini.setDate(1);
+  const iso = d => d.toLocaleDateString('sv-SE');
+  document.getElementById('dlgExpTitulo').textContent = cfg.titulo;
+  document.getElementById('dlgExpDesc').textContent = cfg.descricao || '';
+  document.getElementById('dlgExpDe').value = iso(cfg.dia ? hoje : ini);
+  document.getElementById('dlgExpAte').value = iso(hoje);
+  document.getElementById('dlgExpLblDe').textContent = cfg.dia ? 'Data da foto' : 'De';
+  document.getElementById('dlgExpBlocoAte').style.display = cfg.dia ? 'none' : '';
+  const ex = document.getElementById('dlgExpBlocoExtra');
+  if (cfg.extra) {
+    ex.style.display = '';
+    document.getElementById('dlgExpLblExtra').textContent = cfg.extra.label;
+    document.getElementById('dlgExpExtra').innerHTML = cfg.extra.opcoes.map(o => '<option value="' + o.v + '">' + o.t + '</option>').join('');
+  } else ex.style.display = 'none';
+  document.getElementById('dlgExpStatus').textContent = '';
+  document.getElementById('dlgExpBtn').disabled = false;
+  dlg.showModal();
+}
+async function confirmarExportPeriodo() {
+  if (!_expCfg) return;
+  const de = document.getElementById('dlgExpDe').value;
+  const ate = _expCfg.dia ? de : document.getElementById('dlgExpAte').value;
+  const st = document.getElementById('dlgExpStatus'), btn = document.getElementById('dlgExpBtn');
+  if (!de || !ate) { st.textContent = 'Informe a data.'; return; }
+  if (ate < de) { st.textContent = 'A data final é anterior à inicial.'; return; }
+  if (_expCfg.maxDias && diasEntre(de, ate) + 1 > _expCfg.maxDias) { st.textContent = 'Período máximo: ' + _expCfg.maxDias + ' dias.'; return; }
+  btn.disabled = true;
+  try {
+    await _expCfg.exportar({ de: de, ate: ate, extra: document.getElementById('dlgExpExtra').value, progresso: m => { st.textContent = m; } });
+    document.getElementById('dlgExport').close();
+  } catch (e) {
+    console.error(e);
+    st.textContent = '✗ ' + (e.message || e);
+  } finally { btn.disabled = false; }
+}
+function diasEntre(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
+function listaDias(de, ate) {
+  const out = []; const d = new Date(de + 'T12:00:00');
+  while (d.toLocaleDateString('sv-SE') <= ate) { out.push(d.toLocaleDateString('sv-SE')); d.setDate(d.getDate() + 1); }
+  return out;
+}
+const isoParaBR = s => s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4);
+// limites em UTC (as colunas de data do banco guardam UTC sem fuso) para o dia local de/até
+function limitesUTC(de, ate) {
+  const ini = new Date(de + 'T00:00:00'), fim = new Date(ate + 'T00:00:00'); fim.setDate(fim.getDate() + 1);
+  const f = d => d.toISOString().slice(0, 19).replace('T', ' ');
+  return { ini: f(ini), fim: f(fim) };
+}
+
+// Planilha com várias abas. abas = [{ nome, linhas: [{coluna: valor}], moeda: [], pct: [] }]
+async function baixarXLSXAbas(abas, nomeArquivo) {
+  const nomeAba = n => String(n).replace(/[\\\/\?\*\[\]:]/g, '-').slice(0, 31);
+  if (window.ExcelJS) {
+    const wb = new ExcelJS.Workbook();
+    abas.forEach(aba => {
+      const ws = wb.addWorksheet(nomeAba(aba.nome));
+      const colunas = Object.keys((aba.linhas[0]) || { 'Sem dados no período': '' });
+      ws.columns = colunas.map(c => ({ header: c, key: c, width: Math.max(12, c.length + 3) }));
+      aba.linhas.forEach(l => ws.addRow(l));
+      ws.getRow(1).eachCell(c => { c.font = { bold: true }; c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }; });
+      (aba.moeda || []).forEach(n => { const i = colunas.indexOf(n) + 1; if (i > 0) ws.getColumn(i).numFmt = '"R$" #,##0.00'; });
+      (aba.pct || []).forEach(n => { const i = colunas.indexOf(n) + 1; if (i > 0) ws.getColumn(i).numFmt = '0.00"%"'; });
+      (aba.inteiro || []).forEach(n => { const i = colunas.indexOf(n) + 1; if (i > 0) ws.getColumn(i).numFmt = '#,##0'; });
+      ws.views = [{ state: 'frozen', ySplit: 1 }];
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a'); a.href = url; a.download = nomeArquivo;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  abas.forEach(aba => XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aba.linhas.length ? aba.linhas : [{ 'Sem dados no período': '' }]), nomeAba(aba.nome)));
+  XLSX.writeFile(wb, nomeArquivo);
+}
+
+// Última atualização de cada dia do período. campos = { alias: 'payload->caminho' }
+async function snapshotsPorDia(pagina, de, ate, campos, progresso) {
+  const lim = limitesUTC(de, ate);
+  const sel = ['gerado_em'].concat(Object.keys(campos).map(k => k + ':' + campos[k])).join(', ');
+  const porDia = {}; let off = 0;
+  while (true) {
+    const { data, error } = await supabaseClient.from('dashboard_snapshots').select(sel)
+      .eq('pagina', pagina).gte('gerado_em', lim.ini).lt('gerado_em', lim.fim)
+      .order('gerado_em', { ascending: true }).range(off, off + 199);
+    if (error) throw new Error('Erro ao ler o histórico: ' + error.message);
+    if (!data || !data.length) break;
+    data.forEach(r => { const t = dataDoBanco(r.gerado_em); porDia[t.toLocaleDateString('sv-SE')] = Object.assign({ _t: t }, r); });
+    off += data.length;
+    if (progresso) progresso('Lendo atualizações… ' + off);
+    if (data.length < 200) break;
+  }
+  return porDia;
+}
+const horaBR = t => t ? t.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+const r2 = v => Math.round(v * 100) / 100;
+
+/* ---------- Outbound: integração de pedidos e itens por dia (tabela pedidos) ---------- */
+function exportarIntegracaoPeriodo() {
+  abrirExportPeriodo({
+    titulo: 'Integração de pedidos e itens',
+    descricao: 'Pedidos importados por dia (data de importação, horário de Brasília), incluindo cancelados.',
+    exportar: async ({ de, ate, progresso }) => {
+      const lim = limitesUTC(de, ate);
+      const porDia = {}; listaDias(de, ate).forEach(d => porDia[d] = { p: 0, i: 0 });
+      let off = 0;
+      while (true) {
+        const { data, error } = await supabaseClient.from('pedidos').select('pedido_venda, importado_em, qtd_total_produto')
+          .gte('importado_em', lim.ini).lt('importado_em', lim.fim)
+          .order('importado_em', { ascending: true }).order('pedido_venda', { ascending: true }).range(off, off + 999);
+        if (error) throw new Error('Erro ao ler pedidos: ' + error.message);
+        if (!data || !data.length) break;
+        data.forEach(r => {
+          const d = dataDoBanco(r.importado_em).toLocaleDateString('sv-SE');
+          if (porDia[d]) { porDia[d].p += 1; porDia[d].i += Number(r.qtd_total_produto) || 0; }
+        });
+        off += data.length; progresso('Lendo pedidos… ' + fmtInt(off));
+      }
+      const linhas = Object.keys(porDia).sort().map(d => ({ 'DATA': isoParaBR(d), 'Qtde Pedidos': porDia[d].p, 'Qtde Itens': porDia[d].i }));
+      linhas.push({ 'DATA': 'TOTAL', 'Qtde Pedidos': linhas.reduce((s, l) => s + l['Qtde Pedidos'], 0), 'Qtde Itens': linhas.reduce((s, l) => s + l['Qtde Itens'], 0) });
+      await baixarXLSXAbas([{ nome: 'Integração', linhas: linhas, inteiro: ['Qtde Pedidos', 'Qtde Itens'] }],
+        'Integracao_Pedidos_' + de + '_a_' + ate + '.xlsx');
+    },
+  });
+}
+
+/* ---------- Outbound: histórico de atualizações ---------- */
+function exportarHistoricoOutbound() {
+  abrirExportPeriodo({
+    titulo: 'Histórico de atualizações — Outbound',
+    descricao: 'Por dia (última atualização do dia): pedidos e itens em fluxo, quebra por data FIFO e por segmento, e o expedido no dia.',
+    exportar: async ({ de, ate, progresso }) => {
+      const snaps = await snapshotsPorDia('outbound', de, ate,
+        { kpis: 'payload->kpis', fifo: 'payload->backlog_fifo', seg: 'payload->segmentos' }, progresso);
+      const { data: exp, error } = await supabaseClient.from('expedicao_diaria').select('data, itens_expedidos, pedidos_expedidos').gte('data', de).lte('data', ate);
+      if (error) throw new Error('Erro ao ler a expedição: ' + error.message);
+      const expDia = {}; (exp || []).forEach(r => expDia[r.data] = r);
+      const resumo = [], fifo = [], seg = [];
+      listaDias(de, ate).forEach(d => {
+        const s = snaps[d], k = (s && s.kpis) || {}, e = expDia[d];
+        resumo.push({ 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
+          'Pedidos em fluxo': s ? k.pedidos_em_fluxo : null, 'Itens em fluxo': s ? k.itens_em_fluxo : null,
+          'Itens expedidos no dia': e ? e.itens_expedidos : null, 'Pedidos expedidos no dia': e ? e.pedidos_expedidos : null });
+        if (!s) return;
+        const tf = (s.fifo || []).reduce((a, f) => a + (Number(f.valor) || 0), 0) || 1;
+        (s.fifo || []).forEach(f => fifo.push({ 'Data': isoParaBR(d), 'Data FIFO (dias)': f.label === '04+' ? '4 ou mais' : String(Number(f.label)),
+          'Itens': Number(f.valor) || 0, '%': r2((Number(f.valor) || 0) / tf * 100) }));
+        (s.seg || []).forEach(g => seg.push({ 'Data': isoParaBR(d), 'Segmento': g.nome,
+          'Itens': g.itens != null ? g.itens : Math.round((g.pct || 0) / 100 * (k.itens_em_fluxo || 0)), '%': r2(g.pct || 0) }));
+      });
+      await baixarXLSXAbas([
+        { nome: 'Resumo diário', linhas: resumo, inteiro: ['Pedidos em fluxo', 'Itens em fluxo', 'Itens expedidos no dia', 'Pedidos expedidos no dia'] },
+        { nome: 'Backlog FIFO', linhas: fifo, inteiro: ['Itens'], pct: ['%'] },
+        { nome: 'Segmento', linhas: seg, inteiro: ['Itens'], pct: ['%'] },
+      ], 'Historico_Outbound_' + de + '_a_' + ate + '.xlsx');
+    },
+  });
+}
+
+/* ---------- Inbound: movimento diário (importado / armazenado / recebido) ---------- */
+function exportarMovimentoInbound() {
+  abrirExportPeriodo({
+    titulo: 'Movimento diário do Inbound',
+    descricao: 'Itens importados (NFs cadastradas), armazenados e recebidos por dia.',
+    exportar: async ({ de, ate }) => {
+      const [imp, arm, rec] = await Promise.all([
+        supabaseClient.from('inbound_integracao_diaria').select('data_cadastro, itens_integrados').gte('data_cadastro', de).lte('data_cadastro', ate),
+        supabaseClient.from('inbound_armazenagem_diario').select('data_alocacao, itens_armazenados').gte('data_alocacao', de).lte('data_alocacao', ate),
+        supabaseClient.from('inbound_recebimento_diario').select('data_conferencia, itens_recebidos, nfs_recebidas').gte('data_conferencia', de).lte('data_conferencia', ate),
+      ]);
+      [imp, arm, rec].forEach(r => { if (r.error) throw new Error('Erro ao ler o movimento do Inbound: ' + r.error.message); });
+      const m = (rows, kd, kv) => { const o = {}; (rows || []).forEach(r => o[String(r[kd]).slice(0, 10)] = (o[String(r[kd]).slice(0, 10)] || 0) + (Number(r[kv]) || 0)); return o; };
+      const mi = m(imp.data, 'data_cadastro', 'itens_integrados'), ma = m(arm.data, 'data_alocacao', 'itens_armazenados'), mr = m(rec.data, 'data_conferencia', 'itens_recebidos');
+      const linhas = listaDias(de, ate).map(d => ({ 'DATA': isoParaBR(d), 'Itens importados': mi[d] || 0, 'Itens armazenados': ma[d] || 0, 'Itens recebidos': mr[d] || 0 }));
+      linhas.push({ 'DATA': 'TOTAL', 'Itens importados': linhas.reduce((s, l) => s + l['Itens importados'], 0),
+        'Itens armazenados': linhas.reduce((s, l) => s + l['Itens armazenados'], 0), 'Itens recebidos': linhas.reduce((s, l) => s + l['Itens recebidos'], 0) });
+      await baixarXLSXAbas([{ nome: 'Movimento diário', linhas: linhas, inteiro: ['Itens importados', 'Itens armazenados', 'Itens recebidos'] }],
+        'Movimento_Inbound_' + de + '_a_' + ate + '.xlsx');
+    },
+  });
+}
+
+/* ---------- Inbound: histórico de atualizações ---------- */
+function exportarHistoricoInbound() {
+  abrirExportPeriodo({
+    titulo: 'Histórico de atualizações — Inbound',
+    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, e a NF pendente mais antiga e mais recente.',
+    exportar: async ({ de, ate, progresso }) => {
+      const snaps = await snapshotsPorDia('inbound', de, ate, { kpis: 'payload->kpis', top: 'payload->top10_nfs_fifo' }, progresso);
+      const linhas = listaDias(de, ate).map(d => {
+        const s = snaps[d], k = (s && s.kpis) || {};
+        const datasTop = ((s && s.top) || []).map(n => n.data_emissao).filter(Boolean).sort();
+        const antiga = k.nf_mais_antiga || datasTop[0] || null;
+        return { 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
+          'NFs pend. recebimento': s ? k.nfs_pend_recebimento : null, 'Itens pend. recebimento': s ? k.itens_pend_recebimento : null,
+          'NFs pend. armazenagem': s ? k.nfs_pend_armazenagem : null, 'Itens pend. armazenagem': s ? k.itens_pend_armazenagem : null,
+          'NF mais antiga (emissão)': antiga ? isoParaBR(antiga) : (s ? '—' : null),
+          'NF mais recente (emissão)': k.nf_mais_recente ? isoParaBR(k.nf_mais_recente) : (s ? '—' : null) };
+      });
+      await baixarXLSXAbas([{ nome: 'Pendências', linhas: linhas,
+        inteiro: ['NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem'] }],
+        'Historico_Inbound_' + de + '_a_' + ate + '.xlsx');
+    },
+  });
+}
+
+/* ---------- Estoque: foto de um dia (capacidade × ocupação) ---------- */
+function exportarHistoricoEstoque() {
+  abrirExportPeriodo({
+    titulo: 'Histórico de atualizações — Estoque',
+    descricao: 'Foto do estoque no dia escolhido (última atualização do dia): saldo, capacidade, livre e % de ocupação por piso/bloco.',
+    dia: true,
+    extra: { label: 'Segmento', opcoes: [{ v: 'ambos', t: 'Calçados e Vestuário' }, { v: 'calcados', t: 'Calçados' }, { v: 'vestuario', t: 'Vestuário' }] },
+    exportar: async ({ de, extra, progresso }) => {
+      const snaps = await snapshotsPorDia('estoque', de, de, { pisos: 'payload->pisos' }, progresso);
+      const s = snaps[de];
+      if (!s || !s.pisos) throw new Error('Não há atualização do Estoque em ' + isoParaBR(de) + '.');
+      const vest = ['PISO 1 - E', 'PISO 1 - F', 'PISO 1 - G'];
+      const pisos = s.pisos.filter(p => extra === 'ambos' || (extra === 'vestuario') === vest.includes(p.piso_bloco));
+      const linhas = pisos.map(p => ({ 'Piso/Bloco': p.piso_bloco, 'Segmento': vest.includes(p.piso_bloco) ? 'Vestuário' : 'Calçados',
+        'Saldo': p.saldo, 'Capacidade': p.capacidade, 'Livre': Math.max(0, p.capacidade - p.saldo), '% Ocupação': r2(p.capacidade ? p.saldo / p.capacidade * 100 : 0) }));
+      const ts = pisos.reduce((a, p) => a + p.saldo, 0), tc = pisos.reduce((a, p) => a + p.capacidade, 0);
+      linhas.push({ 'Piso/Bloco': 'Total', 'Segmento': '', 'Saldo': ts, 'Capacidade': tc, 'Livre': Math.max(0, tc - ts), '% Ocupação': r2(tc ? ts / tc * 100 : 0) });
+      await baixarXLSXAbas([{ nome: 'Estoque ' + isoParaBR(de).slice(0, 5).replace('/', '-'), linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre'], pct: ['% Ocupação'] }],
+        'Estoque_' + de + '_' + extra + '.xlsx');
+    },
+  });
+}
+
+/* ---------- Balanço: uma aba por dia + resumo ---------- */
+function exportarHistoricoBalanco() {
+  abrirExportPeriodo({
+    titulo: 'Histórico de atualizações — Balanço',
+    descricao: 'Uma aba por dia do período (última atualização do dia) com o cruzamento WMS × SAP, e uma aba "Resumo" com os totais de cada dia. Máximo de 31 dias.',
+    maxDias: 31,
+    exportar: async ({ de, ate, progresso }) => {
+      const snaps = await snapshotsPorDia('balanco', de, ate, { cr: 'payload->cruzamento', ts: 'payload->total_sap', tw: 'payload->total_wms' }, progresso);
+      const dias = Object.keys(snaps).sort();
+      if (!dias.length) throw new Error('Não há atualização do Balanço no período.');
+      const resumo = dias.map(d => { const s = snaps[d], ts = s.ts || {}, tw = s.tw || {};
+        return { 'Data': isoParaBR(d), 'Atualização': horaBR(s._t), 'SAP Qtde': ts.qtde, 'SAP Valor': ts.valor, 'WMS Qtde': tw.qtde, 'WMS Valor': tw.valor,
+          'Diff Qtde': (tw.qtde || 0) - (ts.qtde || 0), 'Diff Valor': r2((tw.valor || 0) - (ts.valor || 0)),
+          '%': ts.qtde ? r2(((tw.qtde || 0) - ts.qtde) / ts.qtde * 100) : null }; });
+      const abas = [{ nome: 'Resumo', linhas: resumo, inteiro: ['SAP Qtde', 'WMS Qtde', 'Diff Qtde'], moeda: ['SAP Valor', 'WMS Valor', 'Diff Valor'], pct: ['%'] }];
+      dias.forEach(d => {
+        const s = snaps[d], cr = s.cr || [];
+        const linhas = cr.map(c => ({ 'Classificação': c.classificacao, 'BIN SAP': c.bin, 'WMS Qtde': c.wms_qtde, 'WMS Valor': c.wms_valor,
+          'SAP Qtde': c.sap_qtde, 'SAP Valor': c.sap_valor, 'Diff Qtde': c.diff_qtde, 'Diff Valor': c.diff_valor, '%': c.pct }));
+        const ts = s.ts || {}, tw = s.tw || {};
+        linhas.push({ 'Classificação': 'Total Geral', 'BIN SAP': '', 'WMS Qtde': tw.qtde, 'WMS Valor': tw.valor, 'SAP Qtde': ts.qtde, 'SAP Valor': ts.valor,
+          'Diff Qtde': (tw.qtde || 0) - (ts.qtde || 0), 'Diff Valor': r2((tw.valor || 0) - (ts.valor || 0)), '%': ts.qtde ? r2(((tw.qtde || 0) - ts.qtde) / ts.qtde * 100) : null });
+        abas.push({ nome: isoParaBR(d).slice(0, 5).replace('/', '-'), linhas: linhas, inteiro: ['WMS Qtde', 'SAP Qtde', 'Diff Qtde'], moeda: ['WMS Valor', 'SAP Valor', 'Diff Valor'], pct: ['%'] });
+      });
+      await baixarXLSXAbas(abas, 'Historico_Balanco_' + de + '_a_' + ate + '.xlsx');
+    },
+  });
+}
+
+// Endereços de picking que NÃO existem fisicamente (validação da operação, planilha de 19/10/2026).
+// Saem da lista de endereços sem saldo. Novos ajustes: incluir aqui (ou mover para uma tabela no banco).
+const ENDERECOS_INATIVOS = {
+  "Não existe fisicamente": [
+    "A01009401", "A01009402", "A01009403", "A01010201", "A01010202", "A01010203", "A01011101", "A01011102", "A01011103", "A01012201",
+    "A01012202", "A01012203", "A01012301", "A01012302", "A01012303", "A01012401", "A01012402", "A01012403", "A01013101", "A01013102",
+    "A01013103", "A01014201", "A01014202", "A01014203", "A01014301", "A01014302", "A01014303", "A01014401", "A01014402", "A01014403",
+    "A01015101", "A01015102", "A01015103", "A01016201", "A01016202", "A01016203", "A01016301", "A01016302", "A01016303", "A01016401",
+    "A01016402", "A01016403", "A01017101", "A01017102", "A01017103", "A01018201", "A01018202", "A01018203", "A01018301", "A01018302",
+    "A01018303", "A01018401", "A01018402", "A01018403", "A01020201", "A01020202", "A01020203", "A01020301", "A01020302", "A01020303",
+    "A01020401", "A01020402", "A01020403", "A35010201", "A35010202", "A35010203", "A35010301", "A35010302", "A35010303", "A35010401",
+    "A35010402", "A35010403", "B07006101", "B07006102", "B07006103", "B07006402", "B07006403", "B08005101", "B08005102", "B08005103",
+    "B08005401", "B08005402", "B08005403", "B20006303", "B21005303", "B21006101", "B21006102", "B21006103", "B21006303", "B22005101",
+    "B22005102", "B22005103", "B22005303", "B33006101", "B35004101", "B35006101", "C18002201", "C18002202", "C18002203", "C18002301",
+    "C18002302", "C18002303", "C18002401", "C18002402", "C18002403", "C18004201", "C18004202", "C18004203", "C18004301", "C18004302",
+    "C18004303", "C18004401", "C18004402", "C18004403", "C18006201", "C18006202", "C18006203", "C18006301", "C18006302", "C18006303",
+    "C18006401", "C18006402", "C18006403", "C18008201", "C18008202", "C18008203", "C18008301", "C18008302", "C18008303", "C18008401",
+    "C18008402", "C18008403", "C18010401", "C18010402", "C18010403", "C21001201", "C21001202", "C21001203", "C21001301", "C21001302",
+    "C21001303", "C21001401", "C21001402", "C21001403", "C21003201", "C21003202", "C21003203", "C21003301", "C21003302", "C21003303",
+    "C21003401", "C21003402", "C21003403", "C21005201", "C21005202", "C21005203", "C21005301", "C21005302", "C21005303", "C21005401",
+    "C21005402", "C21005403", "C21010201", "C21010202", "C21010203", "C21010301", "C21010302", "C21010303", "C21010401", "C21010402",
+    "C21010403",
+  ],
+  "Longarinas para armazenar insumos": [
+    "B35002101", "B35002102", "B35002103", "B35004102", "B35004103", "B35006102", "B35006103", "B35008101", "B35008102", "B35008103",
+    "B35010101", "B35010102", "B35010103", "B35012101", "B35012102", "B35012103", "B36007101", "B36007102", "B36007103", "B36009101",
+    "B36009102", "B36009103", "B36011101", "B36011102", "B36011103",
+  ],
+  "Caixa de faturamento/Esteira": [
+    "C35002101", "C35002102", "C35002103", "C35004101", "C35004102", "C35004103", "C35006101", "C35006102", "C35006103", "C35008101",
+    "C35008102", "C35008103", "C35010101", "C35010102", "C35010103",
+  ],
+};
+
+/* ---------- Estoque: endereços de picking sem saldo ----------
+   O WMS só lista endereço COM saldo, então o vazio é inferido pela numeração
+   (bloco 1 + rua 2 + prédio 3 + nível 1 + apto 2): por rua, níveis vistos na rua ×
+   prédios vistos na rua × aptos de 01 até o maior visto no prédio. Fonte: estoque
+   WMS do último Balanço. Saem os ENDERECOS_INATIVOS (validados fisicamente). */
+async function exportarEnderecosSemSaldo() {
+  const btn = document.getElementById('btnExportVazios');
+  const txt = btn ? btn.textContent : '';
+  try {
+    const comSaldo = new Set();
+    let off = 0, base = null;
+    while (true) {
+      const { data, error } = await supabaseClient.from('balanco_wms_detalhado').select('id, local, estoque_total, gerado_em')
+        .eq('tipo_local', 'PICKING').order('id', { ascending: true }).range(off, off + 999);
+      if (error) throw new Error('Erro ao ler o estoque do WMS: ' + error.message);
+      if (!data || !data.length) break;
+      data.forEach(r => { if ((Number(r.estoque_total) || 0) > 0 && /^[A-Z]\d{8}$/.test(r.local || '')) comSaldo.add(r.local); if (!base) base = r.gerado_em; });
+      off += data.length;
+      if (btn) btn.textContent = '⏳ ' + fmtInt(off) + ' linhas…';
+    }
+    if (!comSaldo.size) throw new Error('Sem estoque do WMS no banco — rode "Atualizar Balanço".');
+    const inativo = {};
+    Object.keys(ENDERECOS_INATIVOS).forEach(m => ENDERECOS_INATIVOS[m].forEach(e => inativo[e] = m));
+    const preds = {}, niveis = {};   // bloco+rua -> {prédio: maior apto}, bloco+rua -> Set(nível)
+    comSaldo.forEach(l => {
+      const br = l.slice(0, 3), p = l.slice(3, 6), n = l.slice(6, 7), a = Number(l.slice(7, 9));
+      (preds[br] = preds[br] || {})[p] = Math.max((preds[br] || {})[p] || 0, a);
+      (niveis[br] = niveis[br] || new Set()).add(n);
+    });
+    const vazios = [], removidos = [];
+    Object.keys(preds).sort().forEach(br => {
+      const nv = [...niveis[br]].sort();
+      Object.keys(preds[br]).sort().forEach(p => nv.forEach(n => {
+        for (let a = 1; a <= preds[br][p]; a++) {
+          const e = br + p + n + String(a).padStart(2, '0');
+          if (comSaldo.has(e)) continue;
+          (inativo[e] ? removidos : vazios).push(e);
+        }
+      }));
+    });
+    const seg = b => 'ABC'.indexOf(b) >= 0 ? 'Calçados' : 'Vestuário';
+    const linha = e => ({ 'Endereço': e, 'Bloco': e[0], 'Rua': e.slice(1, 3), 'Prédio': e.slice(3, 6), 'Nível': e.slice(6, 7), 'Apto': e.slice(7, 9), 'Segmento': seg(e[0]) });
+    const resumo = {};
+    vazios.forEach(e => { const k = e[0] + '|' + e.slice(1, 3); resumo[k] = (resumo[k] || 0) + 1; });
+    const dataBase = base ? dataDoBanco(base).toLocaleDateString('pt-BR') : '';
+    await baixarXLSXAbas([
+      { nome: 'Endereços sem saldo', linhas: vazios.map(linha) },
+      { nome: 'Resumo por rua', linhas: Object.keys(resumo).sort().map(k => ({ 'Bloco': k[0], 'Rua': k.slice(2), 'Segmento': seg(k[0]), 'Endereços sem saldo': resumo[k] })), inteiro: ['Endereços sem saldo'] },
+      { nome: 'Inativos (fora da lista)', linhas: Object.keys(inativo).sort().map(e => Object.assign(linha(e), { 'Motivo': inativo[e] })) },
+    ], 'Enderecos_sem_saldo_' + dataBase.split('/').reverse().join('-') + '.xlsx');
+  } catch (e) {
+    alert('Não foi possível gerar a lista de endereços sem saldo.\n\nDetalhe: ' + (e.message || e));
+  } finally { if (btn) btn.textContent = txt; }
+}
+
+/* ============================================================
    ABASTECIMENTO — botões de atualização
    ============================================================ */
 function mostrar(id, msg, tipo) {
@@ -3613,7 +3998,7 @@ function renderizarInbound(p, estoquePayload) {
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button>
+      <div style="display:flex;gap:8px;"><button class="btn-tema" id="btnExportInbound" onclick="exportarInboundCSV()" style="font-size:11px;padding:4px 10px;">⬇ Exportar Arquivo</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarMovimentoInbound()">⬇ Movimento diário</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarHistoricoInbound()">⬇ Exportar histórico de atualizações</button></div>
     </div>
     <div class="kpi-row-2x3">
       <div class="kpi-row-2x3-cards">
@@ -4262,7 +4647,7 @@ function renderizarEstoque(p) {
 
   document.getElementById('estoque-conteudo').innerHTML =
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
-    + '<button class="btn-tema" id="btnExportEstoque" onclick="exportarEstoqueCSV()" style="font-size:11px;padding:4px 10px;">\u2B07 Exportar Arquivo</button></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-tema" id="btnExportEstoque" onclick="exportarEstoqueCSV()" style="font-size:11px;padding:4px 10px;">\u2B07 Exportar Arquivo</button><button class="btn-tema" id="btnExportVazios" onclick="exportarEnderecosSemSaldo()" style="font-size:11px;padding:4px 10px;">\u2B07 Endere\u00E7os sem saldo</button><button class="btn-tema" onclick="exportarHistoricoEstoque()" style="font-size:11px;padding:4px 10px;">\u2B07 Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</button></div></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px" title="Capacidade \u2212 saldo (em produtos)">Livre</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px">'+fmtInt(Math.max(0, p.total.capacidade - p.total.saldo))+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
@@ -4400,6 +4785,7 @@ function renderizarBalanco(p) {
       <div style="display:flex;gap:8px;">
         <button class="btn-tema" id="btnExportSaldoSap" onclick="exportarSaldoDivergente('sap')" style="font-size:11px;padding:4px 10px;">⬇ Saldo a mais no SAP</button>
         <button class="btn-tema" id="btnExportSaldoWms" onclick="exportarSaldoDivergente('wms')" style="font-size:11px;padding:4px 10px;">⬇ Saldo a mais no WMS</button>
+        <button class="btn-tema" onclick="exportarHistoricoBalanco()" style="font-size:11px;padding:4px 10px;">⬇ Exportar histórico de atualizações</button>
       </div>
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">

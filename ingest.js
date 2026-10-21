@@ -1956,7 +1956,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   });
   const totalItensSegmento = Object.values(segContador).reduce(function(a,b){ return a+b; }, 0) || 1;
   const segmentos = Object.keys(segContador).map(function(nome) {
-    return { nome: nome, pct: (segContador[nome] / totalItensSegmento) * 100 };
+    return { nome: nome, pct: (segContador[nome] / totalItensSegmento) * 100, itens: segContador[nome] };
   }).sort(function(a,b){ return b.pct - a.pct; });
 
   // PEDIDOS_DETALHE: dado de nível fino para filtros funcionais (Marca, Marketplace, Backlog FIFO)
@@ -2455,6 +2455,10 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   const totalRecebMes = (acumReceb||[]).reduce(function(s,r){ return s + r.itens_recebidos; }, 0);
   const totalArmMes   = (acumArm||[]).reduce(function(s,r){ return s + r.itens_armazenados; }, 0);
 
+  // NF pendente mais antiga e mais recente (data de emissão) — vai pro histórico de atualizações
+  const datasPendentes = nfRegistros
+    .filter(function(n){ return (n.status === "IMPORTADA" || n.status === "EM CARGA/OR") && n.data_emissao; })
+    .map(function(n){ return n.data_emissao; }).sort();
   // Top 10 NFs por FIFO (IMPORTADA + EM CARGA/OR, mais antigas primeiro)
   const nfsPendentes = nfRegistros
     .filter(function(n){ return n.status === "IMPORTADA" || n.status === "EM CARGA/OR"; })
@@ -2529,6 +2533,8 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
       itens_pend_armazenagem: itensPendArm,
       acumulado_recebimento_mes: totalRecebMes,
       acumulado_armazenagem_mes: totalArmMes,
+      nf_mais_antiga: datasPendentes[0] || null,
+      nf_mais_recente: datasPendentes[datasPendentes.length - 1] || null,
     },
     recebimento_7dias: { dias: labelsDias, itens: receb7dias },
     armazenagem_7dias: { dias: labelsDias, itens: arm7dias },
