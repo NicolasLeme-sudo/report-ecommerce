@@ -2804,6 +2804,11 @@ async function processarBalanco(files, options) {
   // efetivamente entrou, e expor a diferença em vez de escondê-la.
   const brutoPorTipo = new Map();
   const agregadoWMS = new Map();
+  // Detalhe por ENDEREÇO COMPLETO (não por prefixo) — é o que alimenta as
+  // exportações por endereço (disponibilidade, saldo a mais no WMS). Com a
+  // chave por prefixo, o saldo de um SKU em vários endereços da mesma rua
+  // ficava todo no primeiro endereço visto, e os outros apareciam vazios.
+  const detalhePorEndereco = new Map();
   linhasWMS.forEach(function(r) {
     const tipoLoc = String(r["Tipo do Local"] || "").toUpperCase().trim();
     const estoqueBruto = Number(r["Estoque (UN)"]) || 0;
@@ -2826,6 +2831,12 @@ async function processarBalanco(files, options) {
       agregadoWMS.set(chave, { barra: barra, codigo_produto: codProd, local: local, tipo_local: tipoLoc, estoque_total: 0 });
     }
     agregadoWMS.get(chave).estoque_total += estoque;
+
+    const chaveDet = local.trim().toUpperCase() + "|" + barra + "|" + codProd + "|" + tipoLoc;
+    if (!detalhePorEndereco.has(chaveDet)) {
+      detalhePorEndereco.set(chaveDet, { barra: barra, codigo_produto: codProd, local: local.trim(), tipo_local: tipoLoc, estoque_total: 0 });
+    }
+    detalhePorEndereco.get(chaveDet).estoque_total += estoque;
   });
 
   const registrosStaging = Array.from(agregadoWMS.values());
@@ -2859,12 +2870,20 @@ async function processarBalanco(files, options) {
 
   // Guarda o detalhe completo (por SKU/local) pra exportação — a tabela
   // balanco_wms só fica com o resumo por classificação, isso aqui é a base cheia.
+  const registrosDetalhe = Array.from(detalhePorEndereco.values());
   const resultadoDeleteWmsDet = await supabaseClient.from("balanco_wms_detalhado").delete().neq("id", 0);
   falharSeErro(resultadoDeleteWmsDet, "Erro ao limpar balanco_wms_detalhado");
-  for (let iDet = 0; iDet < registrosStaging.length; iDet += 1000) {
-    const loteDet = registrosStaging.slice(iDet, iDet + 1000);
-    const resultadoDet = await supabaseClient.from("balanco_wms_detalhado").insert(loteDet);
-    falharSeErro(resultadoDet, "Erro ao gravar balanco_wms_detalhado (lote " + iDet + ")");
+  // Mais linhas que antes (uma por endereço) — grava 4 lotes por vez.
+  const lotesDet = [];
+  for (let iDet = 0; iDet < registrosDetalhe.length; iDet += 1000) lotesDet.push(iDet);
+  for (let p = 0; p < lotesDet.length; p += 4) {
+    const grupo = lotesDet.slice(p, p + 4);
+    const resultados = await Promise.all(grupo.map(function(iDet) {
+      return supabaseClient.from("balanco_wms_detalhado").insert(registrosDetalhe.slice(iDet, iDet + 1000));
+    }));
+    resultados.forEach(function(res, k) { falharSeErro(res, "Erro ao gravar balanco_wms_detalhado (lote " + grupo[k] + ")"); });
+    onProgress("Detalhe por endereço: " + Math.min(registrosDetalhe.length, (p + 4) * 1000).toLocaleString('pt-BR') +
+      " de " + registrosDetalhe.length.toLocaleString('pt-BR') + " linhas gravadas...");
   }
 
   const { error: errLimpeza } = await supabaseClient.rpc("limpar_stg_estoque_wms_agg");

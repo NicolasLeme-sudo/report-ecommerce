@@ -3858,7 +3858,8 @@ function exportarEnderecosComEspaco() {
       const q = Math.max(0, saldo.get(e) || 0), livre = c.cap - q;
       if (livre < CAIXAS_MINIMAS_LIVRES) return;
       linhas.push({ 'Endereço': e, 'Bloco': e[0], 'Rua': e.slice(1, 3), 'Piso': e.slice(6, 7), 'Prédio': e.slice(3, 6), 'Nível': e.slice(7, 9),
-        'Situação': q > 0 ? 'Com saldo' : 'Vazio', 'Saldo': q, 'Capacidade': c.cap, 'Livre (caixas)': livre });
+        'Situação': q > 0 ? 'Com saldo' : 'Vazio', 'Saldo': q, 'Capacidade': c.cap, 'Livre (caixas)': livre,
+        '% Ocupação': c.cap > 0 ? r2(q / c.cap * 100) : 0 });
     });
     linhas.sort((a, b) => b['Livre (caixas)'] - a['Livre (caixas)'] || (a['Endereço'] < b['Endereço'] ? -1 : 1));
     const res = {};
@@ -3870,7 +3871,7 @@ function exportarEnderecosComEspaco() {
     const dataBase = base ? dataDoBanco(base).toLocaleDateString('pt-BR') : '';
     aviso('Montando a planilha… ' + fmtInt(linhas.length) + ' endereços');
     await baixarXLSXAbas([
-      { nome: 'Endereços com disponibilidade', linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre (caixas)'] },
+      { nome: 'Endereços com disponibilidade', linhas: linhas, inteiro: ['Saldo', 'Capacidade', 'Livre (caixas)'], pct: ['% Ocupação'] },
       { nome: 'Resumo por piso', linhas: Object.keys(res).sort().map(k => res[k]), inteiro: ['Endereços', 'Vazios', 'Com saldo', 'Caixas livres'] },
       { nome: 'Inativos (fora da lista)', linhas: Object.keys(inativo).sort().map(e => ({ 'Endereço': e, 'Motivo': inativo[e] })) },
     ], 'Enderecos_com_disponibilidade_' + dataBase.split('/').reverse().join('-') + '.xlsx');
