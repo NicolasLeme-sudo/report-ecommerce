@@ -3590,14 +3590,14 @@ function exportarIntegracaoPeriodo() {
 function exportarHistoricoOutbound() {
   abrirExportPeriodo({
     titulo: 'Histórico de atualizações — Outbound',
-    descricao: 'Por dia (última atualização do dia): pedidos e itens em fluxo, quebra por data FIFO e por segmento, e o expedido no dia.',
+    descricao: 'Por dia (última atualização do dia): pedidos e itens em fluxo, quebra por data FIFO e o expedido no dia.',
     exportar: async ({ de, ate, progresso }) => {
       const snaps = await snapshotsPorDia('outbound', de, ate,
-        { kpis: 'payload->kpis', fifo: 'payload->backlog_fifo', seg: 'payload->segmentos' }, progresso);
+        { kpis: 'payload->kpis', fifo: 'payload->backlog_fifo' }, progresso);
       const { data: exp, error } = await supabaseClient.from('expedicao_diaria').select('data, itens_expedidos, pedidos_expedidos').gte('data', de).lte('data', ate);
       if (error) throw new Error('Erro ao ler a expedição: ' + error.message);
       const expDia = {}; (exp || []).forEach(r => expDia[r.data] = r);
-      const resumo = [], fifo = [], seg = [];
+      const resumo = [], fifo = [];
       listaDias(de, ate).forEach(d => {
         const s = snaps[d], k = (s && s.kpis) || {}, e = expDia[d];
         resumo.push({ 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
@@ -3607,13 +3607,10 @@ function exportarHistoricoOutbound() {
         const tf = (s.fifo || []).reduce((a, f) => a + (Number(f.valor) || 0), 0) || 1;
         (s.fifo || []).forEach(f => fifo.push({ 'Data': isoParaBR(d), 'Data FIFO (dias)': f.label === '04+' ? '4 ou mais' : String(Number(f.label)),
           'Itens': Number(f.valor) || 0, '%': r2((Number(f.valor) || 0) / tf * 100) }));
-        (s.seg || []).forEach(g => seg.push({ 'Data': isoParaBR(d), 'Segmento': g.nome,
-          'Itens': g.itens != null ? g.itens : Math.round((g.pct || 0) / 100 * (k.itens_em_fluxo || 0)), '%': r2(g.pct || 0) }));
       });
       await baixarXLSXAbas([
         { nome: 'Resumo diário', linhas: resumo, inteiro: ['Pedidos em fluxo', 'Itens em fluxo', 'Itens expedidos no dia', 'Pedidos expedidos no dia'] },
         { nome: 'Backlog FIFO', linhas: fifo, inteiro: ['Itens'], pct: ['%'] },
-        { nome: 'Segmento', linhas: seg, inteiro: ['Itens'], pct: ['%'] },
       ], 'Historico_Outbound_' + de + '_a_' + ate + '.xlsx');
     },
   });
@@ -3646,7 +3643,7 @@ function exportarMovimentoInbound() {
 function exportarHistoricoInbound() {
   abrirExportPeriodo({
     titulo: 'Histórico de atualizações — Inbound',
-    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, e a NF pendente mais antiga e mais recente.',
+    descricao: 'Por dia (última atualização do dia): NFs e itens pendentes de recebimento e de armazenagem, e a data de emissão da NF pendente mais antiga em tela.',
     exportar: async ({ de, ate, progresso }) => {
       const snaps = await snapshotsPorDia('inbound', de, ate, { kpis: 'payload->kpis', top: 'payload->top10_nfs_fifo' }, progresso);
       const linhas = listaDias(de, ate).map(d => {
@@ -3656,8 +3653,7 @@ function exportarHistoricoInbound() {
         return { 'Data': isoParaBR(d), 'Atualização': s ? horaBR(s._t) : 'sem atualização',
           'NFs pend. recebimento': s ? k.nfs_pend_recebimento : null, 'Itens pend. recebimento': s ? k.itens_pend_recebimento : null,
           'NFs pend. armazenagem': s ? k.nfs_pend_armazenagem : null, 'Itens pend. armazenagem': s ? k.itens_pend_armazenagem : null,
-          'NF mais antiga (emissão)': antiga ? isoParaBR(antiga) : (s ? '—' : null),
-          'NF mais recente (emissão)': k.nf_mais_recente ? isoParaBR(k.nf_mais_recente) : (s ? '—' : null) };
+          'NF mais antiga em tela (emissão)': antiga ? isoParaBR(antiga) : (s ? '—' : null) };
       });
       await baixarXLSXAbas([{ nome: 'Pendências', linhas: linhas,
         inteiro: ['NFs pend. recebimento', 'Itens pend. recebimento', 'NFs pend. armazenagem', 'Itens pend. armazenagem'] }],
