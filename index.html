@@ -500,6 +500,13 @@ table.matrix tbody tr.total th {
 }
 .btn-upload:hover    { opacity: .85; }
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
+.btn-export { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 10px 0 0; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-input); color: var(--text-muted); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.btn-export .ico { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 100%; border-right: 1px solid var(--border); }
+.btn-export svg, .ico-inline svg { width: 14px; height: 14px; display: block; }
+.ico-inline { display: inline-flex; vertical-align: -2px; }
+.btn-export:hover { color: var(--accent); border-color: var(--accent); }
+.btn-export:hover .ico { border-color: var(--accent); }
+.btn-export:disabled { opacity: .6; cursor: wait; }
 .dlg-export { margin: auto; inset: 0; position: fixed; max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text); padding: 20px 22px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .dlg-export::backdrop { background: rgba(0,0,0,.55); }
 .dlg-exp-titulo { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
@@ -1333,7 +1340,7 @@ table.matrix tbody tr.total th {
         <div class="freq">Endereço fora do gabarito (nem prefixo especial, nem A-J/S/K, nem PICKING) cai em "Outros" e some do balanço — gera divergência contra o SAP sem aviso.</div>
         <button class="btn-upload" id="btnVerificarEnderecos" onclick="verificarEnderecosNaoConformes()">🔍 Verificar Endereços Não Conformes</button>
         <div id="resultadoEnderecosNaoConformes"></div>
-        <button class="btn-upload" id="btnBaixarGabaritoExcecao" onclick="baixarGabaritoEnderecosNaoConformes()" style="display:none;margin-top:10px">▼ Baixar Gabarito para Preencher</button>
+        <button class="btn-upload" id="btnBaixarGabaritoExcecao" onclick="baixarGabaritoEnderecosNaoConformes()" style="display:none;margin-top:10px"><span class="ico-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span> Baixar Gabarito para Preencher</button>
 
         <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
           <div class="file-row">
@@ -1409,7 +1416,7 @@ table.matrix tbody tr.total th {
     <div class="dlg-exp-status" id="dlgExpStatus"></div>
     <div class="dlg-exp-botoes">
       <button type="button" class="btn-tema" onclick="document.getElementById('dlgExport').close()">Cancelar</button>
-      <button type="submit" class="btn-upload" id="dlgExpBtn" style="width:auto;padding:8px 18px">▼ Exportar</button>
+      <button type="submit" class="btn-upload" id="dlgExpBtn" style="width:auto;padding:8px 18px"><span class="ico-inline"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span> Exportar</button>
     </div>
   </form>
 </dialog>
@@ -1481,7 +1488,7 @@ async function descomprimirGzip(blob) {
 
 async function baixarArquivoOriginal(caminho, btnId) {
   const btn = btnId ? document.getElementById(btnId) : null;
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Baixando...'; }
   try {
     const { data, error } = await supabaseClient.storage.from('arquivos-abastecimento').download(caminho);
@@ -1499,7 +1506,7 @@ async function baixarArquivoOriginal(caminho, btnId) {
   } catch (err) {
     alert('Não foi possível baixar o arquivo. Provavelmente essa tela ainda não foi reabastecida desde que esse recurso foi criado.\n\nDetalhe: ' + (err.message || err));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -1693,7 +1700,7 @@ function linhaAcompanhamentoOp(p) {
 // (faixas "03" e "04+" do próprio gráfico), no layout do Acompanhamento Op.
 async function exportarBacklogFifoXLSX() {
   const btn = document.getElementById('btnExportBacklogFifo');
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
     // Regra: "quais pedidos têm a situação mais feia em tela, independente
@@ -1748,7 +1755,7 @@ async function exportarBacklogFifoXLSX() {
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -1757,7 +1764,7 @@ async function exportarBacklogFifoXLSX() {
 // primeiras colunas, seguidos do layout do Acompanhamento Op.
 async function exportarPedidosSapXLSX() {
   const btn = document.getElementById('btnExportOutbound');
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
     // Todos os pedidos que estão na tela agora — mesma lista do KPI "Pedidos
@@ -1792,7 +1799,7 @@ async function exportarPedidosSapXLSX() {
   } catch (err) {
     alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -1969,7 +1976,7 @@ async function gerarDivergenciaBalancoSkus() {
 // 'wms' (Saldo a mais no WMS — diferença positiva, WMS > SAP).
 async function exportarSaldoDivergente(tipo) {
   const btn = document.getElementById(tipo === 'sap' ? 'btnExportSaldoSap' : 'btnExportSaldoWms');
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
   try {
     const todas = await gerarDivergenciaBalancoSkus();
@@ -2021,7 +2028,7 @@ async function exportarSaldoDivergente(tipo) {
   } catch (err) {
     alert('Não foi possível gerar o arquivo.\n\nDetalhe: ' + (err.message || err));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 /* ============================================================
@@ -2109,7 +2116,7 @@ let _ultimosEnderecosNaoConformes = [];
 async function verificarEnderecosNaoConformes() {
   const btn = document.getElementById('btnVerificarEnderecos');
   const resultado = document.getElementById('resultadoEnderecosNaoConformes');
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
   resultado.innerHTML = '';
   try {
@@ -2134,7 +2141,7 @@ async function verificarEnderecosNaoConformes() {
   } catch (err) {
     resultado.innerHTML = '<div class="erro-msg">Erro ao verificar endereços: ' + (err.message || err) + '</div>';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -2231,7 +2238,7 @@ async function aplicarGabaritoEnderecosNaoConformes() {
   const file = input.files[0];
   if (!file) { status.innerHTML = '<div class="erro-msg">Selecione o arquivo preenchido antes de aplicar.</div>'; return; }
 
-  const textoOriginal = btn.textContent;
+  const textoOriginal = btn.innerHTML;
   btn.disabled = true; btn.textContent = '⏳ Aplicando...';
   status.innerHTML = '';
   try {
@@ -2272,7 +2279,7 @@ async function aplicarGabaritoEnderecosNaoConformes() {
   } catch (err) {
     status.innerHTML = '<div class="erro-msg">Erro ao aplicar gabarito: ' + (err.message || err) + '</div>';
   } finally {
-    btn.disabled = false; btn.textContent = textoOriginal;
+    btn.disabled = false; btn.innerHTML = textoOriginal;
   }
 }
 
@@ -2697,7 +2704,7 @@ async function carregarSnapshot(id) {
 async function subirVersaoManual() {
   if (!confirm('Isso vai registrar a versão atual de TODAS as telas (Outbound, Inbound, Estoque, Balanço, Reversa) como um checkpoint único no histórico. Continuar?')) return;
   const btn = document.getElementById('btnSubirVersao');
-  const textoOriginal = btn ? btn.textContent : null;
+  const textoOriginal = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Registrando...'; }
   try {
     const paginas = Object.keys(REGISTRO_PAGINAS);
@@ -2741,7 +2748,7 @@ async function subirVersaoManual() {
   } catch (e) {
     alert('Erro ao subir versão: ' + (e.message || e));
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = textoOriginal; }
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -2818,7 +2825,7 @@ function renderizarOutbound(atual, anterior) {
 
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do dia
-      <div style="display:flex;gap:8px;"><button class="btn-tema" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()" style="font-size:11px;padding:4px 10px;">▼ Pedidos SAP</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarIntegracaoPeriodo()">▼ Integração por período</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarHistoricoOutbound()">▼ Exportar histórico de atualizações</button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportOutbound" onclick="exportarPedidosSapXLSX()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Pedidos SAP</span></button><button class="btn-export" onclick="exportarIntegracaoPeriodo()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Integração por período</span></button><button class="btn-export" onclick="exportarHistoricoOutbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row" id="kpiRow"></div>
     
@@ -2837,7 +2844,7 @@ function renderizarOutbound(atual, anterior) {
         <div class="card">
           <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
             Backlog FIFO em itens
-            <button class="btn-tema" id="btnExportBacklogFifo" onclick="exportarBacklogFifoXLSX()" style="font-size:11px;padding:4px 10px;">▼ Backlog ≥ 3 dias</button>
+            <button class="btn-export" id="btnExportBacklogFifo" onclick="exportarBacklogFifoXLSX()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Backlog ≥ 3 dias</span></button>
           </div>
           <div class="donut-wrap">
             <svg class="donut" width="200" height="200" viewBox="0 0 220 220" id="donutSvg"></svg>
@@ -3771,7 +3778,7 @@ const ENDERECOS_INATIVOS = {
    WMS do último Balanço. Saem os ENDERECOS_INATIVOS (validados fisicamente). */
 async function exportarEnderecosSemSaldo() {
   const btn = document.getElementById('btnExportVazios');
-  const txt = btn ? btn.textContent : '';
+  const txt = btn ? btn.innerHTML : '';
   try {
     const comSaldo = new Set();
     let off = 0, base = null;
@@ -3816,7 +3823,7 @@ async function exportarEnderecosSemSaldo() {
     ], 'Enderecos_sem_saldo_' + dataBase.split('/').reverse().join('-') + '.xlsx');
   } catch (e) {
     alert('Não foi possível gerar a lista de endereços sem saldo.\n\nDetalhe: ' + (e.message || e));
-  } finally { if (btn) btn.textContent = txt; }
+  } finally { if (btn) btn.innerHTML = txt; }
 }
 
 /* ============================================================
@@ -4048,7 +4055,7 @@ function renderizarInbound(p, estoquePayload) {
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <div style="display:flex;gap:8px;"><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarMovimentoInbound()">▼ Movimento diário</button><button class="btn-tema" style="font-size:11px;padding:4px 10px;" onclick="exportarHistoricoInbound()">▼ Exportar histórico de atualizações</button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarMovimentoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Movimento diário</span></button><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row-2x3">
       <div class="kpi-row-2x3-cards">
@@ -4697,7 +4704,7 @@ function renderizarEstoque(p) {
 
   document.getElementById('estoque-conteudo').innerHTML =
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
-    + '<div style="display:flex;gap:8px;"><button class="btn-tema" id="btnExportVazios" onclick="exportarEnderecosSemSaldo()" style="font-size:11px;padding:4px 10px;">\u25BC Endere\u00E7os sem saldo</button><button class="btn-tema" onclick="exportarHistoricoEstoque()" style="font-size:11px;padding:4px 10px;">\u25BC Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</button></div></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosSemSaldo()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os sem saldo</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px" title="Capacidade \u2212 saldo (em produtos)">Livre</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px">'+fmtInt(Math.max(0, p.total.capacidade - p.total.saldo))+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
@@ -4833,9 +4840,9 @@ function renderizarBalanco(p) {
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Estoque Geral WMS × SAP
       <div style="display:flex;gap:8px;">
-        <button class="btn-tema" id="btnExportSaldoSap" onclick="exportarSaldoDivergente('sap')" style="font-size:11px;padding:4px 10px;">▼ Saldo a mais no SAP</button>
-        <button class="btn-tema" id="btnExportSaldoWms" onclick="exportarSaldoDivergente('wms')" style="font-size:11px;padding:4px 10px;">▼ Saldo a mais no WMS</button>
-        <button class="btn-tema" onclick="exportarHistoricoBalanco()" style="font-size:11px;padding:4px 10px;">▼ Exportar histórico de atualizações</button>
+        <button class="btn-export" id="btnExportSaldoSap" onclick="exportarSaldoDivergente('sap')"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Saldo a mais no SAP</span></button>
+        <button class="btn-export" id="btnExportSaldoWms" onclick="exportarSaldoDivergente('wms')"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Saldo a mais no WMS</span></button>
+        <button class="btn-export" onclick="exportarHistoricoBalanco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button>
       </div>
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
