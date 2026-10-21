@@ -1612,6 +1612,17 @@ async function baixarComoXLSX(linhas, nomeAbaLinhas, nomeArquivo, opts) {
       const idx = colunas.indexOf(nomeCol) + 1;
       if (idx > 0) ws.getColumn(idx).numFmt = 'General';
     });
+    // destaque (formatação condicional do Excel) quando o valor se repete na coluna
+    (opts.destacarDuplicados || []).forEach(function(nomeCol) {
+      const idx = colunas.indexOf(nomeCol) + 1;
+      if (idx <= 0 || linhas.length < 2) return;
+      const L = ws.getColumn(idx).letter, ult = linhas.length + 1;
+      ws.addConditionalFormatting({
+        ref: L + '2:' + L + ult,
+        rules: [{ type: 'expression', priority: 1, formulae: ['COUNTIF($' + L + '$2:$' + L + '$' + ult + ',' + L + '2)>1'],
+          style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFEB9C' } }, font: { color: { argb: 'FF9C5700' }, bold: true } } }],
+      });
+    });
 
     const buffer = await wb.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -2005,6 +2016,7 @@ async function exportarSaldoDivergente(tipo) {
     const nomeAba = tipo === 'sap' ? 'Saldo a mais no SAP' : 'Saldo a mais no WMS';
     await baixarComoXLSX(linhasExport, nomeAba, nomeAba + '_' + hoje + '.xlsx', {
       colunasNumero: ['Diferença (Qtde)', 'Qtde SAP', 'Qtde WMS', 'Qtde no endereço', 'Qtde SAP (SKU)', 'Qtde WMS (SKU)', 'Diferença do SKU'],
+      destacarDuplicados: tipo === 'wms' ? ['SKU'] : [],
     });
   } catch (err) {
     alert('Não foi possível gerar o arquivo.\n\nDetalhe: ' + (err.message || err));
