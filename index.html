@@ -500,7 +500,7 @@ table.matrix tbody tr.total th {
 }
 .btn-upload:hover    { opacity: .85; }
 .btn-upload:disabled { opacity: .4; cursor: not-allowed; }
-.dlg-export { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text); padding: 20px 22px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+.dlg-export { margin: auto; inset: 0; position: fixed; max-height: calc(100vh - 32px); border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text); padding: 20px 22px; width: min(440px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.45); }
 .dlg-export::backdrop { background: rgba(0,0,0,.55); }
 .dlg-exp-titulo { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
 .dlg-exp-desc { font-size: 12px; color: var(--text-muted); line-height: 1.45; margin-bottom: 14px; }
@@ -3478,6 +3478,22 @@ function abrirExportPeriodo(cfg) {
   document.getElementById('dlgExpBtn').disabled = false;
   dlg.showModal();
 }
+// Fecha a janela ao clicar fora dela ou ao rolar a página (clique errado no botão) — exceto
+// durante uma exportação em andamento, para não esconder o progresso.
+(function () {
+  const dlg = document.getElementById('dlgExport');
+  if (!dlg) return;
+  const ocupado = () => document.getElementById('dlgExpBtn').disabled;
+  const fechar = () => { if (dlg.open && !ocupado()) dlg.close(); };
+  dlg.addEventListener('click', e => {
+    if (e.target !== dlg) return;   // clique dentro do formulário (inclusive opções de select)
+    const r = dlg.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) fechar();
+  });
+  window.addEventListener('wheel', e => { if (dlg.open && !dlg.contains(e.target)) fechar(); }, { passive: true });
+  window.addEventListener('scroll', fechar, { passive: true });
+  window.addEventListener('touchmove', e => { if (dlg.open && !dlg.contains(e.target)) fechar(); }, { passive: true });
+})();
 async function confirmarExportPeriodo() {
   if (!_expCfg) return;
   const de = document.getElementById('dlgExpDe').value;
