@@ -1905,8 +1905,11 @@ async function gerarDivergenciaBalancoSkus() {
     // endereços do WMS que guardam esse saldo (BIN+SKU) — usado no export "Saldo a mais no WMS"
     const q = Number(r.estoque_total) || 0, loc = String(r.local || '').trim();
     if (loc && q) {
+      // picking vira uma linha só ("Endereços de PICKING"); pulmão/transitórios ficam endereço a endereço
+      const ehPicking = String(r.tipo_local || '').toUpperCase().indexOf('PICKING') >= 0;
+      const k = ehPicking ? 'Endereços de PICKING' : loc;
       let m = wmsEnderecos.get(chave); if (!m) { m = new Map(); wmsEnderecos.set(chave, m); }
-      m.set(loc, (m.get(loc) || 0) + q);
+      m.set(k, (m.get(k) || 0) + q);
     }
   });
 
@@ -1939,12 +1942,13 @@ async function gerarDivergenciaBalancoSkus() {
       qtdeSap: qtdeSap,
       qtdeWms: qtdeWms,
       diferenca: diferenca,
-      enderecos: (function() {
-        const m = wmsEnderecos.get(chave); if (!m) return '';
-        const lista = [...m.entries()].sort(function(a, b) { return b[1] - a[1]; });
-        const txt = lista.slice(0, 12).map(function(e) { return e[0] + (lista.length > 1 ? ' (' + e[1] + ')' : ''); }).join('; ');
-        return txt + (lista.length > 12 ? ' … +' + (lista.length - 12) : '');
-      })(),
+      // [{ endereco, qtde }] — pulmão/transitórios primeiro (maior saldo antes), picking agrupado no fim
+      enderecos: [...(wmsEnderecos.get(chave) || new Map()).entries()]
+        .map(function(e) { return { endereco: e[0], qtde: e[1] }; })
+        .sort(function(a, b) {
+          const pa = a.endereco === 'Endereços de PICKING', pb = b.endereco === 'Endereços de PICKING';
+          return pa !== pb ? (pa ? 1 : -1) : b.qtde - a.qtde;
+        }),
     });
   });
   return linhas;
@@ -1964,21 +1968,43 @@ async function exportarSaldoDivergente(tipo) {
       if (a.bin !== b.bin) return a.bin < b.bin ? -1 : 1;
       return tipo === 'sap' ? (a.diferenca - b.diferenca) : (b.diferenca - a.diferenca);
     });
-    const linhasExport = filtradas.map(function(l) {
-      // Saldo a mais no WMS: no lugar do BIN, o(s) endereço(s) do WMS que têm esse saldo
-      return {
-        [tipo === 'wms' ? 'Endereço WMS' : 'BIN']: tipo === 'wms' ? l.enderecos : l.bin,
-        'Classificação do BIN': l.classificacao,
-        'SKU': l.sku,
-        'Qtde SAP': l.qtdeSap,
-        'Qtde WMS': l.qtdeWms,
-        'Diferença (Qtde)': l.diferenca,
-      };
-    });
+    let linhasExport;
+    if (tipo === 'wms') {
+      // Saldo a mais no WMS: uma linha por endereço de pulmão/transitório e uma linha "Endereços de
+      // PICKING" com o saldo somado do picking. Qtde SAP/WMS/Diferença são do SKU no BIN (repetem
+      // nas linhas do mesmo SKU — para somar a diferença, filtre "1ª linha do SKU" = Sim).
+      linhasExport = [];
+      filtradas.forEach(function(l) {
+        const ends = l.enderecos.length ? l.enderecos : [{ endereco: '', qtde: null }];
+        ends.forEach(function(e, i) {
+          linhasExport.push({
+            'Endereço WMS': e.endereco,
+            'Qtde no endereço': e.qtde,
+            'Classificação do BIN': l.classificacao,
+            'SKU': l.sku,
+            'Qtde SAP (SKU)': l.qtdeSap,
+            'Qtde WMS (SKU)': l.qtdeWms,
+            'Diferença do SKU': l.diferenca,
+            '1ª linha do SKU': i === 0 ? 'Sim' : 'Não',
+          });
+        });
+      });
+    } else {
+      linhasExport = filtradas.map(function(l) {
+        return {
+          'BIN': l.bin,
+          'Classificação do BIN': l.classificacao,
+          'SKU': l.sku,
+          'Qtde SAP': l.qtdeSap,
+          'Qtde WMS': l.qtdeWms,
+          'Diferença (Qtde)': l.diferenca,
+        };
+      });
+    }
     const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
     const nomeAba = tipo === 'sap' ? 'Saldo a mais no SAP' : 'Saldo a mais no WMS';
     await baixarComoXLSX(linhasExport, nomeAba, nomeAba + '_' + hoje + '.xlsx', {
-      colunasNumero: ['Diferença (Qtde)', 'Qtde SAP', 'Qtde WMS'],
+      colunasNumero: ['Diferença (Qtde)', 'Qtde SAP', 'Qtde WMS', 'Qtde no endereço', 'Qtde SAP (SKU)', 'Qtde WMS (SKU)', 'Diferença do SKU'],
     });
   } catch (err) {
     alert('Não foi possível gerar o arquivo.\n\nDetalhe: ' + (err.message || err));
