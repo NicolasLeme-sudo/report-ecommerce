@@ -3795,7 +3795,7 @@ const ENDERECOS_INATIVOS = {
   ],
 };
 
-/* ---------- Estoque: endereços de calçados com espaço para 12+ caixas ----------
+/* ---------- Estoque: endereços de calçados com espaço para 6+ caixas (CAIXAS_MINIMAS_LIVRES) ----------
    Código do endereço: bloco (1) + rua (2) + prédio (3) + piso (1) + nível (2, = apto 01–03).
    Capacidade por endereço (régua da operação, 21/10/2026 — em pares/caixas de tênis):
    - Ruas 01–34, pisos 2–4: 60 por endereço (10 caixas de largura × 6 de altura).
@@ -3805,7 +3805,7 @@ const ENDERECOS_INATIVOS = {
      usa 50/60/60 (marcado como "estimada").
    Saldo = estoque WMS do último Balanço (picking). Endereço vazio é inferido pela numeração
    (o WMS só lista endereço com saldo). Saem os ENDERECOS_INATIVOS. */
-const CAIXAS_MINIMAS_LIVRES = 12;
+const CAIXAS_MINIMAS_LIVRES = 6;
 function capacidadeEnderecoCalcado(bloco, rua, piso, nivel) {
   const r = Number(rua), p = Number(piso), n = Number(nivel);
   if (!(n >= 1 && n <= 3)) return null;
@@ -4757,7 +4757,7 @@ function renderizarEstoque(p) {
 
   document.getElementById('estoque-conteudo').innerHTML =
     '<div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">Ocupa\u00E7\u00E3o de estoque por piso/bloco'
-    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosComEspaco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os com espa\u00E7o (12+ caixas)</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
+    + '<div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportVazios" onclick="exportarEnderecosComEspaco()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Endere\u00E7os com espa\u00E7o (6+ caixas)</span></button><button class="btn-export" onclick="exportarHistoricoEstoque()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar hist\u00F3rico de atualiza\u00E7\u00F5es</span></button></div></div>'
     + '<div class="card"><table class="matrix" style="font-size:13px"><thead><tr><th style="padding:4px 8px">Piso/Bloco</th><th style="padding:4px 8px">Saldo</th><th style="padding:4px 8px">Capacidade</th><th style="padding:4px 8px" title="Capacidade \u2212 saldo (em produtos)">Livre</th><th style="padding:4px 8px">% Ocupa\u00E7\u00E3o</th><th></th></tr></thead><tbody>'
     + linhas
     + '<tr class="total" style="line-height:1.2"><th style="padding:4px 8px">Total Geral</th><td style="padding:4px 8px">'+fmtInt(p.total.saldo)+'</td><td style="padding:4px 8px">'+fmtInt(p.total.capacidade)+'</td><td style="padding:4px 8px">'+fmtInt(Math.max(0, p.total.capacidade - p.total.saldo))+'</td><td style="padding:4px 8px;color:'+totCor+';font-weight:700">'+fmtPct(p.total.pct_ocupacao)+'</td><td style="padding:4px 8px"><svg width="32" height="32" viewBox="0 0 40 40">'+miniPizza(p.total.pct_ocupacao, totCor)+'</svg></td></tr>'
