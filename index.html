@@ -1496,7 +1496,8 @@ async function descomprimirGzip(blob) {
 async function baixarArquivoOriginal(caminho, btnId) {
   const btn = btnId ? document.getElementById(btnId) : null;
   const textoOriginal = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Baixando...'; }
+  if (btn) btn.disabled = true;
+  const aviso = criarAvisoExport('Baixando ' + caminho.split('/').pop());
   try {
     const { data, error } = await supabaseClient.storage.from('arquivos-abastecimento').download(caminho);
     if (error) throw error;
@@ -1511,9 +1512,10 @@ async function baixarArquivoOriginal(caminho, btnId) {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
   } catch (err) {
-    alert('Não foi possível baixar o arquivo. Provavelmente essa tela ainda não foi reabastecida desde que esse recurso foi criado.\n\nDetalhe: ' + (err.message || err));
+    aviso.erro('Não foi possível baixar o arquivo (' + (err.message || err) + ')');
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
+    aviso.fim();
   }
 }
 
@@ -1708,7 +1710,8 @@ function linhaAcompanhamentoOp(p) {
 async function exportarBacklogFifoXLSX() {
   const btn = document.getElementById('btnExportBacklogFifo');
   const textoOriginal = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  if (btn) btn.disabled = true;
+  const aviso = criarAvisoExport('Backlog ≥ 3 dias');
   try {
     // Regra: "quais pedidos têm a situação mais feia em tela, independente
     // da data" — sempre um volume "grandinho" pra tratar, nunca um arquivo
@@ -1740,7 +1743,7 @@ async function exportarBacklogFifoXLSX() {
       qtdComplemento = complemento.length;
       ids = idsRuins.concat(complemento);
     }
-    if (ids.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
+    if (ids.length === 0) { aviso.erro('Nenhum pedido em operação no momento.'); return; }
     const pedidos = await buscarPedidosPorId(
       'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
       'cancelado_pelo_erp,importado_em,separado_em,enviado_faturamento_em,faturado_em,' +
@@ -1760,9 +1763,10 @@ async function exportarBacklogFifoXLSX() {
       colunasNumero: COLUNAS_NUMERO_ACOMPANHAMENTO_OP,
     });
   } catch (err) {
-    alert('Não foi possível gerar o arquivo de Backlog FIFO.\n\nDetalhe: ' + (err.message || err));
+    aviso.erro(err.message || err);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
+    aviso.fim();
   }
 }
 
@@ -1772,12 +1776,13 @@ async function exportarBacklogFifoXLSX() {
 async function exportarPedidosSapXLSX() {
   const btn = document.getElementById('btnExportOutbound');
   const textoOriginal = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  if (btn) btn.disabled = true;
+  const aviso = criarAvisoExport('Pedidos SAP');
   try {
     // Todos os pedidos que estão na tela agora — mesma lista do KPI "Pedidos
     // em Fluxo", sem recalcular nada em separado.
     const ids = idsPedidosDaTela();
-    if (ids.length === 0) { alert('Nenhum pedido em operação no momento.'); return; }
+    if (ids.length === 0) { aviso.erro('Nenhum pedido em operação no momento.'); return; }
     const [pedidos, mapaAcronimos] = await Promise.all([
       buscarPedidosPorId(
         'pedido_venda,nota_fiscal,classificacao_tipo_pedido,qtd_total_produto,status_nf,' +
@@ -1804,9 +1809,10 @@ async function exportarPedidosSapXLSX() {
       colunasNumero: COLUNAS_NUMERO_ACOMPANHAMENTO_OP.concat(['Pedido VTEX']),
     });
   } catch (err) {
-    alert('Não foi possível gerar o arquivo de Pedidos SAP.\n\nDetalhe: ' + (err.message || err));
+    aviso.erro(err.message || err);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
+    aviso.fim();
   }
 }
 
@@ -1984,11 +1990,12 @@ async function gerarDivergenciaBalancoSkus() {
 async function exportarSaldoDivergente(tipo) {
   const btn = document.getElementById(tipo === 'sap' ? 'btnExportSaldoSap' : 'btnExportSaldoWms');
   const textoOriginal = btn ? btn.innerHTML : null;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Gerando...'; }
+  if (btn) btn.disabled = true;
+  const aviso = criarAvisoExport(tipo === 'sap' ? 'Saldo a mais no SAP' : 'Saldo a mais no WMS');
   try {
     const todas = await gerarDivergenciaBalancoSkus();
     const filtradas = todas.filter(function(l) { return tipo === 'sap' ? l.diferenca < 0 : l.diferenca > 0; });
-    if (filtradas.length === 0) { alert('Nenhuma divergência encontrada nesse sentido no momento.'); return; }
+    if (filtradas.length === 0) { aviso.erro('Nenhuma divergência encontrada nesse sentido no momento.'); return; }
     filtradas.sort(function(a, b) {
       if (a.bin !== b.bin) return a.bin < b.bin ? -1 : 1;
       return tipo === 'sap' ? (a.diferenca - b.diferenca) : (b.diferenca - a.diferenca);
@@ -2033,9 +2040,10 @@ async function exportarSaldoDivergente(tipo) {
       destacarDuplicados: tipo === 'wms' ? ['SKU'] : [],
     });
   } catch (err) {
-    alert('Não foi possível gerar o arquivo.\n\nDetalhe: ' + (err.message || err));
+    aviso.erro(err.message || err);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
+    aviso.fim();
   }
 }
 /* ============================================================
@@ -2157,10 +2165,13 @@ async function verificarEnderecosNaoConformes() {
 // na lista fechada de CLASSIFICACOES_VALIDAS_BALANCO — evita erro de
 // digitação que geraria uma classificação nova, fora do que o balanço
 // reconhece.
-async function baixarGabaritoEnderecosNaoConformes() {
+function baixarGabaritoEnderecosNaoConformes() {
+  return executarEmSegundoPlano('Gabarito de endereços não conformes', () => gerarGabaritoEnderecosNaoConformes());
+}
+async function gerarGabaritoEnderecosNaoConformes() {
   const lista = _ultimosEnderecosNaoConformes;
-  if (!lista || lista.length === 0) { alert('Clique em "Verificar Endereços Não Conformes" primeiro.'); return; }
-  if (!window.ExcelJS) { alert('Biblioteca de exportação não carregou — recarregue a página e tente de novo.'); return; }
+  if (!lista || lista.length === 0) throw new Error('Clique em "Verificar Endereços Não Conformes" primeiro.');
+  if (!window.ExcelJS) throw new Error('Biblioteca de exportação não carregou — recarregue a página e tente de novo.');
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Endereços Não Conformes');
@@ -3522,24 +3533,27 @@ async function confirmarExportPeriodo() {
   await executarEmSegundoPlano(cfg.titulo, aviso => cfg.exportar({ de: de, ate: ate, extra: extra, progresso: aviso }));
 }
 // Aviso flutuante (canto inferior direito) para exportações em andamento; várias podem rodar juntas.
-async function executarEmSegundoPlano(titulo, fn) {
+// Some sozinho quando a exportação termina; em caso de erro fica vermelho até ser clicado (ou 15s).
+function criarAvisoExport(titulo) {
   let box = document.getElementById('expToasts');
   if (!box) { box = document.createElement('div'); box.id = 'expToasts'; document.body.appendChild(box); }
   const t = document.createElement('div'); t.className = 'exp-toast';
   t.innerHTML = '<div class="et-tit"></div><div class="et-msg">Preparando…</div>';
   t.querySelector('.et-tit').textContent = titulo;
   box.appendChild(t);
+  let falhou = false;
   const msg = m => { t.querySelector('.et-msg').textContent = m; };
-  try {
-    await fn(msg);
-    t.classList.add('ok'); msg('✓ Arquivo gerado.');
-    setTimeout(() => t.remove(), 4000);
-  } catch (e) {
-    console.error(e);
-    t.classList.add('erro'); msg('✗ ' + (e.message || e));
-    t.onclick = () => t.remove(); t.title = 'Clique para fechar';
-    setTimeout(() => t.remove(), 15000);
-  }
+  return {
+    msg: msg,
+    erro: m => { falhou = true; t.classList.add('erro'); msg('✗ ' + m); t.title = 'Clique para fechar'; t.onclick = () => t.remove(); setTimeout(() => t.remove(), 15000); },
+    fim: () => { if (!falhou) t.remove(); },
+  };
+}
+async function executarEmSegundoPlano(titulo, fn) {
+  const aviso = criarAvisoExport(titulo);
+  try { await fn(aviso.msg); }
+  catch (e) { console.error(e); aviso.erro(e.message || e); }
+  finally { aviso.fim(); }
 }
 function diasEntre(a, b) { return Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000); }
 function listaDias(de, ate) {
@@ -3860,7 +3874,7 @@ function exportarEnderecosComEspaco() {
       const q = Math.max(0, saldo.get(e) || 0), livre = c.cap - q;
       if (livre < CAIXAS_MINIMAS_LIVRES) return;
       linhas.push({ 'Endereço': e, 'Bloco': e[0], 'Rua': e.slice(1, 3), 'Piso': e.slice(6, 7), 'Prédio': e.slice(3, 6), 'Nível': e.slice(7, 9),
-        'Situação': q > 0 ? 'Com saldo' : 'Vazio', 'Saldo': q, 'Capacidade': c.cap, 'Livre (caixas)': livre, 'Régua': c.regra });
+        'Situação': q > 0 ? 'Com saldo' : 'Vazio', 'Saldo': q, 'Capacidade': c.cap, 'Livre (caixas)': livre });
     });
     linhas.sort((a, b) => b['Livre (caixas)'] - a['Livre (caixas)'] || (a['Endereço'] < b['Endereço'] ? -1 : 1));
     const res = {};
