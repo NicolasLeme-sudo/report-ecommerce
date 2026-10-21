@@ -1197,14 +1197,6 @@ table.matrix tbody tr.total th {
       <span class="badge-admin">Admin</span>
     </div>
 
-    <!-- Seletor de histórico: data é carregada dinamicamente -->
-    <div class="sidebar-historico">
-      <div class="lbl">🕑 Histórico de versões</div>
-      <div class="hist-dropdown" id="histDropdown">
-        <button class="hist-trigger" id="histTrigger" onclick="toggleHistDropdown()">Versão atual</button>
-        <div class="hist-list" id="histList"></div>
-      </div>
-    </div>
   </aside>
 
   <!-- ===== TOPBAR ===== -->
@@ -2517,6 +2509,9 @@ function formatarDataCalendario(valor) {
 }
   async function carregarDatasHistorico() {
   const dropdown = document.querySelector('.sidebar-historico');
+  // 21/10/2026: o seletor "Histórico de versões" saiu da sidebar (o histórico agora é exportado
+  // por tela, em "Exportar histórico de atualizações"); sem o widget, não há o que carregar.
+  if (!dropdown) return;
   const cfg = REGISTRO_PAGINAS[secaoAtual];
   // 'abastecimento' (e qualquer tela futura sem payload próprio) não tem
   // histórico — esconde o widget inteiro em vez de mostrar o de outra tela.
@@ -3639,11 +3634,11 @@ function renderizarInbound(p, estoquePayload) {
     <div class="grid2">
       <div class="card">
         <div class="section-title">Recebimento — últimos 7 dias (itens)</div>
-        <svg id="svgReceb" width="100%" viewBox="0 0 560 160" style="aspect-ratio:560/160;height:auto"></svg>
+        <svg id="svgReceb" width="100%" height="210" style="display:block"></svg>
       </div>
       <div class="card">
         <div class="section-title">Armazenagem — últimos 7 dias (itens)</div>
-        <svg id="svgArm" width="100%" viewBox="0 0 560 160" style="aspect-ratio:560/160;height:auto"></svg>
+        <svg id="svgArm" width="100%" height="210" style="display:block"></svg>
       </div>
     </div>
 
@@ -3787,7 +3782,11 @@ function gerarAnaliseAutomatica(inbound, estoque) {
 function renderGraficoLinhaInbound(svgId, dados) {
   if (!dados) return;
   const svg = document.getElementById(svgId);
-  const w=560,h=160,pL=34,pR=12,pT=28,pB=24;
+  svg.innerHTML = '';
+  // viewBox 1:1 com o tamanho real do card (antes era 560x160 esticado pela largura — o zoom
+  // deixava números e datas enormes comparados com o resto da tela)
+  const w=Math.round(svg.getBoundingClientRect().width) || 560, h=210, pL=30, pR=30, pT=34, pB=28;
+  svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
   const vals = dados.itens;
   const mx = Math.max(...vals, 1) * 1.15;
   const n = dados.dias.length;
@@ -3795,7 +3794,7 @@ function renderGraficoLinhaInbound(svgId, dados) {
   const yF = function(v){ return (h-pB) - (v/mx)*(h-pT-pB); };
   const pts = vals.map(function(v,i){ return [xF(i), yF(v)]; });
   const line = document.createElementNS('http://www.w3.org/2000/svg','path');
-  line.setAttribute('d', pathSuave(pts)); line.setAttribute('fill','none');
+  line.setAttribute('d', pathMonotono(pts)); line.setAttribute('fill','none');   // monotônica: sem "barriga" abaixo do eixo entre dois zeros
   line.setAttribute('stroke','var(--accent)'); line.setAttribute('stroke-width','2.5');
   line.setAttribute('stroke-linecap','round'); line.setAttribute('stroke-linejoin','round');
   svg.appendChild(line);
@@ -3803,10 +3802,10 @@ function renderGraficoLinhaInbound(svgId, dados) {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r','3');
     c.setAttribute('fill','var(--accent)'); svg.appendChild(c);
-    labelComFundo(svg, p[0], p[1]-8, fmtInt(vals[i]), {fontSize:10, cor:'var(--label-chip-texto)', fundo:'var(--accent-soft)'});
+    labelComFundo(svg, p[0], p[1]-9, fmtInt(vals[i]), {fontSize:12, cor:'var(--label-chip-texto)', fundo:'var(--accent-soft)'});
     const dt=document.createElementNS('http://www.w3.org/2000/svg','text');
-    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-6);
-    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','10');
+    dt.setAttribute('x',p[0]); dt.setAttribute('y',h-8);
+    dt.setAttribute('text-anchor','middle'); dt.setAttribute('font-size','11.5');
     dt.setAttribute('fill','var(--text-muted)');
     dt.textContent=dados.dias[i]; svg.appendChild(dt);
   });
@@ -3896,7 +3895,7 @@ function renderSparklineInbound(dados) {
   // / 560 = fator de escala da viewBox dele pra tela) e aplica o mesmo
   // fator sobre 10 pra chegar no tamanho VISUAL equivalente em px.
   const svgReceb = document.getElementById('svgReceb');
-  const fontSizeData = (svgReceb && svgReceb.clientWidth) ? (10 * svgReceb.clientWidth / 560) : 10;
+  const fontSizeData = 11;   // gráficos de Recebimento/Armazenagem agora em escala 1:1 (datas em 11,5px)
   pts.forEach((p,i) => {
     const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
     c.setAttribute('cx',p[0]); c.setAttribute('cy',p[1]); c.setAttribute('r',i===pts.length-1?3.5:2.5);
