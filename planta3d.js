@@ -69,6 +69,23 @@ async function buscarMapa() {
   P3.cache = { em: Date.now(), linhas };
   return linhas;
 }
+// Cadastro de endereços do WMS por prédio (Abastecimento → Cadastro de Endereços). Vazio = ainda não carregado.
+async function buscarCadastro() {
+  if (P3.cacheCad && Date.now() - P3.cacheCad.em < 5 * 60 * 1000) return P3.cacheCad.linhas;
+  const linhas = [];
+  for (let off = 0; ; off += 1000) {
+    const { data, error } = await supabaseClient.from('vw_enderecos_predio')
+      .select('bloco, rua, predio, andar, setor, aptos, carregado_em')
+      .order('bloco').order('rua').order('predio').order('andar').range(off, off + 999);
+    if (error) { console.warn('Cadastro de endereços indisponível:', error.message); break; }
+    if (!data || !data.length) break;
+    linhas.push(...data);
+    if (data.length < 1000) break;
+  }
+  P3.cacheCad = { em: Date.now(), linhas };
+  return linhas;
+}
+const naoExiste = e => (typeof enderecoNaoExisteConfirmado === 'function' ? enderecoNaoExisteConfirmado(e) : null);
 function inativos() {
   const m = {};
   try { Object.keys(ENDERECOS_INATIVOS).forEach(k => ENDERECOS_INATIVOS[k].forEach(e => { m[e] = k; })); } catch (e) { /* lista não carregada */ }
@@ -89,8 +106,22 @@ async function obterLinhas(payload) {
 const normReg = s => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
 // maior saldo vence (empate: a primeira vista)
 function regiaoMaior(mapa) { let melhor = null, v = -Infinity; mapa.forEach((s, r) => { if (s > v) { v = s; melhor = r; } }); return melhor; }
-function montarDados(linhas, payload) {
+function montarDados(linhas, payload, cadastro) {
   const inat = inativos(), capTab = {};
+  // cadastro do WMS: aptos ativos por prédio (calçados) e endereços por rua (vestuário)
+  const cadCalc = new Map(), cadVest = new Map(); let baseCad = null;
+  (cadastro || []).forEach(c => {
+    if (c.carregado_em && (!baseCad || c.carregado_em > baseCad)) baseCad = c.carregado_em;
+    const b = c.bloco, r = +c.rua, pr = +c.predio, p = +c.andar;
+    if (c.setor === 'CALÇADOS' && 'ABC'.includes(b) && p >= 1 && p <= 4) {
+      const aptos = (c.aptos || []).map(Number).filter(n => !naoExiste(b + pad(r) + pad(pr, 3) + p + pad(n)));
+      if (!aptos.length) return;
+      const k = b + '|' + r + '|' + p + '|' + pr; cadCalc.set(k, (cadCalc.get(k) || []).concat(aptos));
+    } else if (c.setor === 'CONFECÇÃO' && 'EFG'.includes(b)) {
+      const k = b + '|' + r; const o = cadVest.get(k) || { n: 0, np: 0 }; o.n += (c.aptos || []).length; o.np = Math.max(o.np, pr); cadVest.set(k, o);
+    }
+  });
+  const usaCad = cadCalc.size > 0;
   ((payload && payload.pisos) || []).forEach(x => { capTab[normReg(x.piso_bloco)] = Number(x.capacidade) || 0; });
   const padrao = (b, p) => 'PISO ' + p + ' - ' + b;
   // ---- agrega por prédio, guardando a região de cada um
@@ -112,20 +143,28 @@ function montarDados(linhas, payload) {
       o.saldo += s; o.np = Math.max(o.np, pr); o.n += Number(l.enderecos) || 0; o.regs.set(reg, (o.regs.get(reg) || 0) + s);
     }
   });
-  // ---- calçados: uma entrada por bloco × rua × piso × lado × região; capacidade pela regra por endereço
+  // ---- calçados: uma entrada por bloco × rua × piso × lado × região; capacidade pela regra por endereço.
+  // Com o cadastro do WMS: só os prédios/aptos ativos lá (menos os confirmados que não existem).
+  // Sem cadastro: deduz pelos prédios com saldo (1..último) menos a lista de inativos.
+  const prediosPorRua = new Map();
+  const addPred = (k, pr) => { let s = prediosPorRua.get(k); if (!s) { s = new Set(); prediosPorRua.set(k, s); } s.add(pr); };
+  if (usaCad) {
+    cadCalc.forEach((_, kp) => { const i = kp.lastIndexOf('|'); if (!(kp.startsWith('A|47|'))) addPred(kp.slice(0, i), +kp.slice(i + 1)); });
+    pred.forEach((_, kp) => { const i = kp.lastIndexOf('|'); addPred(kp.slice(0, i), +kp.slice(i + 1)); });   // saldo em prédio fora do cadastro não some
+  } else {
+    maxPred.forEach((np, k) => { for (let pr = 1; pr <= np; pr++) addPred(k, pr); });
+  }
   const ruasCalc = new Map();
-  maxPred.forEach((np, k) => {
+  prediosPorRua.forEach((setPred, k) => {
     const [b, rs, ps] = k.split('|'), r = +rs, p = +ps, regPadrao = regiaoMaior(regRua.get(k) || new Map()) || padrao(b, p);
-    for (let pr = 1; pr <= np; pr++) {
+    for (const pr of [...setPred].sort((x, y) => x - y)) {
       const face = r === 1 && pr > FRENTE[b] ? 'tras' : (pr % 2 ? 'impar' : 'par');
       const dp = pred.get(k + '|' + pr), reg = dp ? regiaoMaior(dp.regs) : regPadrao;
       const kk = k + '|' + face + '|' + reg; let o = ruasCalc.get(kk);
       if (!o) { o = { b, r, p, face, regiao: reg, saldo: 0, capRegra: 0, n: 0, preds: new Set() }; ruasCalc.set(kk, o); }
       let ativos = 0;
-      for (let n = 1; n <= 3; n++) {
-        if (inat[b + pad(r) + pad(pr, 3) + p + pad(n)]) continue;
-        o.capRegra += capEnd(b, r, p, n); o.n++; ativos++;
-      }
+      const niveis = usaCad ? (cadCalc.get(k + '|' + pr) || []) : [1, 2, 3].filter(n => !inat[b + pad(r) + pad(pr, 3) + p + pad(n)] && !naoExiste(b + pad(r) + pad(pr, 3) + p + pad(n)));
+      niveis.forEach(n => { o.capRegra += capEnd(b, r, p, n); o.n++; ativos++; });
       const sp = dp ? dp.saldo : 0;
       o.saldo += sp;
       if (ativos || sp) o.preds.add(pr);   // prédio todo inativo/inexistente não conta no comprimento do lado
@@ -143,20 +182,24 @@ function montarDados(linhas, payload) {
     o.pct = o.cap ? o.saldo / o.cap * 100 : (o.saldo ? 100 : 0);
     o.np = o.preds.size;
   });
-  // ---- vestuário: capacidade do piso/bloco repartida pelo nº de prédios de cada rua
+  // ---- vestuário: capacidade do piso/bloco repartida pelos endereços ativos de cada rua (cadastro)
+  // ou, sem cadastro, pelo nº de prédios
   const ruasVest = [];
   ['E', 'F', 'G'].forEach(b => {
     const lista = [];
     for (let r = 1; r <= 26; r++) {
       const o = vest.get(b + '|' + r) || { b, r, saldo: 0, np: 0, n: 0, regs: new Map() };
+      const cv = cadVest.get(b + '|' + r);
+      if (cv) { o.np = cv.np; o.peso = cv.n; o.nCad = cv.n; }
       if (!o.np) o.np = (b === 'E' && r <= 13) || (b === 'G' && r >= 14) ? 28 : 42;
+      if (!o.peso) o.peso = o.np;
       o.regiao = regiaoMaior(o.regs) || padrao(b, 1);
       lista.push(o);
     }
-    const somaNp = lista.reduce((a, o) => a + o.np, 0), capB = capTab[padrao(b, 1)] || 0;
-    lista.forEach(o => { o.cap = capB * o.np / somaNp; o.pct = o.cap ? o.saldo / o.cap * 100 : 0; ruasVest.push(o); });
+    const soma = lista.reduce((a, o) => a + o.peso, 0), capB = capTab[padrao(b, 1)] || 0;
+    lista.forEach(o => { o.cap = capB * o.peso / soma; o.pct = o.cap ? o.saldo / o.cap * 100 : 0; ruasVest.push(o); });
   });
-  return { ruasCalc, ruasVest };
+  return { ruasCalc, ruasVest, usaCad, baseCad };
 }
 
 /* ---------------- cores ---------------- */
@@ -257,6 +300,7 @@ const zRow = (b, row) => BL[b].z0 + (row + .5) * pit(b);
 const wB = b => 2 * wP(b);
 const baia = pr => Math.ceil(pr / 2);
 const VX0 = 45.5, VX1 = 72, vPit = (VX1 - VX0) / 13;
+const ESCADAS_B = [4, 18, 32];   // rua do meio de cada escada (cadastro do WMS: prédios 005–008 inativos nas ruas 03–05, 17–19, 31–33)
 const VB = { G: [[36.5, 47], [48, 58.5]], F: [[60, 70.5], [71.5, 82]], E: [[84, 94.5], [95.5, 106]] };
 const posVest = r => r >= 14 ? { meia: 0, col: r - 14 } : { meia: 1, col: 13 - r };
 function zVest(b, r, np) {
@@ -348,17 +392,18 @@ window.montarPlanta3D = async function (container, payload) {
   let dados;
   try {
     await garantirThree();
-    const fonte = await obterLinhas(payload);
-    dados = montarDados(fonte.linhas, payload); dados.fonte = fonte.fonte; dados.base = fonte.base;
+    const [fonte, cadastro] = await Promise.all([obterLinhas(payload), buscarCadastro()]);
+    dados = montarDados(fonte.linhas, payload, cadastro); dados.fonte = fonte.fonte; dados.base = fonte.base;
   } catch (e) {
     console.error(e); msg.textContent = 'Não foi possível montar a planta 3D: ' + e.message; return;
   }
   if (!container.isConnected || !stage.isConnected) return;   // tela trocada enquanto carregava
-  const { ruasCalc, ruasVest, base, fonte } = dados;
+  const { ruasCalc, ruasVest, base, fonte, usaCad, baseCad } = dados;
   q('base').textContent = (fonte === 'estoque'
       ? 'Saldo: mesmo arquivo e mesmas regiões da tabela acima ("Atualizar Estoque"' + (base ? ' de ' + formatarDataBR(base) : '') + '). '
       : 'Saldo: Estoque WMS do último "Atualizar Balanço"' + (base ? ' (' + formatarDataBR(base) + ')' : '') + ' — rode "Atualizar Estoque" para a planta usar o mesmo arquivo da tabela. ')
-    + 'Capacidade: no piso 1, a regra por endereço (sem os endereços inativos); nos pisos 2 a 4, a capacidade padrão de cada piso/bloco, repartida entre as ruas pela regra; no vestuário, pelo nº de prédios de cada rua. A soma de cada piso/bloco é igual à tabela acima.';
+    + (usaCad ? 'Endereços: cadastro do WMS' + (baseCad ? ' (carregado em ' + formatarDataBR(baseCad) + ')' : '') + ', só os ativos. ' : 'Endereços: deduzidos pelos prédios com saldo — carregue o "Cadastro de Endereços (WMS)" no Abastecimento para usar o cadastro oficial. ')
+    + 'Capacidade: no piso 1, a regra por endereço; nos pisos 2 a 4, a capacidade padrão de cada piso/bloco, repartida entre as ruas pela regra; no vestuário, ' + (usaCad ? 'pelos endereços ativos de cada rua' : 'pelo nº de prédios de cada rua') + '. A soma de cada piso/bloco é igual à tabela acima.';
 
   const THREE = window.THREE;
   let renderer;
@@ -449,9 +494,9 @@ window.montarPlanta3D = async function (container, payload) {
   lote(pal, 'calc', 1); lote(car, 'calc', 1);
   // escadas
   const degraus = [];
-  [7, 21, 33].forEach(r => {
-    const x0 = BL.B.x1 - 3 * wB('B'), x1 = BL.B.x1 - 2 * wB('B'), z0 = zRow('B', r) - pit('B') / 2, z1 = zRow('B', r + 1) + pit('B') / 2;
-    const H = 4 * HP + .6, e = .16, tipEsc = tipInfo('Escada', 'Bloco B · ruas ' + pad(r) + '–' + pad(r + 1) + ' · prédios 005–006 · todos os pisos');
+  ESCADAS_B.forEach(r => {
+    const x0 = BL.B.x1 - 4 * wB('B'), x1 = BL.B.x1 - 2 * wB('B'), z0 = zRow('B', r - 1) + .1 * pit('B'), z1 = zRow('B', r + 1) - .1 * pit('B');
+    const H = 4 * HP + .6, e = .16, tipEsc = tipInfo('Escada', 'Bloco B · rua ' + pad(r) + ' (e longarinas das ruas ' + pad(r - 1) + ' e ' + pad(r + 1) + ') · prédios 005–008 · todos os pisos');
     [[x0, z0, x1, z0 + e], [x0, z1 - e, x1, z1], [x0, z0, x0 + e, z1], [x1 - e, z0, x1, z1]].forEach(([a, b, c, d]) => caixa(a, b, c, d, 0, H, 'estrut', 'calc', { op: OP_ESTR, tip: tipEsc }));
     for (let p = 1; p <= 4; p++) for (let s = 0; s < 8; s++) {
       const dx = (x1 - x0 - 2 * e) / 8;
@@ -511,14 +556,14 @@ window.montarPlanta3D = async function (container, payload) {
   mesa(83, 'ADM E-commerce', false, 124.3);
   mesa(79.2, 'ADM Embarque', true, 115.6);
   // rótulos
-  ['A', 'B', 'C'].forEach(b => rotulo('BLOCO ' + b, (BL[b].x0 + BL[b].x1) / 2, 3 * HP + 2.2, BL[b].z0 - 2.5, 'calc', 'big'));
+  ['A', 'B', 'C'].forEach(b => rotulo('BLOCO ' + b, (BL[b].x0 + BL[b].x1) / 2, 3 * HP + 2.2, BL[b].z0 - 5, 'calc', 'big'));
   for (let p = 1; p <= 4; p++) rotulo('PISO ' + p, BL.C.x1 + 3.5, (p - 1) * HP + .4, BL.C.z1 - 1, 'calc', 'big', p);
   rotulo('Rua 01', BL.A.x1 + 1.5, 3 * HP + 1, zRow('A', 0), 'calc');
   rotulo('Rua 47', BL.A.x1 + 1.5, 1, zRow('A', 47), 'calc');
   rotulo('Prédio 001 →', BL.B.x1 - 2, 3 * HP + 1.2, BL.B.z0 - .8, 'calc');
   rotulo('Elevador', (ex0 + ex1) / 2, 4 * HP + 2, ez, 'calc', 'inf');
   rotulo('Eclusa', 84.2, 2.8, 104, 'calc', 'inf', 1);
-  [7, 21, 33].forEach(r => rotulo('Escada', BL.B.x1 - 2.5 * wB('B'), 4 * HP + 1.6, zRow('B', r + .5), 'calc', 'inf'));
+  ESCADAS_B.forEach(r => rotulo('Escada', BL.B.x1 - 3 * wB('B'), 4 * HP + 1.6, zRow('B', r), 'calc', 'inf'));
   rotulo('Caixas de faturamento', (BL.C.x0 + BL.C.x1) / 2, 3 * HP + 2.6, (fz0 + fz1) / 2, 'calc', 'inf');
   rotulo('Colmeia', BL.C.x1 - 6, 3.4, cz0 + .6, 'calc', 'inf', 1);
   rotulo('Esteira', exE1 + 2.2, 1.4, (cz0 + cz1) / 2 + 2, 'calc', 'inf', 1);

@@ -2549,16 +2549,15 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // =========================================================
 
 // Capacidades por piso/bloco.
-// Piso 1 (revisão de 22/10): pela regra física por endereço — mesma de "Endereços com
-// disponibilidade" e da planta 3D (ruas 01–34: 60/60/40 por nível; ruas 35–47: bloco A
-// 60/60/40, B 50/50/70, C 50/60/60), somando os endereços que existem (prédios do WMS,
-// sem os ENDERECOS_INATIVOS — inclui os lados que não existem da A46/B47 e a rua A47, que é
-// de vestuário):
-//   A 1.257 endereços = 67.040 · B 1.658 = 89.790 · C 1.050 = 56.050.
+// Piso 1 (revisão de 22/10, cadastro de endereços do WMS): endereços ATIVOS de calçados no WMS
+// × regra física por endereço (ruas 01–34: 60/60/40 por nível; ruas 35–47: bloco A 60/60/40,
+// B 50/50/70, C 50/60/60), sem os que a operação confirmou que não existem
+// (enderecoNaoExisteConfirmado — A46 lado ímpar):
+//   A 1.248 endereços = 66.560 · B 1.595 = 86.500 · C 1.026 = 54.770.
 //   (antes: A 65.920, B 83.360, C 60.660, ajustadas pelo gestor em 11/09)
 // Pisos 2–4 e Vestuário (E/F/G): tabela padrão da operação, igual desde 31/08.
 const CAPACIDADES = {
-  "PISO 1 - A": 67040,  "PISO 1 - B": 89790,  "PISO 1 - C": 56050,
+  "PISO 1 - A": 66560,  "PISO 1 - B": 86500,  "PISO 1 - C": 54770,
   "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
   "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
   "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,
@@ -2672,6 +2671,83 @@ var CROSS_MAP = [
 
 // -------------------------------------------------------------------------
 // ESTOQUE (OPERAÇÃO) — Estoque_Picking.tsv
+// -------------------------------------------------------------------------
+// CADASTRO DE ENDEREÇOS (WMS → Armazém → Exportação .tsv)
+// Fonte oficial de quais endereços de picking existem. Guarda só os de setor
+// Calçados e Confecção (ativos e bloqueados); a planta 3D, o "Endereços com
+// disponibilidade" e a capacidade usam os ativos. Rodar quando o cadastro mudar.
+// -------------------------------------------------------------------------
+// Endereços que o WMS ainda tem como ATIVOS, mas que a operação confirmou que não existem
+// fisicamente (pendentes de inativação no WMS — ver Divergencias_cadastro_WMS). Saem da planta 3D,
+// do "Endereços com disponibilidade" e da capacidade. Quando inativarem no WMS e o cadastro for
+// recarregado, a regra deixa de ter efeito sozinha.
+function enderecoNaoExisteConfirmado(e) {
+  const b = e[0], r = Number(e.slice(1, 3)), pr = Number(e.slice(3, 6)), p = Number(e[6]);
+  if (b === "A" && r >= 35 && r <= 46 && p >= 2 && pr > 6) return "Bloco A, ruas 35–46: só vai até o prédio 006 (pisos 2–4)";
+  if (b === "A" && r === 46 && p === 1 && pr % 2 === 1) return "A46 piso 1: o lado ímpar não existe";
+  return null;
+}
+
+async function processarCadastroEnderecos(files, options) {
+  const onProgress = (options && options.onProgress) || function(){};
+  onProgress("Lendo cadastro de endereços do WMS...");
+  const texto = await files.arquivoCadastro.text();
+  const linhas = texto.split(/\r?\n/);
+  const sem = function(s) { return String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim(); };
+  const cab = linhas[0].replace(/^﻿/, "").split("\t").map(sem);
+  const col = function(n) { return cab.indexOf(sem(n)); };
+  const I = { local: col("Local"), bloco: col("Bloco"), rua: col("Rua"), predio: col("Prédio"), andar: col("Andar"), apto: col("Apartamento"),
+              lado: col("Lado"), tipo: col("Tipo"), ativo: col("Ativo"), setor: col("Setor"), regiao: col("Região"), estoque: col("Estoque"), skus: col("Qtde. Picking Definido") };
+  const faltando = Object.keys(I).filter(function(k) { return I[k] < 0 && k !== "skus" && k !== "estoque" && k !== "lado"; });
+  if (faltando.length) { onProgress("✗ O arquivo não parece ser a exportação da tela Armazém (faltam colunas: " + faltando.join(", ") + ")."); return; }
+
+  const registros = [];
+  for (let i = 1; i < linhas.length; i++) {
+    if (!linhas[i]) continue;
+    const c = linhas[i].split("\t");
+    if (sem(c[I.tipo]).indexOf("picking") < 0) continue;
+    const s = sem(c[I.setor]);
+    if (s !== "calcados" && s !== "confeccao") continue;
+    const local = String(c[I.local] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!/^[A-Z]\d{8}$/.test(local)) continue;
+    registros.push({
+      local: local,
+      bloco: String(c[I.bloco] || local[0]).trim().toUpperCase() || local[0],
+      rua: Number(c[I.rua]) || Number(local.slice(1, 3)),
+      predio: Number(c[I.predio]) || Number(local.slice(3, 6)),
+      andar: Number(c[I.andar]) || Number(local[6]),
+      apto: Number(c[I.apto]) || Number(local.slice(7, 9)),
+      lado: I.lado >= 0 ? (sem(c[I.lado]).charAt(0) === "i" ? "ÍMPAR" : "PAR") : null,
+      setor: s === "calcados" ? "CALÇADOS" : "CONFECÇÃO",
+      regiao: normalizarEncoding(String(c[I.regiao] || "")).toUpperCase().replace(/\s+/g, " ").trim(),
+      ativo: String(c[I.ativo] || "").trim().toUpperCase() === "S",
+      estoque: I.estoque >= 0 ? String(c[I.estoque]).trim() === "1" : null,
+      skus: I.skus >= 0 ? (Number(c[I.skus]) || 0) : null,
+    });
+  }
+  if (!registros.length) { onProgress("✗ Nenhum endereço de picking de Calçados/Confecção encontrado no arquivo."); return; }
+
+  await uploadArquivoOriginal("estoque/Cadastro_Enderecos_WMS.tsv", files.arquivoCadastro);
+  onProgress("Limpando o cadastro anterior...");
+  // limpa bloco a bloco (cada delete fica pequeno)
+  const blocos = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+  for (const b of blocos) {
+    const r = await supabaseClient.from("wms_enderecos").delete().eq("bloco", b);
+    falharSeErro(r, "Erro ao limpar o cadastro de endereços (bloco " + b + ")");
+  }
+  const lotes = [];
+  for (let i = 0; i < registros.length; i += 1000) lotes.push(registros.slice(i, i + 1000));
+  for (let p = 0; p < lotes.length; p += 4) {
+    const res = await Promise.all(lotes.slice(p, p + 4).map(function(l) { return supabaseClient.from("wms_enderecos").insert(l); }));
+    res.forEach(function(r, k) { falharSeErro(r, "Erro ao gravar o cadastro de endereços (lote " + (p + k + 1) + ")"); });
+    onProgress("Gravando cadastro: " + Math.min(registros.length, (p + 4) * 1000).toLocaleString("pt-BR") + " de " + registros.length.toLocaleString("pt-BR") + "...");
+  }
+  const calc = registros.filter(function(r) { return r.ativo && r.setor === "CALÇADOS"; }).length;
+  const vest = registros.filter(function(r) { return r.ativo && r.setor === "CONFECÇÃO"; }).length;
+  await registrarLog("estoque", "Cadastro_Enderecos_WMS", registros.length);
+  onProgress("✓ Cadastro atualizado! " + calc.toLocaleString("pt-BR") + " endereços ativos de calçados e " + vest.toLocaleString("pt-BR") + " de vestuário.");
+}
+
 // -------------------------------------------------------------------------
 async function processarEstoqueOperacao(files, options) {
   const onProgress = (options && options.onProgress) || function(){};

@@ -1343,6 +1343,16 @@ table.matrix tbody tr.total th {
       </div>
 
       <div class="upload-card">
+        <h2>Cadastro de Endereços (WMS)</h2>
+        <div class="freq">Frequência: quando o cadastro mudar · WMS → Armazém → Exportação (.tsv)</div>
+        <div class="file-row">
+          <div class="file-field"><label>Exportação da tela Armazém (.tsv)</label><input type="file" id="fileCadastroWMS" accept=".tsv,.txt"></div>
+        </div>
+        <button class="btn-upload" id="btnCadastroWMS">Atualizar Cadastro de Endereços</button>
+        <div class="progress-box" id="progressCadastroWMS"></div>
+      </div>
+
+      <div class="upload-card">
         <h2>Endereços Não Conformes do Balanço</h2>
         <div class="freq">Endereço fora do gabarito (nem prefixo especial, nem A-J/S/K, nem PICKING) cai em "Outros" e some do balanço — gera divergência contra o SAP sem aviso.</div>
         <button class="btn-upload" id="btnVerificarEnderecos" onclick="verificarEnderecosNaoConformes()">🔍 Verificar Endereços Não Conformes</button>
@@ -3849,7 +3859,24 @@ function exportarEnderecosComEspaco() {
       aviso('Lendo o estoque do WMS… ' + fmtInt(off) + ' linhas');
     }
     if (!saldo.size) throw new Error('Sem estoque do WMS no banco — rode "Atualizar Balanço".');
+    // universo: cadastro do WMS (ativos de calçados), se carregado; senão, dedução pela numeração
+    aviso('Lendo o cadastro de endereços do WMS…');
+    const cadastro = [];
+    for (let o2 = 0; ; o2 += 1000) {
+      const { data: cd, error: ce } = await supabaseClient.from('vw_enderecos_predio').select('bloco, rua, predio, andar, setor, aptos')
+        .eq('setor', 'CALÇADOS').order('bloco').order('rua').order('predio').order('andar').range(o2, o2 + 999);
+      if (ce || !cd || !cd.length) break;
+      cadastro.push(...cd); if (cd.length < 1000) break;
+    }
     const inativo = {};
+    const universo = new Set();
+    if (cadastro.length) {
+      cadastro.forEach(c => (c.aptos || []).forEach(n => {
+        const e = c.bloco + String(c.rua).padStart(2, '0') + String(c.predio).padStart(3, '0') + c.andar + String(n).padStart(2, '0');
+        const m = enderecoNaoExisteConfirmado(e);
+        if (m) inativo[e] = m + ' (ativo no WMS, pendente de inativação)'; else universo.add(e);
+      }));
+    } else {
     Object.keys(ENDERECOS_INATIVOS).forEach(m => ENDERECOS_INATIVOS[m].forEach(e => inativo[e] = m));
     // universo = endereços com saldo + vazios inferidos pela numeração
     const preds = {}, pisos = {};
@@ -3859,11 +3886,11 @@ function exportarEnderecosComEspaco() {
       (preds[br] = preds[br] || {})[p] = Math.max((preds[br] || {})[p] || 0, Number(l.slice(7, 9)));
       (pisos[br] = pisos[br] || new Set()).add(l.slice(6, 7));
     });
-    const universo = new Set();
     Object.keys(preds).forEach(br => Object.keys(preds[br]).forEach(p => pisos[br].forEach(pi => {
       for (let a = 1; a <= preds[br][p]; a++) universo.add(br + p + pi + String(a).padStart(2, '0'));
     })));
     saldo.forEach((q, l) => { if (q > 0) universo.add(l); });
+    }
     const linhas = [];
     universo.forEach(e => {
       if (inativo[e]) return;
@@ -3964,6 +3991,11 @@ async function salvarAnaliseQualidade() {
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
   const f = document.getElementById('fileEstoquePicking').files[0];
   return f ? { arquivoEstoque: f } : null;
+});
+
+ligarBotao('btnCadastroWMS', 'progressCadastroWMS', processarCadastroEnderecos, () => {
+  const f = document.getElementById('fileCadastroWMS').files[0];
+  return f ? { arquivoCadastro: f } : null;
 });
 
 ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
