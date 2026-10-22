@@ -127,7 +127,8 @@ function montarDados(linhas, payload) {
       o.saldo += dp ? dp.saldo : 0; o.preds.add(pr);
     }
   });
-  // ---- capacidade oficial: a de cada piso/bloco da tabela, repartida entre as ruas pela regra.
+  // ---- capacidade: a de cada piso/bloco da tabela, repartida entre as ruas pela regra.
+  // No piso 1 a tabela já é a soma da regra (fator = 1); nos pisos 2–4 é a tabela padrão.
   // Assim a soma de cada piso/bloco na planta é igual à tabela (saldo e capacidade).
   const somaRegra = {};
   ruasCalc.forEach(o => { somaRegra[o.regiao] = (somaRegra[o.regiao] || 0) + o.capRegra; });
@@ -353,7 +354,7 @@ window.montarPlanta3D = async function (container, payload) {
   q('base').textContent = (fonte === 'estoque'
       ? 'Saldo: mesmo arquivo e mesmas regiões da tabela acima ("Atualizar Estoque"' + (base ? ' de ' + formatarDataBR(base) : '') + '). '
       : 'Saldo: Estoque WMS do último "Atualizar Balanço"' + (base ? ' (' + formatarDataBR(base) + ')' : '') + ' — rode "Atualizar Estoque" para a planta usar o mesmo arquivo da tabela. ')
-    + 'Capacidade: a oficial de cada piso/bloco da tabela, repartida entre as ruas pela regra por endereço (sem os endereços inativos); no vestuário, pelo nº de prédios de cada rua.';
+    + 'Capacidade: no piso 1, a regra por endereço (sem os endereços inativos); nos pisos 2 a 4, a capacidade padrão de cada piso/bloco, repartida entre as ruas pela regra; no vestuário, pelo nº de prédios de cada rua. A soma de cada piso/bloco é igual à tabela acima.';
 
   const THREE = window.THREE;
   let renderer;

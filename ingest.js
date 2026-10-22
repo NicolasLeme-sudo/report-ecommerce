@@ -2548,13 +2548,16 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // ESTOQUE (OPERAÇÃO) + BALANÇO (GESTÃO)
 // =========================================================
 
-// Capacidades ajustadas pelo gestor da operação. Revisão de 11/09: de novo
-// só Piso 1-A (67.320 -> 65.920) e Piso 1-B (88.110 -> 83.360) mudaram;
-// Piso 1-C ficou igual (60.660). Resto de Calçados (Pisos 2-4) e Vestuário
-// (E/F/G) segue igual desde a revisão de 31/08. Revisão anterior: 02/09
-// (Piso 1-A 73.080 -> 67.320, Piso 1-B 92.160 -> 88.110).
+// Capacidades por piso/bloco.
+// Piso 1 (revisão de 22/10): pela regra física por endereço — mesma de "Endereços com
+// disponibilidade" e da planta 3D (ruas 01–34: 60/60/40 por nível; ruas 35–47: bloco A
+// 60/60/40, B 50/50/70, C 50/60/60), somando os endereços que existem (prédios do WMS,
+// sem os ENDERECOS_INATIVOS e sem a rua A47, que no WMS não é da região PISO 1 - A):
+//   A 1.266 endereços = 67.520 · B 1.673 = 90.640 · C 1.050 = 56.050.
+//   (antes: A 65.920, B 83.360, C 60.660, ajustadas pelo gestor em 11/09)
+// Pisos 2–4 e Vestuário (E/F/G): tabela padrão da operação, igual desde 31/08.
 const CAPACIDADES = {
-  "PISO 1 - A": 65920,  "PISO 1 - B": 83360,  "PISO 1 - C": 60660,
+  "PISO 1 - A": 67520,  "PISO 1 - B": 90640,  "PISO 1 - C": 56050,
   "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
   "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
   "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,
