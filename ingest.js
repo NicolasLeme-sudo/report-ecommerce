@@ -2674,16 +2674,36 @@ async function processarEstoqueOperacao(files, options) {
   onProgress("Lendo Estoque Picking...");
   await uploadArquivoOriginal("estoque/Estoque_Picking.tsv", files.arquivoEstoque);
   const texto = await files.arquivoEstoque.text();
-  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)"]);
+  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)", "Local"]);
 
+  // Além do total por região (tabela), guarda o saldo por prédio com a região de cada
+  // endereço — é o que a planta 3D usa, então ela fecha exatamente com a tabela (mesmo
+  // arquivo, mesmas regiões). Se o arquivo não tiver a coluna "Local", o mapa fica vazio
+  // e a planta usa o Estoque WMS do Balanço.
   const saldoPorPiso = {};
+  const mapaPred = new Map(), regioes = [], idxRegiao = {}, foraDoMapa = {};
   linhas.forEach(function(r) {
     const tipo = normalizarEncoding(r["Tipo do Local"] || "");
     if (!tipo.toUpperCase().includes("PICKING")) return;
     const regiao = normalizarEncoding(r["Região"] || "").toUpperCase().trim();
     if (!regiao.startsWith("PISO")) return;
-    saldoPorPiso[regiao] = (saldoPorPiso[regiao] || 0) + (Number(r["Estoque (UN)"]) || 0);
+    const qtd = Number(r["Estoque (UN)"]) || 0;
+    saldoPorPiso[regiao] = (saldoPorPiso[regiao] || 0) + qtd;
+    const local = String(r["Local"] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (!/^[ABCEFG]\d{8}$/.test(local)) { if (r["Local"] !== undefined && r["Local"] !== "") foraDoMapa[regiao] = (foraDoMapa[regiao] || 0) + qtd; return; }
+    if (!(regiao in idxRegiao)) { idxRegiao[regiao] = regioes.length; regioes.push(regiao); }
+    const chave = local.slice(0, 7) + "|" + idxRegiao[regiao];          // bloco+rua+prédio+piso | região
+    mapaPred.set(chave, (mapaPred.get(chave) || 0) + qtd);
   });
+  const mapa = mapaPred.size ? {
+    regioes: regioes,
+    // [bloco, rua, prédio, piso, saldo, índice da região]
+    linhas: Array.from(mapaPred.entries()).map(function(e) {
+      const l = e[0].split("|")[0];
+      return [l[0], +l.slice(1, 3), +l.slice(3, 6), +l[6], e[1], +e[0].split("|")[1]];
+    }),
+    fora: foraDoMapa,
+  } : null;
 
   const registros = Object.keys(CAPACIDADES).map(function(pb) {
     const saldo = saldoPorPiso[pb] || 0;
@@ -2697,18 +2717,20 @@ async function processarEstoqueOperacao(files, options) {
   const resultado = await supabaseClient.from("estoque_picking").insert(registros);
   falharSeErro(resultado, "Erro ao gravar estoque_picking");
 
-  await salvarSnapshot("estoque", "auto", gerarPayloadEstoque(registros));
+  await salvarSnapshot("estoque", "auto", gerarPayloadEstoque(registros, mapa));
   await registrarLog("estoque", "Estoque_Picking", registros.length);
-  onProgress("✓ Estoque atualizado! " + registros.length + " pisos/blocos gravados.");
+  onProgress("✓ Estoque atualizado! " + registros.length + " pisos/blocos gravados." +
+    (mapa ? "" : " (O arquivo não tem a coluna \"Local\": a planta 3D usa o Estoque WMS do último Balanço.)"));
 }
 
-function gerarPayloadEstoque(registros) {
+function gerarPayloadEstoque(registros, mapa) {
   const totalSaldo = registros.reduce(function(s,r){ return s + r.saldo; }, 0);
   const totalCap   = registros.reduce(function(s,r){ return s + r.capacidade; }, 0);
   return {
     gerado_em: new Date().toISOString(),
     pisos: registros,
     total: { saldo: totalSaldo, capacidade: totalCap, pct_ocupacao: totalCap > 0 ? (totalSaldo / totalCap) * 100 : 0 },
+    mapa: mapa || null,   // saldo por prédio e região, para a planta 3D (planta3d.js)
   };
 }
 

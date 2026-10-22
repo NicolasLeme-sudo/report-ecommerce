@@ -74,50 +74,84 @@ function inativos() {
   try { Object.keys(ENDERECOS_INATIVOS).forEach(k => ENDERECOS_INATIVOS[k].forEach(e => { m[e] = k; })); } catch (e) { /* lista não carregada */ }
   return m;
 }
+// Linhas por prédio da fonte mais próxima da tabela: o mapa salvo pelo "Atualizar Estoque"
+// (mesmo arquivo e mesmas regiões da tabela) e, se não houver, a view do Balanço WMS.
+async function obterLinhas(payload) {
+  const m = payload && payload.mapa;
+  if (m && m.linhas && m.linhas.length) {
+    return { fonte: 'estoque', base: payload.gerado_em || null,
+      linhas: m.linhas.map(l => ({ bloco: l[0], rua: l[1], predio: l[2], piso: l[3], saldo: l[4], regiao: m.regioes[l[5]] })) };
+  }
+  const linhas = await buscarMapa();
+  let base = null; linhas.forEach(l => { if (l.gerado_em && (!base || l.gerado_em > base)) base = l.gerado_em; });
+  return { fonte: 'balanco', base, linhas };
+}
+const normReg = s => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+// maior saldo vence (empate: a primeira vista)
+function regiaoMaior(mapa) { let melhor = null, v = -Infinity; mapa.forEach((s, r) => { if (s > v) { v = s; melhor = r; } }); return melhor; }
 function montarDados(linhas, payload) {
-  const inat = inativos(), saldoPred = new Map(), maxPred = new Map(), vest = new Map();
-  let base = null;
+  const inat = inativos(), capTab = {};
+  ((payload && payload.pisos) || []).forEach(x => { capTab[normReg(x.piso_bloco)] = Number(x.capacidade) || 0; });
+  const padrao = (b, p) => 'PISO ' + p + ' - ' + b;
+  // ---- agrega por prédio, guardando a região de cada um
+  const pred = new Map(), maxPred = new Map(), regRua = new Map(), vest = new Map();
   linhas.forEach(l => {
-    if (l.gerado_em && (!base || l.gerado_em > base)) base = l.gerado_em;
     const b = l.bloco, r = +l.rua, p = +l.piso, pr = +l.predio, s = Number(l.saldo) || 0;
+    const reg = normReg(l.regiao || padrao(b, p));
     if ('ABC'.includes(b)) {
       if (p < 1 || p > 4) return;
       const k = b + '|' + r + '|' + p;
       maxPred.set(k, Math.max(maxPred.get(k) || 0, pr));
-      saldoPred.set(k + '|' + pr, (saldoPred.get(k + '|' + pr) || 0) + s);
+      let o = pred.get(k + '|' + pr); if (!o) { o = { saldo: 0, regs: new Map() }; pred.set(k + '|' + pr, o); }
+      o.saldo += s; o.regs.set(reg, (o.regs.get(reg) || 0) + s);
+      let rr = regRua.get(k); if (!rr) { rr = new Map(); regRua.set(k, rr); } rr.set(reg, (rr.get(reg) || 0) + s);
     } else {
       const k = b + '|' + r; let o = vest.get(k);
-      if (!o) { o = { b, r, saldo: 0, np: 0, n: 0 }; vest.set(k, o); }
-      o.saldo += s; o.np = Math.max(o.np, pr); o.n += Number(l.enderecos) || 0;
+      if (!o) { o = { b, r, saldo: 0, np: 0, n: 0, regs: new Map() }; vest.set(k, o); }
+      o.saldo += s; o.np = Math.max(o.np, pr); o.n += Number(l.enderecos) || 0; o.regs.set(reg, (o.regs.get(reg) || 0) + s);
     }
   });
-  // calçados: uma entrada por bloco × rua × piso × lado (par, ímpar, parte de trás da rua 01)
+  // ---- calçados: uma entrada por bloco × rua × piso × lado × região; capacidade pela regra por endereço
   const ruasCalc = new Map();
   maxPred.forEach((np, k) => {
-    const [b, rs, ps] = k.split('|'), r = +rs, p = +ps;
+    const [b, rs, ps] = k.split('|'), r = +rs, p = +ps, regPadrao = regiaoMaior(regRua.get(k) || new Map()) || padrao(b, p);
     for (let pr = 1; pr <= np; pr++) {
       const face = r === 1 && pr > FRENTE[b] ? 'tras' : (pr % 2 ? 'impar' : 'par');
-      const kk = k + '|' + face; let o = ruasCalc.get(kk);
-      if (!o) { o = { b, r, p, face, saldo: 0, cap: 0, n: 0, preds: new Set() }; ruasCalc.set(kk, o); }
-      let capPred = 0, nPred = 0;
+      const dp = pred.get(k + '|' + pr), reg = dp ? regiaoMaior(dp.regs) : regPadrao;
+      const kk = k + '|' + face + '|' + reg; let o = ruasCalc.get(kk);
+      if (!o) { o = { b, r, p, face, regiao: reg, saldo: 0, capRegra: 0, n: 0, preds: new Set() }; ruasCalc.set(kk, o); }
       for (let n = 1; n <= 3; n++) {
         if (inat[b + pad(r) + pad(pr, 3) + p + pad(n)]) continue;
-        capPred += capEnd(b, r, p, n); nPred++;
+        o.capRegra += capEnd(b, r, p, n); o.n++;
       }
-      o.saldo += saldoPred.get(k + '|' + pr) || 0; o.cap += capPred; o.n += nPred; o.preds.add(pr);
+      o.saldo += dp ? dp.saldo : 0; o.preds.add(pr);
     }
   });
-  ruasCalc.forEach(o => { o.pct = o.cap ? Math.min(100, o.saldo / o.cap * 100) : (o.saldo ? 100 : 0); o.np = o.preds.size; });
-  // vestuário: capacidade do piso/bloco (snapshot) repartida pelo nº de prédios de cada rua
-  const capPiso = {};
-  ((payload && payload.pisos) || []).forEach(x => { capPiso[String(x.piso_bloco).replace(/\s+/g, ' ').trim().toUpperCase()] = x.capacidade; });
+  // ---- capacidade oficial: a de cada piso/bloco da tabela, repartida entre as ruas pela regra.
+  // Assim a soma de cada piso/bloco na planta é igual à tabela (saldo e capacidade).
+  const somaRegra = {};
+  ruasCalc.forEach(o => { somaRegra[o.regiao] = (somaRegra[o.regiao] || 0) + o.capRegra; });
+  ruasCalc.forEach(o => {
+    const tab = capTab[o.regiao];
+    o.foraTabela = !tab;
+    o.cap = tab && somaRegra[o.regiao] ? o.capRegra * tab / somaRegra[o.regiao] : o.capRegra;
+    o.pct = o.cap ? o.saldo / o.cap * 100 : (o.saldo ? 100 : 0);
+    o.np = o.preds.size;
+  });
+  // ---- vestuário: capacidade do piso/bloco repartida pelo nº de prédios de cada rua
   const ruasVest = [];
   ['E', 'F', 'G'].forEach(b => {
-    const lista = []; for (let r = 1; r <= 26; r++) { const o = vest.get(b + '|' + r) || { b, r, saldo: 0, np: 0, n: 0 }; if (!o.np) o.np = (b === 'E' && r <= 13) || (b === 'G' && r >= 14) ? 28 : 42; lista.push(o); }
-    const somaNp = lista.reduce((a, o) => a + o.np, 0), capB = capPiso['PISO 1 - ' + b] || 0;
-    lista.forEach(o => { o.cap = capB * o.np / somaNp; o.pct = o.cap ? Math.min(100, o.saldo / o.cap * 100) : 0; ruasVest.push(o); });
+    const lista = [];
+    for (let r = 1; r <= 26; r++) {
+      const o = vest.get(b + '|' + r) || { b, r, saldo: 0, np: 0, n: 0, regs: new Map() };
+      if (!o.np) o.np = (b === 'E' && r <= 13) || (b === 'G' && r >= 14) ? 28 : 42;
+      o.regiao = regiaoMaior(o.regs) || padrao(b, 1);
+      lista.push(o);
+    }
+    const somaNp = lista.reduce((a, o) => a + o.np, 0), capB = capTab[padrao(b, 1)] || 0;
+    lista.forEach(o => { o.cap = capB * o.np / somaNp; o.pct = o.cap ? o.saldo / o.cap * 100 : 0; ruasVest.push(o); });
   });
-  return { ruasCalc, ruasVest, base };
+  return { ruasCalc, ruasVest };
 }
 
 /* ---------------- cores ---------------- */
@@ -249,7 +283,7 @@ function mostraTip(x, y, html) {
 }
 const escondeTip = () => { const t = document.getElementById('p3-tip'); if (t) t.hidden = true; };
 function tipHtml(titulo, o, extra) {
-  const num = o.cap ? '<div class="p" style="color:' + corCSS(o.pct) + '">' + fmtP(o.pct) + '</div><div class="s">Saldo ' + fmtI(o.saldo) + ' · Capacidade ' + fmtI(o.cap) + ' · Livre ' + fmtI(Math.max(0, o.cap - o.saldo)) + '</div>'
+  const num = o.cap ? '<div class="p" style="color:' + corCSS(o.pct) + '">' + fmtP(o.pct) + (o.pct > 100.05 ? ' <span style="font-size:12px">acima da capacidade</span>' : '') + '</div><div class="s">Saldo ' + fmtI(o.saldo) + ' · Capacidade ' + fmtI(o.cap) + ' · Livre ' + fmtI(Math.max(0, o.cap - o.saldo)) + '</div>'
     : '<div class="s">Saldo ' + fmtI(o.saldo) + ' · sem capacidade cadastrada</div>';
   return '<div class="t">' + titulo + '</div>' + num + (extra ? '<div class="s">' + extra + '</div>' : '');
 }
@@ -309,13 +343,17 @@ window.montarPlanta3D = async function (container, payload) {
   let dados;
   try {
     await garantirThree();
-    dados = montarDados(await buscarMapa(), payload);
+    const fonte = await obterLinhas(payload);
+    dados = montarDados(fonte.linhas, payload); dados.fonte = fonte.fonte; dados.base = fonte.base;
   } catch (e) {
     console.error(e); msg.textContent = 'Não foi possível montar a planta 3D: ' + e.message; return;
   }
   if (!container.isConnected || !stage.isConnected) return;   // tela trocada enquanto carregava
-  const { ruasCalc, ruasVest, base } = dados;
-  if (base) q('base').textContent = 'Saldo por endereço: Estoque WMS do último "Atualizar Balanço" (' + formatarDataBR(base) + '). Capacidade: calçados pela regra por endereço (sem os endereços inativos); vestuário pela capacidade do piso/bloco, repartida pelos prédios de cada rua.';
+  const { ruasCalc, ruasVest, base, fonte } = dados;
+  q('base').textContent = (fonte === 'estoque'
+      ? 'Saldo: mesmo arquivo e mesmas regiões da tabela acima ("Atualizar Estoque"' + (base ? ' de ' + formatarDataBR(base) : '') + '). '
+      : 'Saldo: Estoque WMS do último "Atualizar Balanço"' + (base ? ' (' + formatarDataBR(base) + ')' : '') + ' — rode "Atualizar Estoque" para a planta usar o mesmo arquivo da tabela. ')
+    + 'Capacidade: a oficial de cada piso/bloco da tabela, repartida entre as ruas pela regra por endereço (sem os endereços inativos); no vestuário, pelo nº de prédios de cada rua.';
 
   const THREE = window.THREE;
   let renderer;
@@ -379,7 +417,7 @@ window.montarPlanta3D = async function (container, payload) {
       const nome = 'Bloco ' + o.b + ' · Rua ' + pad(o.r) + ' · ' + (o.face === 'tras' ? 'parte de trás da longarina' : 'lado ' + (o.face === 'par' ? 'par' : 'ímpar')) + ' · Piso ' + p;
       const faixa = ' · prédios ' + pad(Math.min(...o.preds), 3) + ' a ' + pad(mx, 3);
       itens.push({ x: BL[o.b].x1 - len / 2 - .1, y: (p - 1) * HP, z, w: len - .2, h: .55, d: pP * .34, pct: o.pct,
-        tip: () => tipHtml(nome, o, o.np + ' prédios' + faixa + ' · ' + o.n + ' endereços' + (o.face === 'tras' ? '<br>Numeração ' + numTras + ' que continua por trás da longarina' : '')) });
+        tip: () => tipHtml(nome, o, o.np + ' prédios' + faixa + ' · ' + o.n + ' endereços' + (o.face === 'tras' ? '<br>Numeração ' + numTras + ' que continua por trás da longarina' : '') + (o.foraTabela ? '<br>Região "' + o.regiao + '" no WMS: não entra na tabela por piso/bloco' : '')) });
     });
     lote(itens, 'calc', p);
   }
