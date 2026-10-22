@@ -2552,12 +2552,12 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // Piso 1 (revisão de 22/10, cadastro de endereços do WMS): endereços ATIVOS de calçados no WMS
 // × regra física por endereço (ruas 01–34: 60/60/40 por nível; ruas 35–47: bloco A 60/60/40,
 // B 50/50/70, C 50/60/60), sem os que a operação confirmou que não existem
-// (enderecoNaoExisteConfirmado — A46 lado ímpar):
-//   A 1.248 endereços = 66.560 · B 1.595 = 86.500 · C 1.026 = 54.770.
+// (enderecoNaoExisteConfirmado — A46 lado ímpar, B35 prédio 005 e B36 lado ímpar, validados em 22/10):
+//   A 1.248 endereços = 66.560 · B 1.574 = 85.310 · C 1.026 = 54.770.
 //   (antes: A 65.920, B 83.360, C 60.660, ajustadas pelo gestor em 11/09)
 // Pisos 2–4 e Vestuário (E/F/G): tabela padrão da operação, igual desde 31/08.
 const CAPACIDADES = {
-  "PISO 1 - A": 66560,  "PISO 1 - B": 86500,  "PISO 1 - C": 54770,
+  "PISO 1 - A": 66560,  "PISO 1 - B": 85310,  "PISO 1 - C": 54770,
   "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
   "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
   "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,
@@ -2681,7 +2681,17 @@ var CROSS_MAP = [
 // fisicamente (pendentes de inativação no WMS — ver Divergencias_cadastro_WMS). Saem da planta 3D,
 // do "Endereços com disponibilidade" e da capacidade. Quando inativarem no WMS e o cadastro for
 // recarregado, a regra deixa de ter efeito sozinha.
+// Validação de 22/10 (planilha Divergencias_cadastro_WMS): o time vai inativar no WMS.
+const ENDERECOS_A_INATIVAR_WMS = new Set([
+  "B35005101", "B35005102", "B35005103", "B36001101", "B36001102", "B36001103", "B36003101", "B36003102", "B36003103", "B36005101",
+  "B36005102", "B36005103", "B36007101", "B36007102", "B36007103", "B36009101", "B36009102", "B36009103", "B36011101", "B36011102",
+  "B36011103", "C12010403", "C13009403", "C13010403", "C14009403",
+  // B33 prédios 005/007, pisos 2 e 4, cadastrados na região "PISO 1 - B" (vazios)
+  "B33005201", "B33005202", "B33005203", "B33005401", "B33005402", "B33005403", "B33007201", "B33007202", "B33007203", "B33007401",
+  "B33007402", "B33007403"
+]);
 function enderecoNaoExisteConfirmado(e) {
+  if (ENDERECOS_A_INATIVAR_WMS.has(e)) return "Validado em 22/10: não existe (sem saldo), a inativar no WMS";
   const b = e[0], r = Number(e.slice(1, 3)), pr = Number(e.slice(3, 6)), p = Number(e[6]);
   if (b === "A" && r >= 35 && r <= 46 && p >= 2 && pr > 6) return "Bloco A, ruas 35–46: só vai até o prédio 006 (pisos 2–4)";
   if (b === "A" && r === 46 && p === 1 && pr % 2 === 1) return "A46 piso 1: o lado ímpar não existe";
