@@ -2552,12 +2552,13 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
 // Piso 1 (revisão de 22/10): pela regra física por endereço — mesma de "Endereços com
 // disponibilidade" e da planta 3D (ruas 01–34: 60/60/40 por nível; ruas 35–47: bloco A
 // 60/60/40, B 50/50/70, C 50/60/60), somando os endereços que existem (prédios do WMS,
-// sem os ENDERECOS_INATIVOS e sem a rua A47, que no WMS não é da região PISO 1 - A):
-//   A 1.266 endereços = 67.520 · B 1.673 = 90.640 · C 1.050 = 56.050.
+// sem os ENDERECOS_INATIVOS — inclui os lados que não existem da A46/B47 e a rua A47, que é
+// de vestuário):
+//   A 1.257 endereços = 67.040 · B 1.658 = 89.790 · C 1.050 = 56.050.
 //   (antes: A 65.920, B 83.360, C 60.660, ajustadas pelo gestor em 11/09)
 // Pisos 2–4 e Vestuário (E/F/G): tabela padrão da operação, igual desde 31/08.
 const CAPACIDADES = {
-  "PISO 1 - A": 67520,  "PISO 1 - B": 90640,  "PISO 1 - C": 56050,
+  "PISO 1 - A": 67040,  "PISO 1 - B": 89790,  "PISO 1 - C": 56050,
   "PISO 2 - A": 75060,  "PISO 2 - B": 96120,  "PISO 2 - C": 78660,
   "PISO 3 - A": 75060,  "PISO 3 - B": 96120,  "PISO 3 - C": 78660,
   "PISO 4 - A": 75060,  "PISO 4 - B": 96120,  "PISO 4 - C": 78660,

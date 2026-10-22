@@ -100,6 +100,7 @@ function montarDados(linhas, payload) {
     const reg = normReg(l.regiao || padrao(b, p));
     if ('ABC'.includes(b)) {
       if (p < 1 || p > 4) return;
+      if (b === 'A' && r === 47) return;   // rua A47 é de vestuário (região "PISO 1 - A (VESTUÁRIO)"): fora do relatório de calçados
       const k = b + '|' + r + '|' + p;
       maxPred.set(k, Math.max(maxPred.get(k) || 0, pr));
       let o = pred.get(k + '|' + pr); if (!o) { o = { saldo: 0, regs: new Map() }; pred.set(k + '|' + pr, o); }
@@ -120,11 +121,14 @@ function montarDados(linhas, payload) {
       const dp = pred.get(k + '|' + pr), reg = dp ? regiaoMaior(dp.regs) : regPadrao;
       const kk = k + '|' + face + '|' + reg; let o = ruasCalc.get(kk);
       if (!o) { o = { b, r, p, face, regiao: reg, saldo: 0, capRegra: 0, n: 0, preds: new Set() }; ruasCalc.set(kk, o); }
+      let ativos = 0;
       for (let n = 1; n <= 3; n++) {
         if (inat[b + pad(r) + pad(pr, 3) + p + pad(n)]) continue;
-        o.capRegra += capEnd(b, r, p, n); o.n++;
+        o.capRegra += capEnd(b, r, p, n); o.n++; ativos++;
       }
-      o.saldo += dp ? dp.saldo : 0; o.preds.add(pr);
+      const sp = dp ? dp.saldo : 0;
+      o.saldo += sp;
+      if (ativos || sp) o.preds.add(pr);   // prédio todo inativo/inexistente não conta no comprimento do lado
     }
   });
   // ---- capacidade: a de cada piso/bloco da tabela, repartida entre as ruas pela regra.
@@ -410,6 +414,7 @@ window.montarPlanta3D = async function (container, payload) {
     const itens = [];
     ruasCalc.forEach(o => {
       if (o.p !== p) return;
+      if (!o.preds.size) return;   // lado sem nenhum endereço ativo e sem saldo: não existe (ex.: A46 ímpar, B47 par no piso 1)
       const pP = pit(o.b), zc = zRow(o.b, o.r), mx = Math.max(...o.preds);
       const posicoes = o.face === 'tras' ? Math.ceil((mx - FRENTE[o.b]) / 2) : baia(mx);
       const len = Math.max(1, posicoes) * wB(o.b);

@@ -3760,7 +3760,8 @@ function exportarHistoricoBalanco() {
   });
 }
 
-// Endereços de picking que NÃO existem fisicamente (validação da operação, planilha de 19/10/2026 — revisão com 230 endereços).
+// Endereços de picking que NÃO existem fisicamente (validação da operação, planilha de 19/10/2026 — revisão com 230 endereços;
+// 22/10: lados inexistentes da A46/B47 no piso 1 e a rua A47, que é de vestuário).
 // Saem da lista de endereços sem saldo. Novos ajustes: incluir aqui (ou mover para uma tabela no banco).
 const ENDERECOS_INATIVOS = {
   "Não existe fisicamente": [
@@ -3792,6 +3793,17 @@ const ENDERECOS_INATIVOS = {
   "Caixa de faturamento/Esteira": [
     "C22009303", "C35002101", "C35002102", "C35002103", "C35004101", "C35004102", "C35004103", "C35006101", "C35006102", "C35006103",
     "C35008101", "C35008102", "C35008103", "C35010101", "C35010102", "C35010103"
+  ],
+  // 22/10: lados de rua que não existem no piso 1 (A46 só tem o lado par; B47 só o ímpar)
+  "Lado da rua não existe": [
+    "A46001101", "A46001102", "A46001103", "A46003101", "A46003102", "A46003103", "A46005101", "A46005102", "A46005103", "B47002101",
+    "B47002102", "B47002103", "B47004101", "B47004102", "B47004103", "B47006101", "B47006102", "B47006103", "B47008101", "B47008102",
+    "B47008103", "B47010101", "B47010102", "B47010103"
+  ],
+  // 22/10: rua A47 é de vestuário (região "PISO 1 - A (VESTUÁRIO)" no WMS, só lado par) — fora do relatório de calçados
+  "Rua de vestuário (A47)": [
+    "A47002101", "A47002102", "A47002103", "A47004101", "A47004102", "A47004103", "A47006101", "A47006102", "A47006103", "A47008101",
+    "A47008102", "A47008103", "A47010101", "A47010102", "A47010103"
   ]
 };
 
