@@ -208,8 +208,8 @@ const RAMPS = {
   light: [[0, '#2A8F55'], [.6, '#4DB84D'], [.72, '#BFC232'], [.82, '#E9A800'], [.92, '#E06A1B'], [1, '#B5122B']]
 };
 const INFRA = {
-  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E' },
-  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2' }
+  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E' },
+  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2' }
 };
 const tema = () => document.documentElement.getAttribute('data-tema') === 'claro' ? 'light' : 'dark';
 const hex2 = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -307,7 +307,7 @@ const pit = b => (BL[b].z1 - BL[b].z0) / 48;
 const zRow = (b, row) => BL[b].z0 + (row + .5) * pit(b);
 const wB = b => 2 * wP(b);
 const baia = pr => Math.ceil(pr / 2);
-const VX0 = 45.5, VX1 = 72, vPit = (VX1 - VX0) / 13;
+const VX0 = 53.3, VX1 = 79.8, vPit = (VX1 - VX0) / 13;   // vestuário praticamente colado na divisão de módulos
 const ESCADAS_B = [4, 18, 32];   // rua do meio de cada escada (cadastro do WMS: prédios 005–008 inativos nas ruas 03–05, 17–19, 31–33)
 const VB = { G: [[36.5, 47], [48, 58.5]], F: [[60, 70.5], [71.5, 82]], E: [[84, 94.5], [95.5, 106]] };
 const posVest = r => r >= 14 ? { meia: 0, col: r - 14 } : { meia: 1, col: 13 - r };
@@ -317,9 +317,9 @@ function zVest(b, r, np) {
   return ps.meia === 0 ? [zz[1] - L * k, zz[1]] : [zz[0], zz[0] + L * k];
 }
 const VIEWS = {
-  geral: { t: [106, 2, 78], o: [-46, 88, 118], top: 215 },
+  geral: { t: [108, 2, 84], o: [-48, 94, 124], top: 225 },
   calc:  { t: [128, 6, 76], o: [-38, 74, 98], top: 180 },
-  vest:  { t: [62, 0, 72], o: [-30, 62, 78], top: 175 }
+  vest:  { t: [67, 0, 74], o: [-30, 62, 78], top: 175 }
 };
 const CORES_COLMEIA = [['01','BLACK','#111111'],['02','BRANCA','#F4F6F8'],['03','AMARELA','#FFFF00'],['04','AZUL','#0A0A8C'],
   ['05','VERDE','#33CC33'],['06','VERMELHA','#FF1A1A'],['07','LARANJA','#FF8C00'],['08','LILÁS','#DDA0DD'],['09','ROSA','#FF00FF'],
@@ -461,7 +461,7 @@ window.montarPlanta3D = async function (container, payload) {
   }
 
   /* ---------- cena ---------- */
-  caixa(42, 30, 171, 127, -.3, .3, 'chao', 'comum');
+  caixa(46, 30, 171, 127, -.3, .3, 'chao', 'comum');
   for (let p = 2; p <= 4; p++) caixa(86.5, 38, 168.5, 112, (p - 1) * HP - .12, .1, 'piso', 'calc', { op: .5, piso: p });
 
   // calçados: uma faixa por rua × lado × piso
@@ -489,10 +489,11 @@ window.montarPlanta3D = async function (container, payload) {
       tip: () => tipHtml('Vestuário · Bloco ' + o.b + ' · Rua ' + pad(o.r), o, o.np + ' prédios' + (o.n ? ' · ' + fmtI(o.n) + ' endereços com saldo' : '')) };
   }), 'vest', 1);
 
-  caixa(76.6, 27, 77.6, 106.5, 0, 4 * HP + 1, 'parede', 'comum', { op: .45, tip: tipInfo('Divisão de módulos do galpão', 'Separa o módulo de vestuário (E, F, G) do de calçados (A, B, C).') });
+  caixa(80.15, 27, 80.95, 106.5, 0, 4 * HP + 1, 'parede', 'comum', { op: .45, tip: tipInfo('Divisão de módulos do galpão', 'Separa o módulo de vestuário (E, F, G) do de calçados (A, B, C).') });
   // elevador
   const ex0 = BL.A.x1 - 10 * wP('A'), ex1 = BL.A.x1 - 6 * wP('A'), ez = zRow('A', 35);
-  caixa(ex0 + .2, ez - 1.6, ex1 - .2, ez + 1.6, 0, 4 * HP + .8, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Elevador', 'Rua A35, prédios 007 a 010 · liga os 4 pisos') });
+  const exm = ex0 + (ex1 - ex0) / 2;   // a lateral comprida tem metade dos 4 prédios
+  caixa(ex0 + .2, ez - 1.6, exm, ez + 1.6, 0, 4 * HP + .8, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Elevador', 'Rua A35, prédios 007 a 010 · liga os 4 pisos') });
   // eclusa
   caixa(81, 96, 87.5, 111.5, 0, .06, 'eclusa', 'calc', { piso: 1, tip: tipInfo('Eclusa de buffer', 'Cerca de 10 pallets (2 fileiras de 5) aguardando subir aos pisos') });
   const pal = [], car = [];
@@ -554,36 +555,57 @@ window.montarPlanta3D = async function (container, payload) {
       else caixa(x1 - .17, b, x1 - .05, b + .12, 0, .62, 'perna', 'calc', { piso: 1 });
     }
   });
-  // mesas ADM
-  function mesa(x0, nome, cadeiraDir, zLbl) {
-    const z0 = 117.5, z1 = 122.1, x1 = x0 + 1.5, t = tipInfo(nome, 'Mesa de aprox. 2 m × 6 m');
-    caixa(x0, z0, x1, z1, .62, .1, 'mesa', 'comum', { tip: t });
-    [[x0 + .1, z0 + .1], [x1 - .3, z0 + .1], [x0 + .1, z1 - .3], [x1 - .3, z1 - .3]].forEach(([a, b]) => caixa(a, b, a + .2, b + .2, 0, .62, 'perna', 'comum'));
-    const cx = cadeiraDir ? x1 + .2 : x0 - .8;
-    for (let i = 0; i < 3; i++) caixa(cx, z0 + .6 + i * 1.5, cx + .6, z0 + 1.2 + i * 1.5, 0, .45, 'perna', 'comum');
-    rotulo(nome, (x0 + x1) / 2, 2.2, zLbl, 'comum', 'inf');
+  // ---- mesas administrativas com as pessoas (escala: 1 unidade ≈ 1,3 m; o estoque fica "acima", z menor)
+  const MZ0 = 113.8, MZ1 = 121.8, MLARG = 1.5;          // mesa de ~2 m × ~10 m, comprida no sentido do estoque
+  function pessoa(x, z, dx, dz, nome, coord) {           // (dx, dz) = para onde a pessoa olha (a mesa)
+    const tip = tipInfo(nome, coord ? 'Coordenadora, de costas para o estoque' : 'Posto com computador');
+    caixa(x - .24, z - .24, x + .24, z + .24, .34, .07, 'cadeira', 'comum');                          // assento
+    const bx = x - dx * .26, bz = z - dz * .26;                                                     // encosto atrás
+    caixa(bx - (dz ? .24 : .04), bz - (dx ? .24 : .04), bx + (dz ? .24 : .04), bz + (dx ? .24 : .04), .41, .45, 'cadeira', 'comum');
+    const tr = new THREE.Mesh(new THREE.CylinderGeometry(.16, .2, .55, 12), new THREE.MeshLambertMaterial());
+    tr.position.set(x, .7, z); tr.userData.tip = tip; tr.userData.baseOp = 1;
+    reg(tr, 'comum', 0, () => tr.material.color.copy(cor(coord ? 'coord' : 'pessoa')), true);
+    const cb = new THREE.Mesh(new THREE.SphereGeometry(.13, 14, 10), new THREE.MeshLambertMaterial());
+    cb.position.set(x, 1.12, z); cb.userData.tip = tip; cb.userData.baseOp = 1;
+    reg(cb, 'comum', 0, () => cb.material.color.copy(cor('pele')), true);
+    // computador na mesa, de frente para a pessoa
+    const mx = x + dx * .95, mz = z + dz * .95, larg = .46, esp = .05;
+    const [ax, az] = dx ? [esp, larg] : [larg, esp];
+    caixa(mx - ax / 2, mz - az / 2, mx + ax / 2, mz + az / 2, .72, .34, 'monitor', 'comum', { tip });
+    const sx = mx - dx * .035, sz = mz - dz * .035, [tx, tz] = dx ? [.012, larg - .06] : [larg - .06, .012];
+    caixa(sx - tx / 2, sz - tz / 2, sx + tx / 2, sz + tz / 2, .75, .27, 'tela', 'comum');
   }
-  mesa(83, 'ADM E-commerce', false, 124.3);
-  mesa(79.2, 'ADM Embarque', true, 115.6);
+  function mesa(x0, nome, lados, zLbl, detalhe) {
+    const x1 = x0 + MLARG, xc = (x0 + x1) / 2, t = tipInfo(nome, detalhe);
+    caixa(x0, MZ0, x1, MZ1, .62, .1, 'mesa', 'comum', { tip: t });
+    [[x0 + .1, MZ0 + .1], [x1 - .3, MZ0 + .1], [x0 + .1, MZ1 - .3], [x1 - .3, MZ1 - .3]].forEach(([a, b]) => caixa(a, b, a + .2, b + .2, 0, .62, 'perna', 'comum'));
+    pessoa(xc, MZ0 - .6, 0, 1, 'Coordenadora · ' + nome, true);                       // na ponta, de costas para o estoque
+    lados.forEach(z => { pessoa(x0 - .6, z, 1, 0, nome, false); pessoa(x1 + .6, z, -1, 0, nome, false); });
+    rotulo(nome, xc, 2.2, zLbl, 'comum', 'inf');
+  }
+  // E-commerce: na frente da eclusa · 5 pessoas de cada lado + coordenadora
+  mesa(83.5, 'ADM E-commerce', [0, 1, 2, 3, 4].map(i => MZ0 + 1.1 + i * 1.45), MZ1 + 3.4, '5 pessoas de cada lado + coordenadora na ponta');
+  // Embarque: do outro lado da divisão, na frente do vestuário · coordenadora + 2 de cada lado na ponta oposta
+  mesa(69.5, 'ADM Embarque', [MZ1 - 2.1, MZ1 - .8], MZ1 + 1.6, '2 pessoas de cada lado na ponta oposta + coordenadora');
   // rótulos
   ['A', 'B', 'C'].forEach(b => rotulo('BLOCO ' + b, (BL[b].x0 + BL[b].x1) / 2, 3 * HP + 2.2, BL[b].z0 - 5, 'calc', 'big'));
   for (let p = 1; p <= 4; p++) rotulo('PISO ' + p, BL.C.x1 + 3.5, (p - 1) * HP + .4, BL.C.z1 - 1, 'calc', 'big', p);
   rotulo('Rua 01', BL.A.x1 + 1.5, 3 * HP + 1, zRow('A', 0), 'calc');
   rotulo('Rua 47', BL.A.x1 + 1.5, 1, zRow('A', 47), 'calc');
   rotulo('Prédio 001 →', BL.B.x1 - 2, 3 * HP + 1.2, BL.B.z0 - .8, 'calc');
-  rotulo('Elevador', (ex0 + ex1) / 2, 4 * HP + 2, ez, 'calc', 'inf');
+  rotulo('Elevador', (ex0 + exm) / 2, 4 * HP + 2, ez, 'calc', 'inf');
   rotulo('Eclusa', 84.2, 2.8, 104, 'calc', 'inf', 1);
   ESCADAS_B.forEach(r => rotulo('Escada', BL.B.x1 - 3 * wB('B'), 4 * HP + 1.6, zRow('B', r), 'calc', 'inf'));
   rotulo('Caixas de faturamento', (BL.C.x0 + BL.C.x1) / 2, 3 * HP + 2.6, (fz0 + fz1) / 2, 'calc', 'inf');
   rotulo('Colmeia', BL.C.x1 - 6, 3.4, cz0 + .6, 'calc', 'inf', 1);
   rotulo('Esteira', exE1 + 2.2, 1.4, (cz0 + cz1) / 2 + 2, 'calc', 'inf', 1);
-  rotulo('Divisão de módulos', 77.1, 4 * HP + 2, 30, 'comum', 'inf');
+  rotulo('Divisão de módulos', 80.55, 4 * HP + 2, 30, 'comum', 'inf');
   ['G', 'F', 'E'].forEach(b => {
     rotulo('BLOCO ' + b, VX0 - 5, 1, (VB[b][0][0] + VB[b][1][1]) / 2, 'vest', 'big');
     const np = r => (ruasVest.find(o => o.b === b && o.r === r) || {}).np;
     const zt = zVest(b, 14, np(14)).reduce((a, c) => a + c) / 2, zb = zVest(b, 1, np(1)).reduce((a, c) => a + c) / 2;
-    rotulo('14', VX0 - .9, 1, zt, 'vest'); rotulo('26', VX1 + 1, 1, zt, 'vest');
-    rotulo('13', VX0 - .9, 1, zb, 'vest'); rotulo('01', VX1 + 1, 1, zb, 'vest');
+    rotulo('14', VX0 - .9, 1, zt, 'vest'); rotulo('26', VX1 + .2, 1, zt, 'vest');
+    rotulo('13', VX0 - .9, 1, zb, 'vest'); rotulo('01', VX1 + .2, 1, zb, 'vest');
   });
   rotulo('VESTUÁRIO · PISO 1', (VX0 + VX1) / 2, 1.5, 32.5, 'vest', 'big');
 
