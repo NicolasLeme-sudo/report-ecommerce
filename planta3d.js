@@ -536,10 +536,10 @@ window.montarPlanta3D = async function (container, payload) {
   eclusa(83, 95, 89.5, 106, 2, todas, 'Eclusa de buffer', 'calc', 'Pallets aguardando subir aos pisos');
   // eclusas da frente do galpão (calçados): cada grupo dentro da largura do seu bloco — nenhuma na frente dos corredores entre blocos
   fileira(96.5, BL.A.x1 - .3, [[2, topo, 'Eclusa 1'], [2, vazia, 'Eclusa 2']], 'calc', 4.4, 2.6, 'Frente do bloco A');
-  fileira(BL.B.x0 + .3, BL.B.x1 - .3, [[2, algumas(3), 'Eclusa 3'], [2, vazia, 'Eclusa 4'], [2, vazia, 'Eclusa 5'],
-    [1, algumas(3), 'Meia eclusa da colmeia']], 'calc', 4.4, 2.6, 'Frente do bloco B');
-  fileira(BL.C.x0 + .3, BL.C.x1 - .3, [[2, algumas(3), 'Eclusa 6'], [2, algumas(2), 'Eclusa 7'], [2, algumas(3), 'Eclusa 8'],
-    [2, vazia, 'Eclusa 9']], 'calc', 4.4, 2.6, 'Frente do bloco C (colmeia)');
+  fileira(BL.B.x0 + .3, BL.B.x1 - .3, [[2, algumas(3), 'Eclusa 3'], [2, vazia, 'Eclusa 4'], [2, algumas(3), 'Eclusa 5'],
+    [2, vazia, 'Eclusa 6'], [1, algumas(3), 'Meia eclusa da colmeia']], 'calc', 4.4, 2.6, 'Frente do bloco B');
+  fileira(BL.C.x0 + .3, BL.C.x1 - .3, [[2, algumas(3), 'Eclusa 7'], [2, algumas(2), 'Eclusa 8'], [2, algumas(3), 'Eclusa 9'],
+    [2, vazia, 'Eclusa 10']], 'calc', 4.4, 2.6, 'Frente do bloco C (colmeia)');
   // eclusas do embarque (frente do vestuário)
   fileira(47, 72, [[2, algumas(7), 'Eclusa do embarque 4'], [2, algumas(7), 'Eclusa do embarque 3'], [2, algumas(7), 'Eclusa do embarque 2'],
     [2, algumas(7), 'Eclusa do embarque 1']], 'comum', 4.4, 2.6, 'Pallets para expedição');
