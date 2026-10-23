@@ -208,8 +208,8 @@ const RAMPS = {
   light: [[0, '#2A8F55'], [.6, '#4DB84D'], [.72, '#BFC232'], [.82, '#E9A800'], [.92, '#E06A1B'], [1, '#B5122B']]
 };
 const INFRA = {
-  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E', corrimao: '#F6BD00', faixa: '#F6BD00', ti: '#8A939E', impressora: '#E8ECF0' },
-  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2', corrimao: '#D9A300', faixa: '#E8B000', ti: '#7C8590', impressora: '#F7F9FB' }
+  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E', corrimao: '#F6BD00', faixa: '#F6BD00', ti: '#8A939E', preta: '#202328', impressora: '#E8ECF0' },
+  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2', corrimao: '#D9A300', faixa: '#E8B000', ti: '#7C8590', preta: '#26292E', impressora: '#F7F9FB' }
 };
 const tema = () => document.documentElement.getAttribute('data-tema') === 'claro' ? 'light' : 'dark';
 const hex2 = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -641,18 +641,20 @@ window.montarPlanta3D = async function (container, payload) {
     const sx = mx - dx * .035, sz = mz - dz * .035, [tx, tz] = dx ? [.012, larg - .06] : [larg - .06, .012];
     caixa(sx - tx / 2, sz - tz / 2, sx + tx / 2, sz + tz / 2, .75, .27, 'tela', 'comum');
   }
-  function mesa(x0, nome, lados, zLbl, detalhe) {
+  function mesa(x0, nome, lados, zLbl, detalhe, roupas) {   // roupas: { esq: [...], dir: [...] }, na ordem dos lugares a partir da coordenadora
     const x1 = x0 + MLARG, xc = (x0 + x1) / 2, t = tipInfo(nome, detalhe);
     caixa(x0, MZ0, x1, MZ1, .62, .1, 'mesa', 'comum', { tip: t });
     [[x0 + .1, MZ0 + .1], [x1 - .3, MZ0 + .1], [x0 + .1, MZ1 - .3], [x1 - .3, MZ1 - .3]].forEach(([a, b]) => caixa(a, b, a + .2, b + .2, 0, .62, 'perna', 'comum'));
     pessoa(xc, MZ0 - .6, 0, 1, 'Coordenadora · ' + nome, true);                       // na ponta, de costas para o estoque
-    lados.forEach(z => { pessoa(x0 - .6, z, 1, 0, nome, false); pessoa(x1 + .6, z, -1, 0, nome, false); });
+    lados.forEach((z, i) => { pessoa(x0 - .6, z, 1, 0, nome, false, roupas.esq[i]); pessoa(x1 + .6, z, -1, 0, nome, false, roupas.dir[i]); });
     rotulo(nome, xc, 2.2, zLbl, 'comum', 'inf');
   }
   // E-commerce: na frente da eclusa · 5 pessoas de cada lado + coordenadora
-  mesa(85, 'ADM E-commerce', [0, 1, 2, 3, 4].map(i => MZ0 + 1.1 + i * 1.45), MZ1 + 3.4, '5 pessoas de cada lado + coordenadora na ponta');
+  mesa(85, 'ADM E-commerce', [0, 1, 2, 3, 4].map(i => MZ0 + 1.1 + i * 1.45), MZ1 + 3.4, '5 pessoas de cada lado + coordenadora na ponta',
+    { esq: ['preta', 'preta', 'ti', 'pessoa', 'ti'], dir: ['preta', 'ti', 'ti', 'ti', 'pessoa'] });
   // Embarque: do outro lado da divisão, na frente do vestuário · coordenadora + 2 de cada lado na ponta oposta
-  mesa(77.5, 'ADM Embarque', [MZ1 - 2.1, MZ1 - .8], MZ1 + 1.6, '2 pessoas de cada lado na ponta oposta + coordenadora');
+  mesa(77.5, 'ADM Embarque', [MZ1 - 2.1, MZ1 - .8], MZ1 + 1.6, '2 pessoas de cada lado na ponta oposta + coordenadora',
+    { esq: ['ti', 'ti'], dir: ['preta', 'ti'] });
   // assistente de TI: 1ª cadeira à direita da coordenadora do Embarque, de roupa cinza, no computador
   pessoa(77.5 - .6, MZ0 + 1.1, 1, 0, 'Assistente de TI · ADM Embarque', false, 'ti', 'Fica na operação · posto com computador');
   // impressora grande ao lado da ponta da mesa, entre a coordenadora e o assistente de TI (mais perto dele), do chão até a altura do monitor
