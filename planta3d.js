@@ -300,7 +300,7 @@ const OP_ESTR = .84;                // estruturas translúcidas só o bastante p
 const BL = {
   A: { x0: 88, x1: 109, z0: 39.5, z1: 109.5, np: 10 },
   B: { x0: 112, x1: 137,   z0: 40, z1: 110.5, np: 12 },
-  C: { x0: 139, x1: 162.5, z0: 40.5, z1: 110.5, np: 10 }
+  C: { x0: 139, x1: 160,   z0: 40.5, z1: 110.5, np: 10 }
 };
 const wP = b => (BL[b].x1 - BL[b].x0) / BL[b].np;
 const pit = b => (BL[b].z1 - BL[b].z0) / 48;
@@ -318,7 +318,7 @@ function zVest(b, r, np) {
 }
 const VIEWS = {
   geral: { t: [106, 2, 90], o: [-48, 94, 124], top: 230 },
-  calc:  { t: [124, 6, 76], o: [-38, 74, 98], top: 180 },
+  calc:  { t: [123, 6, 76], o: [-38, 74, 98], top: 180 },
   vest:  { t: [67, 0, 74], o: [-30, 62, 78], top: 175 }
 };
 const CORES_COLMEIA = [['01','BLACK','#111111'],['02','BRANCA','#F4F6F8'],['03','AMARELA','#FFFF00'],['04','AZUL','#0A0A8C'],
@@ -463,7 +463,7 @@ window.montarPlanta3D = async function (container, payload) {
   }
 
   /* ---------- cena ---------- */
-  caixa(46, 30, 166.5, 127, -.3, .3, 'chao', 'comum');
+  caixa(46, 30, 164, 127, -.3, .3, 'chao', 'comum');
   // lajes dos mezaninos: seguem o recorte do bloco A (ruas 36–47 só têm os prédios 001–006), sem cobrir a área sem endereços
   const zQuebra = zRow('A', 35) + pit('A') / 2, xQuebra = BL.A.x1 - 6 * wP('A') - .3;
   for (let p = 2; p <= 4; p++) {
