@@ -208,8 +208,8 @@ const RAMPS = {
   light: [[0, '#2A8F55'], [.6, '#4DB84D'], [.72, '#BFC232'], [.82, '#E9A800'], [.92, '#E06A1B'], [1, '#B5122B']]
 };
 const INFRA = {
-  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E', corrimao: '#F6BD00' },
-  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2', corrimao: '#D9A300' }
+  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E', corrimao: '#F6BD00', faixa: '#F6BD00' },
+  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2', corrimao: '#D9A300', faixa: '#E8B000' }
 };
 const tema = () => document.documentElement.getAttribute('data-tema') === 'claro' ? 'light' : 'dark';
 const hex2 = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -501,37 +501,47 @@ window.montarPlanta3D = async function (container, payload) {
   // na quebra do bloco A, alinhado à direita (posição definida no editor)
   caixa(92.5, 92, 96.5, 95, 0, 4 * HP + .8, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Elevador', 'Rua A35, prédios 007 a 010 · liga os 4 pisos') });
   // eclusas: 2 colunas × 5 fileiras de pallets (meia eclusa: 1 coluna); a fileira 1 é a mais perto do estoque
-  const pal = [], car = [], vagas = [];
+  // no chão: faixa amarela de contorno e uma faixa de ponta a ponta dividindo as 2 colunas ao meio
+  const pal = [], car = [], faixas = [];
   let semente = 7;
   const sorteio = () => (semente = (semente * 9301 + 49297) % 233280) / 233280;   // fixo: não muda a cada carga
   function eclusa(x0, z0, x1, z1, cols, ocupa, nome, seg, detalhe) {
-    const n = cols * 5, cheias = ocupa(n);
-    caixa(x0, z0, x1, z1, 0, .05, 'eclusa', seg, { piso: 1, tip: tipInfo(nome, detalhe + ' · ' + cheias.size + ' de ' + n + ' posições com pallet') });
-    const px = (x1 - x0) / cols, pz = (z1 - z0) / 5, lado = Math.min(px, pz) * .78;
+    const n = cols * 5, cheias = ocupa(n), tip = tipInfo(nome, detalhe + ' · ' + cheias.size + ' de ' + n + ' posições com pallet');
+    caixa(x0, z0, x1, z1, 0, .05, 'eclusa', seg, { piso: 1, tip });
+    const F = .14, y = .05, h = .03, tf = () => tip;
+    faixas.push({ x: (x0 + x1) / 2, y, z: z0 + F / 2, w: x1 - x0, h, d: F, corNome: 'faixa', tip: tf },
+                { x: (x0 + x1) / 2, y, z: z1 - F / 2, w: x1 - x0, h, d: F, corNome: 'faixa', tip: tf },
+                { x: x0 + F / 2, y, z: (z0 + z1) / 2, w: F, h, d: z1 - z0, corNome: 'faixa', tip: tf },
+                { x: x1 - F / 2, y, z: (z0 + z1) / 2, w: F, h, d: z1 - z0, corNome: 'faixa', tip: tf });
+    if (cols === 2) faixas.push({ x: (x0 + x1) / 2, y, z: (z0 + z1) / 2, w: F, h, d: z1 - z0, corNome: 'faixa', tip: tf });
+    const px = (x1 - x0) / cols, pz = (z1 - z0) / 5, lado = Math.min(px, pz) * .74;
     for (let c = 0; c < cols; c++) for (let l = 0; l < 5; l++) {
       const i = l * cols + c, x = x0 + (c + .5) * px, z = z0 + (l + .5) * pz;
-      const t = () => tipInfo(nome, 'Posição ' + (i + 1) + ' de ' + n + (cheias.has(i) ? ' · com pallet' : ' · vazia'));
-      if (cheias.has(i)) {
-        pal.push({ x, y: .05, z, w: lado, h: .2, d: lado, corNome: 'pallet', tip: t });
-        car.push({ x, y: .25, z, w: lado * .88, h: 1.2, d: lado * .88, corNome: 'carga', tip: t });
-      } else vagas.push({ x, y: .05, z, w: lado, h: .02, d: lado, corNome: 'piso', tip: t });
+      if (!cheias.has(i)) continue;
+      const t = () => tipInfo(nome, 'Posição ' + (i + 1) + ' de ' + n + ' · com pallet');
+      pal.push({ x, y: .08, z, w: lado, h: .2, d: lado, corNome: 'pallet', tip: t });
+      car.push({ x, y: .28, z, w: lado * .88, h: 1.2, d: lado * .88, corNome: 'carga', tip: t });
     }
+  }
+  // distribui as eclusas com o mesmo espaço entre elas, de xIni a xFim
+  function fileira(xIni, xFim, lista, seg, larg, largMeia, detalhe) {
+    const ws = lista.map(([cols]) => cols === 1 ? largMeia : larg), vao = (xFim - xIni - ws.reduce((a, b) => a + b, 0)) / Math.max(1, lista.length - 1);
+    let x = xIni;
+    lista.forEach(([cols, oc, nome], i) => { eclusa(x, 112, x + ws[i], 122, cols, oc, nome, seg, cols === 1 ? 'Pallets da colmeia' : detalhe); x += ws[i] + vao; });
   }
   const todas = n => new Set([...Array(n).keys()]);
   const vazia = () => new Set();
   const topo = () => new Set([0, 1]);                                    // 1 pallet de cada lado, na fileira junto ao estoque
   const algumas = k => n => { const o = new Set(); while (o.size < Math.min(k, n)) o.add(Math.floor(sorteio() * n)); return o; };
   eclusa(83, 95, 89.5, 106, 2, todas, 'Eclusa de buffer', 'calc', 'Pallets aguardando subir aos pisos');
-  // eclusas da frente do galpão (calçados), da esquerda para a direita
-  [[96.5, 2, topo, 'Eclusa 1'], [103.5, 2, vazia, 'Eclusa 2'], [112, 2, algumas(3), 'Eclusa 3'], [118.5, 2, algumas(3), 'Eclusa 4'],
-   [125, 2, vazia, 'Eclusa 5'], [131.5, 2, vazia, 'Eclusa 6'], [138, 1, algumas(3), 'Meia eclusa da colmeia'],
-   [143.5, 2, algumas(3), 'Eclusa 7'], [150, 2, algumas(2), 'Eclusa 8'], [156.5, 2, algumas(3), 'Eclusa 9'], [163, 2, vazia, 'Eclusa 10']]
-    .forEach(([x, cols, oc, nome]) => eclusa(x, 112, x + (cols === 1 ? 3.5 : 5.5), 122, cols, oc, nome, 'calc',
-      cols === 1 ? 'Pallets da colmeia' : 'Frente do galpão'));
+  // eclusas da frente do galpão (calçados): mais estreitas e acompanhando a largura do estoque, até o fim do bloco C
+  fileira(96.5, BL.C.x1, [[2, topo, 'Eclusa 1'], [2, vazia, 'Eclusa 2'], [2, algumas(3), 'Eclusa 3'], [2, vazia, 'Eclusa 4'],
+    [2, vazia, 'Eclusa 5'], [1, algumas(3), 'Meia eclusa da colmeia'], [2, algumas(3), 'Eclusa 6'], [2, algumas(2), 'Eclusa 7'],
+    [2, algumas(3), 'Eclusa 8'], [2, vazia, 'Eclusa 9']], 'calc', 4.4, 2.6, 'Frente do galpão');
   // eclusas do embarque (frente do vestuário)
-  [[66.5, 'Eclusa do embarque 1'], [60, 'Eclusa do embarque 2'], [53.5, 'Eclusa do embarque 3'], [47, 'Eclusa do embarque 4']]
-    .forEach(([x, nome]) => eclusa(x, 112, x + 5.5, 122, 2, algumas(7), nome, 'comum', 'Pallets para expedição'));
-  lote(pal, 'comum', 1); lote(car, 'comum', 1); lote(vagas, 'comum', 1);
+  fileira(47, 72, [[2, algumas(7), 'Eclusa do embarque 4'], [2, algumas(7), 'Eclusa do embarque 3'], [2, algumas(7), 'Eclusa do embarque 2'],
+    [2, algumas(7), 'Eclusa do embarque 1']], 'comum', 4.4, 2.6, 'Pallets para expedição');
+  lote(pal, 'comum', 1); lote(car, 'comum', 1); lote(faixas, 'comum', 1);
   // escadas: 2 lances por piso (como em prédio) — sobe meio piso num sentido, patamar, e sobe o resto no sentido contrário
   const degraus = [], barras = [];
   function barra(xa, ya, xb, yb, z, esp) {               // corrimão inclinado entre (xa, ya) e (xb, yb), na altura z
