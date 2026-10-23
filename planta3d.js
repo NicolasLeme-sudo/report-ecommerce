@@ -208,8 +208,8 @@ const RAMPS = {
   light: [[0, '#2A8F55'], [.6, '#4DB84D'], [.72, '#BFC232'], [.82, '#E9A800'], [.92, '#E06A1B'], [1, '#B5122B']]
 };
 const INFRA = {
-  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E' },
-  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2' }
+  dark:  { esteira: '#10161F', colmeia: '#FF9233', estr: '#7C92AC', estrut: '#2F5F9E', degrau: '#B9CDEA', parede: '#5A6F88', piso: '#22344A', chao: '#18233A', mesa: '#B08A5E', perna: '#55657A', cadeira: '#3A4A5E', pessoa: '#4F86C6', coord: '#F6BD00', pele: '#E2B48C', monitor: '#0E141E', tela: '#8FC3F5', pallet: '#9A7350', carga: '#CDB48C', eclusa: '#33516E', corrimao: '#F6BD00' },
+  light: { esteira: '#3A4656', colmeia: '#EE7A16', estr: '#8EA3BA', estrut: '#3A6AAE', degrau: '#E4EDF8', parede: '#9DB0C4', piso: '#D6DFE9', chao: '#E3E9F0', mesa: '#B08A5E', perna: '#8A99AA', cadeira: '#7D8DA0', pessoa: '#3F78BD', coord: '#C9960A', pele: '#D9A77E', monitor: '#1B2533', tela: '#6FAEEB', pallet: '#9A7350', carga: '#D9C4A0', eclusa: '#C4D3E2', corrimao: '#D9A300' }
 };
 const tema = () => document.documentElement.getAttribute('data-tema') === 'claro' ? 'light' : 'dark';
 const hex2 = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -532,18 +532,43 @@ window.montarPlanta3D = async function (container, payload) {
   [[66.5, 'Eclusa do embarque 1'], [60, 'Eclusa do embarque 2'], [53.5, 'Eclusa do embarque 3'], [47, 'Eclusa do embarque 4']]
     .forEach(([x, nome]) => eclusa(x, 112, x + 5.5, 122, 2, algumas(7), nome, 'comum', 'Pallets para expedição'));
   lote(pal, 'comum', 1); lote(car, 'comum', 1); lote(vagas, 'comum', 1);
-  // escadas
-  const degraus = [];
+  // escadas: 2 lances por piso (como em prédio) — sobe meio piso num sentido, patamar, e sobe o resto no sentido contrário
+  const degraus = [], barras = [];
+  function barra(xa, ya, xb, yb, z, esp) {               // corrimão inclinado entre (xa, ya) e (xb, yb), na altura z
+    const len = Math.hypot(xb - xa, yb - ya), m = new THREE.Mesh(new THREE.BoxGeometry(len, esp, esp), new THREE.MeshLambertMaterial());
+    m.position.set((xa + xb) / 2, (ya + yb) / 2, z); m.rotation.z = Math.atan2(yb - ya, xb - xa);
+    m.userData.baseOp = 1; barras.push(m);
+  }
   ESCADAS_B.forEach(r => {
     const x0 = BL.B.x1 - 4 * wB('B'), x1 = BL.B.x1 - 2 * wB('B'), z0 = zRow('B', r - 1) + .1 * pit('B'), z1 = zRow('B', r + 1) - .1 * pit('B');
-    const H = 4 * HP + .6, e = .16, tipEsc = tipInfo('Escada', 'Bloco B · rua ' + pad(r) + ' (e longarinas das ruas ' + pad(r - 1) + ' e ' + pad(r + 1) + ') · prédios 005–008 · todos os pisos');
+    const H = 4 * HP + .6, e = .16, tipEsc = tipInfo('Escada', 'Bloco B · rua ' + pad(r) + ' (e longarinas das ruas ' + pad(r - 1) + ' e ' + pad(r + 1) + ') · prédios 005–008 · 2 lances por piso, com patamar');
     [[x0, z0, x1, z0 + e], [x0, z1 - e, x1, z1], [x0, z0, x0 + e, z1], [x1 - e, z0, x1, z1]].forEach(([a, b, c, d]) => caixa(a, b, c, d, 0, H, 'estrut', 'calc', { op: OP_ESTR, tip: tipEsc }));
-    for (let p = 1; p <= 4; p++) for (let s = 0; s < 8; s++) {
-      const dx = (x1 - x0 - 2 * e) / 8;
-      degraus.push({ x: x0 + e + (s + .5) * dx, y: (p - 1) * HP + s * HP / 8, z: (z0 + z1) / 2, w: dx * .95, h: HP / 8, d: (z1 - z0 - 2 * e) * .9, corNome: 'degrau', tip: () => tipEsc });
+    const xa = x0 + e, xb = x1 - e, za = z0 + e, zb = z1 - e, zm = (za + zb) / 2, L = 1.4, NS = 8;
+    const ri = xa + L, rf = xb - L, dx = (rf - ri) / NS, sobe = HP / 2 / NS, larg = zm - za - .12, AC = .9;
+    const zIda = za + larg / 2, zVolta = zb - larg / 2;
+    for (let p = 1; p <= 3; p++) {
+      const y0 = (p - 1) * HP, ym = y0 + HP / 2, y1 = p * HP;
+      for (let s = 0; s < NS; s++) {
+        // 1º lance: sobe no sentido do prédio 001 (x crescente), metade de baixo da escada
+        degraus.push({ x: ri + (s + .5) * dx, y: y0, z: zIda, w: dx * .97, h: (s + 1) * sobe, d: larg, corNome: 'degrau', tip: () => tipEsc });
+        // 2º lance: volta no sentido contrário, do patamar até o piso de cima
+        degraus.push({ x: rf - (s + .5) * dx, y: ym, z: zVolta, w: dx * .97, h: (s + 1) * sobe, d: larg, corNome: 'degrau', tip: () => tipEsc });
+      }
+      // patamar do meio (ponta do prédio 001) e chegada no piso de cima (ponta oposta)
+      degraus.push({ x: (rf + xb) / 2, y: ym - .25, z: (za + zb) / 2, w: xb - rf, h: .25, d: zb - za, corNome: 'degrau', tip: () => tipEsc });
+      degraus.push({ x: (xa + ri) / 2, y: y1 - .25, z: (za + zb) / 2, w: ri - xa, h: .25, d: zb - za, corNome: 'degrau', tip: () => tipEsc });
+      // corrimãos: nas paredes e no meio (entre os dois lances), acompanhando a inclinação
+      [za + .08, zm - .02].forEach(z => barra(ri, y0 + AC, rf, ym + AC, z, .07));
+      [zm + .02, zb - .08].forEach(z => barra(rf, ym + AC, ri, y1 + AC, z, .07));
+      barra(rf, ym + AC, xb - .08, ym + AC, za + .08, .07); barra(rf, ym + AC, xb - .08, ym + AC, zb - .08, .07);   // em volta do patamar
+      const mz = new THREE.Mesh(new THREE.BoxGeometry(.07, .07, zb - za - .16), new THREE.MeshLambertMaterial());
+      mz.position.set(xb - .08, ym + AC, (za + zb) / 2); mz.userData.baseOp = 1; barras.push(mz);
+      // montantes do corrimão do meio
+      [[ri, y0], [rf, ym], [ri, y1]].forEach(([x, y]) => degraus.push({ x, y, z: zm, w: .07, h: AC, d: .07, corNome: 'corrimao', tip: () => tipEsc }));
     }
   });
   lote(degraus, 'calc', 0);
+  barras.forEach(m => { m.userData.tip = tipInfo('Corrimão', 'Escada do bloco B'); reg(m, 'calc', 0, () => m.material.color.copy(cor('corrimao')), true); });
   // caixas de faturamento
   const fz0 = zRow('C', 19) - pit('C') / 2, fz1 = zRow('C', 20) + pit('C') / 2;
   caixa(BL.C.x0 + .1, fz0, BL.C.x1 - .1, fz1, HP - .1, 3 * HP + .1, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Caixas de faturamento', 'Bloco C · ruas 19–20 · pisos 2 a 4') });
