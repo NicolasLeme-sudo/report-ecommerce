@@ -264,7 +264,14 @@ function injetaCSS() {
 .p3-tip .t { font-weight: 700; margin-bottom: 2px; }
 .p3-tip .p { font-size: 20px; font-weight: 300; }
 .p3-tip .s { color: var(--text-muted); }
-@media (max-width: 720px) { .p3-hint { display: none; } }`;
+@media (max-width: 720px) { .p3-hint { display: none; } }
+.p3-tela { display: inline-flex; align-items: center; gap: 6px; }
+.p3-tela svg { width: 14px; height: 14px; }
+/* tela cheia: o card ocupa o monitor inteiro e o 3D cresce no espaço que sobra */
+.p3-card:fullscreen, .p3-card.p3-max { display: flex; flex-direction: column; width: 100vw; height: 100vh; border-radius: 0; border: 0; background: var(--bg-card); }
+.p3-card.p3-max { position: fixed; inset: 0; z-index: 9000; }
+.p3-card:fullscreen .p3-stage, .p3-card.p3-max .p3-stage { flex: 1 1 auto; height: auto; min-height: 0; }
+.p3-card:fullscreen .p3-base, .p3-card.p3-max .p3-base { display: none; }`;
   document.head.appendChild(st);
 }
 function htmlPlanta() {
@@ -273,7 +280,8 @@ function htmlPlanta() {
     + '<span class="p3-kpi" data-k="kpi"></span>'
     + '<div class="p3-ctrls"><div class="p3-grp" data-k="pisos">Piso'
     + [0, 1, 2, 3, 4].map(p => '<button class="p3-chip" type="button" data-p="' + p + '">' + (p ? p : 'Todos') + '</button>').join('')
-    + '</div><div class="p3-grp">Vista<button class="p3-chip" type="button" data-v="3d">3D</button><button class="p3-chip" type="button" data-v="topo">Planta</button></div></div></div>'
+    + '</div><div class="p3-grp">Vista<button class="p3-chip" type="button" data-v="3d">3D</button><button class="p3-chip" type="button" data-v="topo">Planta</button></div>'
+    + '<button class="p3-chip p3-tela" type="button" data-k="tela" title="Abrir a planta em tela cheia (Esc para sair)"></button></div></div>'
     + '<div class="p3-stage" data-k="stage"><canvas aria-label="Planta 3D com a ocupação por rua"></canvas><div class="p3-labels" data-k="labels"></div>'
     + '<div class="p3-msg" data-k="msg">Carregando planta 3D…</div>'
     + '<div class="p3-hint">Role para aproximar onde está o mouse · duplo clique aproxima (até 2×), o próximo volta · arraste para girar (na Planta, para mover)</div>'
@@ -326,6 +334,8 @@ function tipEl() {
 }
 function mostraTip(x, y, html) {
   const tip = tipEl(); tip.innerHTML = html; tip.hidden = false;
+  const host = document.fullscreenElement || document.body;   // em tela cheia só o card aparece: o tooltip vai junto
+  if (tip.parentNode !== host) host.appendChild(tip);
   const w = tip.offsetWidth, h = tip.offsetHeight;
   tip.style.left = Math.min(window.innerWidth - w - 8, x + 14) + 'px';
   tip.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, y + 14)) + 'px';
@@ -609,7 +619,9 @@ window.montarPlanta3D = async function (container, payload) {
   }
   function enquadra(animado) {
     const v = VIEWS[ui.modo], alvo = new THREE.Vector3(v.t[0], v.t[1], v.t[2]);
-    const cam = ui.topo ? new THREE.Vector3(v.t[0], v.top, v.t[2] + .01) : new THREE.Vector3(v.t[0] + v.o[0], v.t[1] + v.o[1], v.t[2] + v.o[2]);
+    // telas mais estreitas (ex.: tela cheia num monitor 16:9) afastam a câmera para caber a planta inteira
+    const w = stage.clientWidth, h = stage.clientHeight, k = w && h ? Math.max(1, 2.05 / (w / h)) : 1;
+    const cam = ui.topo ? new THREE.Vector3(v.t[0], v.top * k, v.t[2] + .01) : new THREE.Vector3(v.t[0] + v.o[0] * k, v.t[1] + v.o[1] * k, v.t[2] + v.o[2] * k);
     est.nivelZoom = 0; configuraArraste();
     if (animado === true) { voar(alvo, cam); return; }
     cancelAnimationFrame(est.voo);
@@ -673,6 +685,24 @@ window.montarPlanta3D = async function (container, payload) {
     est.nivelZoom++;
   });
   q('reset').addEventListener('click', () => enquadra(true));
+  // tela cheia: Fullscreen API (ocupa o monitor); sem suporte, o card cobre a janela inteira
+  const btnTela = q('tela');
+  const ICO_ABRE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  const ICO_FECHA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
+  const emTela = () => document.fullscreenElement === container || container.classList.contains('p3-max');
+  const rotuloTela = () => { btnTela.innerHTML = emTela() ? ICO_FECHA + 'Sair da tela cheia' : ICO_ABRE + 'Tela cheia'; btnTela.setAttribute('aria-pressed', String(emTela())); };
+  btnTela.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (container.classList.contains('p3-max')) container.classList.remove('p3-max');
+      else if (container.requestFullscreen) await container.requestFullscreen({ navigationUI: 'hide' });
+      else container.classList.add('p3-max');
+    } catch (e) { container.classList.toggle('p3-max'); }
+    rotuloTela(); escondeTip(); setTimeout(() => { tamanho(); enquadra(true); }, 80);
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && container.classList.contains('p3-max')) { container.classList.remove('p3-max'); rotuloTela(); setTimeout(() => { tamanho(); enquadra(true); }, 80); } });
+  document.addEventListener('fullscreenchange', () => { if (!container.isConnected) return; rotuloTela(); escondeTip(); setTimeout(() => { tamanho(); enquadra(true); }, 80); });
+  rotuloTela();
   container.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => { ui.modo = b.dataset.m; aplica(); enquadra(); }));
   container.querySelectorAll('[data-p]').forEach(b => b.addEventListener('click', () => { ui.piso = +b.dataset.p; aplica(); }));
   container.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => { ui.topo = b.dataset.v === 'topo'; aplica(); enquadra(); }));
