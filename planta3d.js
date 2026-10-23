@@ -298,9 +298,9 @@ function htmlPlanta() {
 const HP = 5;                       // altura entre pisos
 const OP_ESTR = .84;                // estruturas translúcidas só o bastante para ver os degraus
 const BL = {
-  A: { x0: 88, x1: 109, z0: 39.5, z1: 109.5, np: 10 },
+  A: { x0: 88, x1: 109, z0: 40, z1: 110.5, np: 10 },
   B: { x0: 112, x1: 137,   z0: 40, z1: 110.5, np: 12 },
-  C: { x0: 139, x1: 160,   z0: 40.5, z1: 110.5, np: 10 }
+  C: { x0: 139, x1: 160,   z0: 40, z1: 110.5, np: 10 }
 };
 const wP = b => (BL[b].x1 - BL[b].x0) / BL[b].np;
 const pit = b => (BL[b].z1 - BL[b].z0) / 48;
