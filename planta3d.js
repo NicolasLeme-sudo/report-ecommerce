@@ -317,7 +317,7 @@ function zVest(b, r, np) {
   return ps.meia === 0 ? [zz[1] - L * k, zz[1]] : [zz[0], zz[0] + L * k];
 }
 const VIEWS = {
-  geral: { t: [108, 2, 84], o: [-48, 94, 124], top: 225 },
+  geral: { t: [106, 2, 90], o: [-48, 94, 124], top: 230 },
   calc:  { t: [128, 6, 76], o: [-38, 74, 98], top: 180 },
   vest:  { t: [67, 0, 74], o: [-30, 62, 78], top: 175 }
 };
@@ -423,7 +423,9 @@ window.montarPlanta3D = async function (container, payload) {
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   const camera = new THREE.PerspectiveCamera(30, 1, 1, 3000);
   const controls = new THREE.OrbitControls(camera, cv);
-  controls.enableDamping = true; controls.dampingFactor = .09; controls.maxPolarAngle = Math.PI * .49; controls.screenSpacePanning = true;
+  controls.enableDamping = false;   // sem inércia: a imagem para junto com o mouse
+  controls.rotateSpeed = .45; controls.panSpeed = .6;   // menos sensível: movimentos pequenos do mouse não jogam a imagem longe
+  controls.maxPolarAngle = Math.PI * .49; controls.screenSpacePanning = true;
   controls.enableZoom = false;   // zoom próprio, na direção do mouse
   const est = { renderer, camera, controls, raf: 0, voo: 0, ro: null, nivelZoom: 0 };
   P3.estado = est;
@@ -494,21 +496,42 @@ window.montarPlanta3D = async function (container, payload) {
       tip: () => tipHtml('Vestuário · Bloco ' + o.b + ' · Rua ' + pad(o.r), o, o.np + ' prédios' + (o.n ? ' · ' + fmtI(o.n) + ' endereços com saldo' : '')) };
   }), 'vest', 1);
 
-  caixa(80.15, 27, 80.95, 106.5, 0, 4 * HP + 1, 'parede', 'comum', { op: .45, tip: tipInfo('Divisão de módulos do galpão', 'Separa o módulo de vestuário (E, F, G) do de calçados (A, B, C).') });
+  caixa(81, 27, 81.8, 106.5, 0, 4 * HP + 1, 'parede', 'comum', { op: .45, tip: tipInfo('Divisão de módulos do galpão', 'Separa o módulo de vestuário (E, F, G) do de calçados (A, B, C).') });
   // elevador
-  const ex0 = BL.A.x1 - 10 * wP('A'), ex1 = BL.A.x1 - 6 * wP('A'), ez = zRow('A', 35);
-  // alinhado à direita, na quebra do bloco (onde começam as ruas 36–47, que só vão até o prédio 006); lateral = metade dos 4 prédios
-  const exd = BL.A.x1 - 6 * wP('A'), exe = exd - (ex1 - ex0) / 2;
-  caixa(exe, ez - 1.6, exd - .1, ez + 1.6, 0, 4 * HP + .8, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Elevador', 'Rua A35, prédios 007 a 010 · liga os 4 pisos') });
-  // eclusa
-  caixa(81, 96, 87.5, 111.5, 0, .06, 'eclusa', 'calc', { piso: 1, tip: tipInfo('Eclusa de buffer', 'Cerca de 10 pallets (2 fileiras de 5) aguardando subir aos pisos') });
-  const pal = [], car = [];
-  for (let c = 0; c < 2; c++) for (let l = 0; l < 5; l++) {
-    const x = 82.7 + c * 3.1, z = 97.8 + l * 2.95, t = () => tipInfo('Eclusa de buffer', 'Posição ' + (c * 5 + l + 1) + ' de 10');
-    pal.push({ x, y: .06, z, w: 2.4, h: .3, d: 2.4, corNome: 'pallet', tip: t });
-    car.push({ x, y: .36, z, w: 2.1, h: 1.7, d: 2.1, corNome: 'carga', tip: t });
+  // na quebra do bloco A, alinhado à direita (posição definida no editor)
+  caixa(92.5, 92, 96.5, 95, 0, 4 * HP + .8, 'estrut', 'calc', { op: OP_ESTR, tip: tipInfo('Elevador', 'Rua A35, prédios 007 a 010 · liga os 4 pisos') });
+  // eclusas: 2 colunas × 5 fileiras de pallets (meia eclusa: 1 coluna); a fileira 1 é a mais perto do estoque
+  const pal = [], car = [], vagas = [];
+  let semente = 7;
+  const sorteio = () => (semente = (semente * 9301 + 49297) % 233280) / 233280;   // fixo: não muda a cada carga
+  function eclusa(x0, z0, x1, z1, cols, ocupa, nome, seg, detalhe) {
+    const n = cols * 5, cheias = ocupa(n);
+    caixa(x0, z0, x1, z1, 0, .05, 'eclusa', seg, { piso: 1, tip: tipInfo(nome, detalhe + ' · ' + cheias.size + ' de ' + n + ' posições com pallet') });
+    const px = (x1 - x0) / cols, pz = (z1 - z0) / 5, lado = Math.min(px, pz) * .78;
+    for (let c = 0; c < cols; c++) for (let l = 0; l < 5; l++) {
+      const i = l * cols + c, x = x0 + (c + .5) * px, z = z0 + (l + .5) * pz;
+      const t = () => tipInfo(nome, 'Posição ' + (i + 1) + ' de ' + n + (cheias.has(i) ? ' · com pallet' : ' · vazia'));
+      if (cheias.has(i)) {
+        pal.push({ x, y: .05, z, w: lado, h: .2, d: lado, corNome: 'pallet', tip: t });
+        car.push({ x, y: .25, z, w: lado * .88, h: 1.2, d: lado * .88, corNome: 'carga', tip: t });
+      } else vagas.push({ x, y: .05, z, w: lado, h: .02, d: lado, corNome: 'piso', tip: t });
+    }
   }
-  lote(pal, 'calc', 1); lote(car, 'calc', 1);
+  const todas = n => new Set([...Array(n).keys()]);
+  const vazia = () => new Set();
+  const topo = () => new Set([0, 1]);                                    // 1 pallet de cada lado, na fileira junto ao estoque
+  const algumas = k => n => { const o = new Set(); while (o.size < Math.min(k, n)) o.add(Math.floor(sorteio() * n)); return o; };
+  eclusa(83, 95, 89.5, 106, 2, todas, 'Eclusa de buffer', 'calc', 'Pallets aguardando subir aos pisos');
+  // eclusas da frente do galpão (calçados), da esquerda para a direita
+  [[96.5, 2, topo, 'Eclusa 1'], [103.5, 2, vazia, 'Eclusa 2'], [112, 2, algumas(3), 'Eclusa 3'], [118.5, 2, algumas(3), 'Eclusa 4'],
+   [125, 2, vazia, 'Eclusa 5'], [131.5, 2, vazia, 'Eclusa 6'], [138, 1, algumas(3), 'Meia eclusa da colmeia'],
+   [143.5, 2, algumas(3), 'Eclusa 7'], [150, 2, algumas(2), 'Eclusa 8'], [156.5, 2, algumas(3), 'Eclusa 9'], [163, 2, vazia, 'Eclusa 10']]
+    .forEach(([x, cols, oc, nome]) => eclusa(x, 112, x + (cols === 1 ? 3.5 : 5.5), 122, cols, oc, nome, 'calc',
+      cols === 1 ? 'Pallets da colmeia' : 'Frente do galpão'));
+  // eclusas do embarque (frente do vestuário)
+  [[66.5, 'Eclusa do embarque 1'], [60, 'Eclusa do embarque 2'], [53.5, 'Eclusa do embarque 3'], [47, 'Eclusa do embarque 4']]
+    .forEach(([x, nome]) => eclusa(x, 112, x + 5.5, 122, 2, algumas(7), nome, 'comum', 'Pallets para expedição'));
+  lote(pal, 'comum', 1); lote(car, 'comum', 1); lote(vagas, 'comum', 1);
   // escadas
   const degraus = [];
   ESCADAS_B.forEach(r => {
@@ -562,7 +585,7 @@ window.montarPlanta3D = async function (container, payload) {
     }
   });
   // ---- mesas administrativas com as pessoas (escala: 1 unidade ≈ 1,3 m; o estoque fica "acima", z menor)
-  const MZ0 = 113.8, MZ1 = 121.8, MLARG = 1.5;          // mesa de ~2 m × ~10 m, comprida no sentido do estoque
+  const MZ0 = 113.5, MZ1 = 121.5, MLARG = 1.5;          // mesa de ~2 m × ~10 m, comprida no sentido do estoque
   function pessoa(x, z, dx, dz, nome, coord) {           // (dx, dz) = para onde a pessoa olha (a mesa)
     const tip = tipInfo(nome, coord ? 'Coordenadora, de costas para o estoque' : 'Posto com computador');
     caixa(x - .24, z - .24, x + .24, z + .24, .34, .07, 'cadeira', 'comum');                          // assento
@@ -590,22 +613,24 @@ window.montarPlanta3D = async function (container, payload) {
     rotulo(nome, xc, 2.2, zLbl, 'comum', 'inf');
   }
   // E-commerce: na frente da eclusa · 5 pessoas de cada lado + coordenadora
-  mesa(83.5, 'ADM E-commerce', [0, 1, 2, 3, 4].map(i => MZ0 + 1.1 + i * 1.45), MZ1 + 3.4, '5 pessoas de cada lado + coordenadora na ponta');
+  mesa(85, 'ADM E-commerce', [0, 1, 2, 3, 4].map(i => MZ0 + 1.1 + i * 1.45), MZ1 + 3.4, '5 pessoas de cada lado + coordenadora na ponta');
   // Embarque: do outro lado da divisão, na frente do vestuário · coordenadora + 2 de cada lado na ponta oposta
-  mesa(75.5, 'ADM Embarque', [MZ1 - 2.1, MZ1 - .8], MZ1 + 1.6, '2 pessoas de cada lado na ponta oposta + coordenadora');
+  mesa(77.5, 'ADM Embarque', [MZ1 - 2.1, MZ1 - .8], MZ1 + 1.6, '2 pessoas de cada lado na ponta oposta + coordenadora');
   // rótulos
   ['A', 'B', 'C'].forEach(b => rotulo('BLOCO ' + b, (BL[b].x0 + BL[b].x1) / 2, 3 * HP + 2.2, BL[b].z0 - 5, 'calc', 'big'));
   for (let p = 1; p <= 4; p++) rotulo('PISO ' + p, BL.C.x1 + 3.5, (p - 1) * HP + .4, BL.C.z1 - 1, 'calc', 'big', p);
   rotulo('Rua 01', BL.A.x1 + 1.5, 3 * HP + 1, zRow('A', 0), 'calc');
   rotulo('Rua 47', BL.A.x1 + 1.5, 1, zRow('A', 47), 'calc');
   rotulo('Prédio 001 →', BL.B.x1 - 2, 3 * HP + 1.2, BL.B.z0 - .8, 'calc');
-  rotulo('Elevador', (exe + exd) / 2, 4 * HP + 2, ez, 'calc', 'inf');
-  rotulo('Eclusa', 84.2, 2.8, 104, 'calc', 'inf', 1);
+  rotulo('Elevador', 94.5, 4 * HP + 2, 93.5, 'calc', 'inf');
+  rotulo('Eclusa', 86.25, 2.8, 100.5, 'calc', 'inf', 1);
+  rotulo('Eclusas', 132, 2.4, 117, 'calc', 'inf', 1);
+  rotulo('Eclusas do embarque', 59.75, 2.4, 117, 'comum', 'inf', 1);
   ESCADAS_B.forEach(r => rotulo('Escada', BL.B.x1 - 3 * wB('B'), 4 * HP + 1.6, zRow('B', r), 'calc', 'inf'));
   rotulo('Caixas de faturamento', (BL.C.x0 + BL.C.x1) / 2, 3 * HP + 2.6, (fz0 + fz1) / 2, 'calc', 'inf');
   rotulo('Colmeia', BL.C.x1 - 6, 3.4, cz0 + .6, 'calc', 'inf', 1);
   rotulo('Esteira', exE1 + 2.2, 1.4, (cz0 + cz1) / 2 + 2, 'calc', 'inf', 1);
-  rotulo('Divisão de módulos', 80.55, 4 * HP + 2, 30, 'comum', 'inf');
+  rotulo('Divisão de módulos', 81.4, 4 * HP + 2, 30, 'comum', 'inf');
   ['G', 'F', 'E'].forEach(b => {
     rotulo('BLOCO ' + b, VX0 - 5, 1, (VB[b][0][0] + VB[b][1][1]) / 2, 'vest', 'big');
     const np = r => (ruasVest.find(o => o.b === b && o.r === r) || {}).np;
@@ -701,7 +726,7 @@ window.montarPlanta3D = async function (container, payload) {
   cv.addEventListener('wheel', e => {          // zoom na direção do ponto sob o mouse
     e.preventDefault();
     const pt = pontoSob(e); if (!pt) return;
-    const f = Math.exp(-Math.max(-120, Math.min(120, e.deltaY)) * .0016), k = 1 - 1 / f, dist = camera.position.distanceTo(pt);
+    const f = Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * .0013), k = 1 - 1 / f, dist = camera.position.distanceTo(pt);
     if ((k > 0 && dist * (1 - k) < 3) || (k < 0 && camera.position.distanceTo(controls.target) > 600)) return;
     camera.position.lerp(pt, k); controls.target.lerp(pt, k); controls.update();
   }, { passive: false });
