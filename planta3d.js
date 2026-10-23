@@ -478,7 +478,7 @@ window.montarPlanta3D = async function (container, payload) {
       if (o.p !== p) return;
       if (!o.preds.size) return;   // lado sem nenhum endereço ativo e sem saldo: não existe (ex.: A46 ímpar, B47 par no piso 1)
       const pP = pit(o.b), zc = zRow(o.b, o.r), mx = Math.max(...o.preds);
-      const posicoes = o.face === 'tras' ? Math.ceil((mx - FRENTE[o.b]) / 2) : baia(mx);
+      const posicoes = Math.min(BL[o.b].np / 2, o.face === 'tras' ? Math.ceil((mx - FRENTE[o.b]) / 2) : baia(mx));   // nunca passa da largura do bloco (ex.: C35 tem prédio 012)
       const len = Math.max(1, posicoes) * wB(o.b);
       const z = o.face === 'par' ? zc - .3 * pP : o.face === 'impar' ? zc + .3 * pP : zRow(o.b, 1) - .82 * pP;
       const numTras = o.b === 'A' ? 'ímpar' : 'par';
