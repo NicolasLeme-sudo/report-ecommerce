@@ -691,17 +691,39 @@ window.montarPlanta3D = async function (container, payload) {
   const ICO_FECHA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>';
   const emTela = () => document.fullscreenElement === container || container.classList.contains('p3-max');
   const rotuloTela = () => { btnTela.innerHTML = emTela() ? ICO_FECHA + 'Sair da tela cheia' : ICO_ABRE + 'Tela cheia'; btnTela.setAttribute('aria-pressed', String(emTela())); };
+  // posição da rolagem antes de abrir: ao sair, a página volta exatamente para o heatmap
+  let rolagem = null;
+  function guardaRolagem() {
+    const lista = [{ el: null, top: window.scrollY, left: window.scrollX }];
+    for (let el = container.parentElement; el && el !== document.documentElement; el = el.parentElement) {
+      if (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) lista.push({ el, top: el.scrollTop, left: el.scrollLeft });
+    }
+    rolagem = lista;
+  }
+  function voltaRolagem() {
+    if (!rolagem) return;
+    const r = rolagem;
+    const aplica = () => r.forEach(x => { if (x.el) { x.el.scrollTop = x.top; x.el.scrollLeft = x.left; } else window.scrollTo(x.left, x.top); });
+    aplica(); requestAnimationFrame(aplica); setTimeout(aplica, 150); setTimeout(() => { aplica(); rolagem = null; }, 400);   // o navegador reajusta a página logo depois de sair
+  }
+  function aoMudarTela() {
+    rotuloTela(); escondeTip();
+    if (!emTela()) voltaRolagem();
+    setTimeout(() => { tamanho(); enquadra(true); }, 80);
+  }
   btnTela.addEventListener('click', async () => {
+    if (!emTela()) guardaRolagem();
+    let viaClasse = false;   // modo sem Fullscreen API: não dispara "fullscreenchange", então atualiza aqui
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
-      else if (container.classList.contains('p3-max')) container.classList.remove('p3-max');
+      else if (container.classList.contains('p3-max')) { container.classList.remove('p3-max'); viaClasse = true; }
       else if (container.requestFullscreen) await container.requestFullscreen({ navigationUI: 'hide' });
-      else container.classList.add('p3-max');
-    } catch (e) { container.classList.toggle('p3-max'); }
-    rotuloTela(); escondeTip(); setTimeout(() => { tamanho(); enquadra(true); }, 80);
+      else { container.classList.add('p3-max'); viaClasse = true; }
+    } catch (e) { container.classList.toggle('p3-max'); viaClasse = true; }
+    if (viaClasse) aoMudarTela();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && container.classList.contains('p3-max')) { container.classList.remove('p3-max'); rotuloTela(); setTimeout(() => { tamanho(); enquadra(true); }, 80); } });
-  document.addEventListener('fullscreenchange', () => { if (!container.isConnected) return; rotuloTela(); escondeTip(); setTimeout(() => { tamanho(); enquadra(true); }, 80); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && container.classList.contains('p3-max')) { container.classList.remove('p3-max'); aoMudarTela(); } });
+  document.addEventListener('fullscreenchange', () => { if (container.isConnected) aoMudarTela(); });
   rotuloTela();
   container.querySelectorAll('[data-m]').forEach(b => b.addEventListener('click', () => { ui.modo = b.dataset.m; aplica(); enquadra(); }));
   container.querySelectorAll('[data-p]').forEach(b => b.addEventListener('click', () => { ui.piso = +b.dataset.p; aplica(); }));
