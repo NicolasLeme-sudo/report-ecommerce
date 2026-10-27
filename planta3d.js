@@ -91,14 +91,10 @@ function inativos() {
   try { Object.keys(ENDERECOS_INATIVOS).forEach(k => ENDERECOS_INATIVOS[k].forEach(e => { m[e] = k; })); } catch (e) { /* lista não carregada */ }
   return m;
 }
-// Linhas por prédio da fonte mais próxima da tabela: o mapa salvo pelo "Atualizar Estoque"
-// (mesmo arquivo e mesmas regiões da tabela) e, se não houver, a view do Balanço WMS.
-async function obterLinhas(payload) {
-  const m = payload && payload.mapa;
-  if (m && m.linhas && m.linhas.length) {
-    return { fonte: 'estoque', base: payload.gerado_em || null,
-      linhas: m.linhas.map(l => ({ bloco: l[0], rua: l[1], predio: l[2], piso: l[3], saldo: l[4], regiao: m.regioes[l[5]] })) };
-  }
+// Saldo por prédio: sempre o Estoque WMS do último "Atualizar Balanço" (balanco_wms_detalhado,
+// só PICKING) — a mesma base do relatório "Endereços com disponibilidade", para os dois baterem
+// endereço a endereço. (O payload do "Atualizar Estoque" ainda traz um mapa próprio, que não é usado.)
+async function obterLinhas() {
   const linhas = await buscarMapa();
   let base = null; linhas.forEach(l => { if (l.gerado_em && (!base || l.gerado_em > base)) base = l.gerado_em; });
   return { fonte: 'balanco', base, linhas };
@@ -409,11 +405,10 @@ window.montarPlanta3D = async function (container, payload) {
   }
   if (!container.isConnected || !stage.isConnected) return;   // tela trocada enquanto carregava
   const { ruasCalc, ruasVest, base, fonte, usaCad, baseCad } = dados;
-  q('base').textContent = (fonte === 'estoque'
-      ? 'Saldo: mesmo arquivo e mesmas regiões da tabela acima ("Atualizar Estoque"' + (base ? ' de ' + formatarDataBR(base) : '') + '). '
-      : 'Saldo: Estoque WMS do último "Atualizar Balanço"' + (base ? ' (' + formatarDataBR(base) + ')' : '') + ' — rode "Atualizar Estoque" para a planta usar o mesmo arquivo da tabela. ')
+  q('base').textContent = 'Saldo: Estoque WMS (picking) do último "Atualizar Balanço"' + (base ? ' (' + formatarDataBR(base) + ')' : '')
+      + ' — a mesma base do relatório "Endereços com disponibilidade". '
     + (usaCad ? 'Endereços: cadastro do WMS' + (baseCad ? ' (carregado em ' + formatarDataBR(baseCad) + ')' : '') + ', só os ativos. ' : 'Endereços: deduzidos pelos prédios com saldo — carregue o "Cadastro de Endereços (WMS)" no Abastecimento para usar o cadastro oficial. ')
-    + 'Capacidade: no piso 1, a regra por endereço; nos pisos 2 a 4, a capacidade padrão de cada piso/bloco, repartida entre as ruas pela regra; no vestuário, ' + (usaCad ? 'pelos endereços ativos de cada rua' : 'pelo nº de prédios de cada rua') + '. A soma de cada piso/bloco é igual à tabela acima.';
+    + 'Capacidade: no piso 1, a regra por endereço; nos pisos 2 a 4, a capacidade padrão de cada piso/bloco, repartida entre as ruas pela regra; no vestuário, ' + (usaCad ? 'pelos endereços ativos de cada rua' : 'pelo nº de prédios de cada rua') + '. A capacidade de cada piso/bloco é igual à da tabela acima; o saldo pode diferir um pouco se o Balanço e o Estoque foram atualizados em momentos diferentes.';
 
   const THREE = window.THREE;
   let renderer;
