@@ -815,7 +815,7 @@ async function lerArquivoGuardado(caminho) {
 // a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
 // correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
 // Atualizar esta data ao mexer em regra de cálculo deste arquivo.
-var INGEST_VERSAO = "2026-08-28";
+var INGEST_VERSAO = "2026-10-27";
 
 async function salvarSnapshot(pagina, tipo, payload) {
   // Grava a versão junto do payload — assim dá pra auditar depois qual código
@@ -2772,6 +2772,7 @@ async function processarEstoqueOperacao(files, options) {
   // e a planta usa o Estoque WMS do Balanço.
   const saldoPorPiso = {};
   const mapaPred = new Map(), regioes = [], idxRegiao = {}, foraDoMapa = {};
+  const porEndereco = {};   // calçados (A/B/C): saldo por endereço, para o relatório "Endereços com disponibilidade"
   linhas.forEach(function(r) {
     const tipo = normalizarEncoding(r["Tipo do Local"] || "");
     if (!tipo.toUpperCase().includes("PICKING")) return;
@@ -2784,6 +2785,16 @@ async function processarEstoqueOperacao(files, options) {
     if (!(regiao in idxRegiao)) { idxRegiao[regiao] = regioes.length; regioes.push(regiao); }
     const chave = local.slice(0, 7) + "|" + idxRegiao[regiao];          // bloco+rua+prédio+piso | região
     mapaPred.set(chave, (mapaPred.get(chave) || 0) + qtd);
+    if ("ABC".indexOf(local[0]) >= 0) porEndereco[local] = (porEndereco[local] || 0) + qtd;
+  });
+  // compacto: { "A450031": [saldo do apto 01, 02, 03, ...] } (bloco+rua+prédio+piso -> saldos por nível)
+  const saldoEnderecos = {};
+  Object.keys(porEndereco).forEach(function(e) {
+    const k = e.slice(0, 7), n = Number(e.slice(7, 9));
+    if (!(n >= 1 && n <= 99)) return;
+    const arr = saldoEnderecos[k] || (saldoEnderecos[k] = []);
+    while (arr.length < n) arr.push(0);
+    arr[n - 1] += porEndereco[e];
   });
   const mapa = mapaPred.size ? {
     regioes: regioes,
@@ -2807,7 +2818,9 @@ async function processarEstoqueOperacao(files, options) {
   const resultado = await supabaseClient.from("estoque_picking").insert(registros);
   falharSeErro(resultado, "Erro ao gravar estoque_picking");
 
-  await salvarSnapshot("estoque", "auto", gerarPayloadEstoque(registros, mapa));
+  const payloadEstoque = gerarPayloadEstoque(registros, mapa);
+  payloadEstoque.saldo_enderecos = mapa ? saldoEnderecos : null;   // lido por exportarEnderecosComEspaco (index.html)
+  await salvarSnapshot("estoque", "auto", payloadEstoque);
   await registrarLog("estoque", "Estoque_Picking", registros.length);
   onProgress("✓ Estoque atualizado! " + registros.length + " pisos/blocos gravados." +
     (mapa ? "" : " (O arquivo não tem a coluna \"Local\": a planta 3D usa o Estoque WMS do último Balanço.)"));

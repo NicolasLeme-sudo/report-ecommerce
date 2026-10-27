@@ -3808,23 +3808,17 @@ function capacidadeEnderecoCalcado(bloco, rua, piso, nivel) {
 }
 function exportarEnderecosComEspaco() {
   return executarEmSegundoPlano('Endereços com disponibilidade', async aviso => {
-    const saldo = new Map();   // endereço -> saldo (só calçados A/B/C, picking)
-    let off = 0, base = null;
-    while (true) {
-      const { data, error } = await supabaseClient.from('balanco_wms_detalhado').select('id, local, estoque_total, gerado_em')
-        .eq('tipo_local', 'PICKING').order('id', { ascending: true }).range(off, off + 999);
-      if (error) throw new Error('Erro ao ler o estoque do WMS: ' + error.message);
-      if (!data || !data.length) break;
-      data.forEach(r => {
-        const l = r.local || '';
-        if (!/^[ABC]\d{8}$/.test(l)) return;
-        saldo.set(l, (saldo.get(l) || 0) + (Number(r.estoque_total) || 0));
-        if (!base) base = r.gerado_em;
-      });
-      off += data.length;
-      aviso('Lendo o estoque do WMS… ' + fmtInt(off) + ' linhas');
-    }
-    if (!saldo.size) throw new Error('Sem estoque do WMS no banco — rode "Atualizar Balanço".');
+    // saldo por endereço: arquivo Estoque Picking do último "Atualizar Estoque" (o mesmo da tabela
+    // de ocupação e da planta 3D), guardado no snapshot como { "A450031": [saldo nível 01, 02, ...] }
+    aviso('Lendo o Estoque Picking do último "Atualizar Estoque"…');
+    const { data: snaps, error: es } = await supabaseClient.from('dashboard_snapshots')
+      .select('id, gerado_em, saldo:payload->saldo_enderecos').eq('pagina', 'estoque')
+      .order('gerado_em', { ascending: false }).limit(1);
+    if (es) throw new Error('Erro ao ler o Estoque Picking: ' + es.message);
+    const snap = snaps && snaps[0];
+    if (!snap || !snap.saldo) throw new Error('A última atualização do Estoque não tem o saldo por endereço — rode "Atualizar Estoque" de novo com o Estoque Picking (com a coluna "Local").');
+    const saldo = new Map(), base = snap.gerado_em;   // endereço -> saldo (só calçados A/B/C, picking)
+    Object.keys(snap.saldo).forEach(k => (snap.saldo[k] || []).forEach((q, i) => { if (q) saldo.set(k + String(i + 1).padStart(2, '0'), Number(q) || 0); }));
     // universo: cadastro do WMS (ativos de calçados), se carregado; senão, dedução pela numeração
     aviso('Lendo o cadastro de endereços do WMS…');
     const cadastro = [];
