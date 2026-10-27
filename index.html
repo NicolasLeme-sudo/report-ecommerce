@@ -386,6 +386,12 @@ table.matrix thead th {
 }
 table.matrix thead th:first-child { text-align: left; border-radius: 6px 0 0 0; }
 table.matrix thead th:last-child  { border-radius: 0 6px 0 0; }
+/* cabeçalho que ordena a tabela: 1º clique maior→menor, 2º menor→maior, 3º volta à ordem padrão */
+table.matrix thead th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
+table.matrix thead th.ord::after { content: ' ↕'; opacity: .35; font-size: 10px; }
+table.matrix thead th.ord:hover::after { opacity: .7; }
+table.matrix thead th.ord-desc::after { content: ' ↓'; opacity: 1; }
+table.matrix thead th.ord-asc::after { content: ' ↑'; opacity: 1; }
 table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent); background: var(--bg-input); border-bottom: 1px solid var(--border); }
 table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
 table.matrix tbody tr.total td,
@@ -1997,6 +2003,27 @@ async function gerarDivergenciaBalancoSkus() {
 
 // tipo: 'sap' (Saldo a mais no SAP — diferença negativa, WMS < SAP) ou
 // 'wms' (Saldo a mais no WMS — diferença positiva, WMS > SAP).
+// Ordena uma tabela pelo cabeçalho clicado. Cada célula pode trazer o valor bruto em data-s
+// (número sem formatação); sem ele, usa o texto. A linha "Total Geral" (tr.total) fica sempre no fim.
+function ordenarTabela(th) {
+  const tb = th.closest('table').tBodies[0], col = Array.prototype.indexOf.call(th.parentNode.children, th);
+  const prox = th.dataset.ord === 'desc' ? 'asc' : th.dataset.ord === 'asc' ? '' : 'desc';
+  th.parentNode.querySelectorAll('th').forEach(h => { h.dataset.ord = ''; h.classList.remove('ord-desc', 'ord-asc'); });
+  th.dataset.ord = prox; if (prox) th.classList.add('ord-' + prox);
+  th.title = prox === 'desc' ? 'Maior → menor (clique para inverter)' : prox === 'asc' ? 'Menor → maior (clique para voltar à ordem padrão)' : 'Clique para ordenar do maior ao menor';
+  const todas = Array.from(tb.rows), linhas = todas.filter(r => !r.classList.contains('total')), totais = todas.filter(r => r.classList.contains('total'));
+  linhas.forEach((r, i) => { if (r.dataset.i == null) r.dataset.i = i; });   // guarda a ordem padrão na primeira vez
+  const val = r => { const c = r.cells[col]; if (!c) return ''; const t = c.dataset.s != null ? c.dataset.s : c.textContent.trim(); const n = Number(t); return t !== '' && !isNaN(n) ? n : t; };
+  linhas.sort((a, b) => {
+    if (!prox) return a.dataset.i - b.dataset.i;
+    const x = val(a), y = val(b);
+    const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'pt-BR', { numeric: true });
+    return prox === 'desc' ? -c : c;
+  });
+  linhas.concat(totais).forEach(r => tb.appendChild(r));
+}
+const thOrd = rotulos => rotulos.map(t => '<th class="ord" onclick="ordenarTabela(this)" title="Clique para ordenar do maior ao menor">' + t + '</th>').join('');
+
 async function exportarSaldoDivergente(tipo) {
   const btn = document.getElementById(tipo === 'sap' ? 'btnExportSaldoSap' : 'btnExportSaldoWms');
   const textoOriginal = btn ? btn.innerHTML : null;
@@ -4799,11 +4826,11 @@ function renderizarBalanco(p) {
     totDiffQ += dQ; totDiffV += dV;
     linhasCruz += `<tr>
       <th>${r.classificacao}</th><th>${r.bin}</th>
-      <td>${fmtQ(r.wms_qtde)}</td><td>${fmtV(r.wms_valor)}</td>
-      <td>${fmtQ(r.sap_qtde)}</td><td>${fmtV(r.sap_valor)}</td>
-      <td style="${corDiff(dQ)}">${fmtQ(dQ)}</td>
-      <td style="${corDiff(dV)}">${fmtV(dV)}</td>
-      <td style="${corDiff(pct)}">${fmtPct(pct)}</td>
+      <td data-s="${r.wms_qtde||0}">${fmtQ(r.wms_qtde)}</td><td data-s="${r.wms_valor||0}">${fmtV(r.wms_valor)}</td>
+      <td data-s="${r.sap_qtde||0}">${fmtQ(r.sap_qtde)}</td><td data-s="${r.sap_valor||0}">${fmtV(r.sap_valor)}</td>
+      <td data-s="${dQ}" style="${corDiff(dQ)}">${fmtQ(dQ)}</td>
+      <td data-s="${dV}" style="${corDiff(dV)}">${fmtV(dV)}</td>
+      <td data-s="${pct}" style="${corDiff(pct)}">${fmtPct(pct)}</td>
     </tr>`;
   });
   var totPct = totSapQ > 0 ? (totDiffQ / totSapQ * 100) : 0;
@@ -4819,7 +4846,7 @@ function renderizarBalanco(p) {
   // Bloco 2: Estoque WMS Detalhado
   let linhasWMS = '';
   (p.estoque_wms||[]).forEach(function(r){
-    linhasWMS += `<tr><th>${r.classificacao}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${fmtPct(r.pct)}</td></tr>`;
+    linhasWMS += `<tr><th>${r.classificacao}</th><td data-s="${r.qtde||0}">${fmtQ(r.qtde)}</td><td data-s="${r.valor||0}">${fmtV(r.valor)}</td><td data-s="${r.pct||0}">${fmtPct(r.pct)}</td></tr>`;
   });
   linhasWMS += `<tr class="total"><th>Total Geral</th><td>${fmtQ(p.total_wms.qtde)}</td><td>${fmtV(p.total_wms.valor)}</td><td>100%</td></tr>`;
 
@@ -4827,7 +4854,7 @@ function renderizarBalanco(p) {
   let linhasSAP = '';
   (p.estoque_sap||[]).forEach(function(r){
     var desc = r.bin ? r.bin + ' — ' + r.classificacao : r.classificacao;
-    linhasSAP += `<tr><th>${desc}</th><td>${fmtQ(r.qtde)}</td><td>${fmtV(r.valor)}</td><td>${fmtPct(r.pct)}</td></tr>`;
+    linhasSAP += `<tr><th>${desc}</th><td data-s="${r.qtde||0}">${fmtQ(r.qtde)}</td><td data-s="${r.valor||0}">${fmtV(r.valor)}</td><td data-s="${r.pct||0}">${fmtPct(r.pct)}</td></tr>`;
   });
   linhasSAP += `<tr class="total"><th>Total Geral</th><td>${fmtQ(p.total_sap.qtde)}</td><td>${fmtV(p.total_sap.valor)}</td><td>100%</td></tr>`;
 
@@ -4888,7 +4915,7 @@ function renderizarBalanco(p) {
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
-        <thead><tr><th>Classificação</th><th>BIN SAP</th><th>WMS Qtde</th><th>WMS Valor</th><th>SAP Qtde</th><th>SAP Valor</th><th>Diff Qtde</th><th>Diff Valor</th><th>%</th></tr></thead>
+        <thead><tr>${thOrd(['Classificação', 'BIN SAP', 'WMS Qtde', 'WMS Valor', 'SAP Qtde', 'SAP Valor', 'Diff Qtde', 'Diff Valor', '%'])}</tr></thead>
         <tbody>${linhasCruz}</tbody>
       </table>
     </div>
@@ -4898,12 +4925,12 @@ function renderizarBalanco(p) {
     <div class="grid2">
       <div class="card">
         <div class="section-title">Estoque WMS — Detalhado</div>
-        <table class="matrix"><thead><tr><th>Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
+        <table class="matrix"><thead><tr>${thOrd(['Descrição', 'Qtde', 'Custo R$', '%'])}</tr></thead>
         <tbody>${linhasWMS}</tbody></table>
       </div>
       <div class="card">
         <div class="section-title">Estoque SAP — Detalhado</div>
-        <table class="matrix"><thead><tr><th>BIN — Descrição</th><th>Qtde</th><th>Custo R$</th><th>%</th></tr></thead>
+        <table class="matrix"><thead><tr>${thOrd(['BIN — Descrição', 'Qtde', 'Custo R$', '%'])}</tr></thead>
         <tbody>${linhasSAP}</tbody></table>
       </div>
     </div>`;
