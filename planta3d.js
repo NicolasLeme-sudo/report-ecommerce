@@ -4,7 +4,7 @@
    Desenho do galpão (validado com a operação): vestuário E/F/G à esquerda
    com ruas na vertical (só piso 1), divisão de módulos, calçados A/B/C com
    ruas na horizontal e 4 pisos. Cada rua de calçados tem duas longarinas
-   (lado par em cima, ímpar embaixo; 001/002 na ponta direita) e a rua 01
+   (lado par em cima, ímpar embaixo; 001/002 na ponta direita no bloco A e na esquerda no B e no C) e a rua 01
    tem também a parte de trás da longarina. Estruturas: elevador (A35),
    eclusa de 10 pallets, 3 escadas no bloco B, caixas de faturamento
    (C19–20, pisos 2–4), colmeia (C36–47, piso 1: 10 ruas, 20 colmeias de
@@ -303,6 +303,10 @@ const BL = {
   C: { x0: 139, x1: 160,   z0: 40, z1: 110.5, np: 10 }
 };
 const wP = b => (BL[b].x1 - BL[b].x0) / BL[b].np;
+// lado do prédio 001 em cada bloco (desenho da operação): no A fica à direita (numeração cresce para a
+// esquerda, rumo ao recorte); no B e no C fica à esquerda (cresce para a direita)
+const P001_DIREITA = { A: true, B: false, C: false };
+const xFaixa = (b, len) => P001_DIREITA[b] ? BL[b].x1 - len / 2 - .1 : BL[b].x0 + len / 2 + .1;
 const pit = b => (BL[b].z1 - BL[b].z0) / 48;
 const zRow = (b, row) => BL[b].z0 + (row + .5) * pit(b);
 const wB = b => 2 * wP(b);
@@ -488,7 +492,7 @@ window.montarPlanta3D = async function (container, payload) {
       const numTras = o.b === 'A' ? 'ímpar' : 'par';
       const nome = 'Bloco ' + o.b + ' · Rua ' + pad(o.r) + ' · ' + (o.face === 'tras' ? 'parte de trás da longarina' : 'lado ' + (o.face === 'par' ? 'par' : 'ímpar')) + ' · Piso ' + p;
       const faixa = ' · prédios ' + pad(Math.min(...o.preds), 3) + ' a ' + pad(mx, 3);
-      itens.push({ x: BL[o.b].x1 - len / 2 - .1, y: (p - 1) * HP, z, w: len - .2, h: .55, d: pP * .34, pct: o.pct,
+      itens.push({ x: xFaixa(o.b, len), y: (p - 1) * HP, z, w: len - .2, h: .55, d: pP * .34, pct: o.pct,
         tip: () => tipHtml(nome, o, o.np + ' prédios' + faixa + ' · ' + o.n + ' endereços' + (o.face === 'tras' ? '<br>Numeração ' + numTras + ' que continua por trás da longarina' : '') + (o.foraTabela ? '<br>Região "' + o.regiao + '" no WMS: não entra na tabela por piso/bloco' : '')) });
     });
     lote(itens, 'calc', p);
@@ -556,7 +560,7 @@ window.montarPlanta3D = async function (container, payload) {
     m.userData.baseOp = 1; barras.push(m);
   }
   ESCADAS_B.forEach(r => {
-    const x0 = BL.B.x1 - 4 * wB('B'), x1 = BL.B.x1 - 2 * wB('B'), z0 = zRow('B', r - 1) + .1 * pit('B'), z1 = zRow('B', r + 1) - .1 * pit('B');
+    const x0 = BL.B.x0 + 2 * wB('B'), x1 = BL.B.x0 + 4 * wB('B'), z0 = zRow('B', r - 1) + .1 * pit('B'), z1 = zRow('B', r + 1) - .1 * pit('B');
     const H = 4 * HP + .6, e = .16, tipEsc = tipInfo('Escada', 'Bloco B · rua ' + pad(r) + ' (e longarinas das ruas ' + pad(r - 1) + ' e ' + pad(r + 1) + ') · prédios 005–008 · 2 lances por piso, com patamar');
     [[x0, z0, x1, z0 + e], [x0, z1 - e, x1, z1], [x0, z0, x0 + e, z1], [x1 - e, z0, x1, z1]].forEach(([a, b, c, d]) => caixa(a, b, c, d, 0, H, 'estrut', 'calc', { op: OP_ESTR, tip: tipEsc }));
     const xa = x0 + e, xb = x1 - e, za = z0 + e, zb = z1 - e, zm = (za + zb) / 2, L = 1.4, NS = 8;
@@ -668,12 +672,11 @@ window.montarPlanta3D = async function (container, payload) {
   for (let p = 1; p <= 4; p++) rotulo('PISO ' + p, BL.C.x1 + 3.5, (p - 1) * HP + .4, BL.C.z1 - 1, 'calc', 'big', p);
   rotulo('Rua 01', BL.A.x1 + 1.5, 3 * HP + 1, zRow('A', 0), 'calc');
   rotulo('Rua 47', BL.A.x1 + 1.5, 1, zRow('A', 47), 'calc');
-  rotulo('Prédio 001 →', BL.B.x1 - 2, 3 * HP + 1.2, BL.B.z0 - .8, 'calc');
   rotulo('Elevador', 94.5, 4 * HP + 2, 93.5, 'calc', 'inf');
   rotulo('Eclusa', 86.25, 2.8, 100.5, 'calc', 'inf', 1);
   rotulo('Eclusas', (BL.B.x0 + BL.C.x1) / 2, 2.4, 117, 'calc', 'inf', 1);
   rotulo('Eclusas do embarque', 59.75, 2.4, 117, 'comum', 'inf', 1);
-  ESCADAS_B.forEach(r => rotulo('Escada', BL.B.x1 - 3 * wB('B'), 4 * HP + 1.6, zRow('B', r), 'calc', 'inf'));
+  ESCADAS_B.forEach(r => rotulo('Escada', BL.B.x0 + 3 * wB('B'), 4 * HP + 1.6, zRow('B', r), 'calc', 'inf'));
   rotulo('Caixas de faturamento', (BL.C.x0 + BL.C.x1) / 2, 3 * HP + 2.6, (fz0 + fz1) / 2, 'calc', 'inf');
   rotulo('Colmeia', BL.C.x1 - 6, 3.4, cz0 + .6, 'calc', 'inf', 1);
   rotulo('Esteira', exE1 + 2.2, 1.4, (cz0 + cz1) / 2 + 2, 'calc', 'inf', 1);
