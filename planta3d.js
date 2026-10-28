@@ -359,6 +359,10 @@ function destruir() {
   P3.estado = null;
 }
 
+// Esquece o que foi guardado (saldo e cadastro), para a próxima montagem buscar tudo de novo.
+// Chamado pelo index.html depois de "Atualizar Cadastro de Endereços", "Atualizar Estoque" e "Atualizar Balanço".
+window.invalidarPlanta3D = function () { P3.cache = null; P3.cacheCad = null; };
+
 window.montarPlanta3D = async function (container, payload) {
   if (!container) return;
   injetaCSS();

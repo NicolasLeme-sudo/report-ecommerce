@@ -3889,15 +3889,16 @@ function mostrar(id, msg, tipo) {
   el.textContent=msg;
 }
 
-function ligarBotao(btnId, progressId, fn, getFiles) {
+function ligarBotao(btnId, progressId, fn, getFiles, depois) {
   document.getElementById(btnId).addEventListener('click', async () => {
     const files = getFiles();
     if (!files) { mostrar(progressId, 'Selecione o arquivo antes de atualizar.', 'erro'); return; }
     document.getElementById(btnId).disabled = true;
     try {
       await fn(files, { onProgress: msg => mostrar(progressId, msg) });
-      mostrar(progressId, '✓ Atualizado com sucesso.', 'ok');
+      mostrar(progressId, '✓ Atualizado com sucesso.' + (depois ? ' A tela Estoque já mostra os dados novos.' : ''), 'ok');
       carregarDatasHistorico(); // atualiza o seletor após nova gravação
+      if (depois) depois();
     } catch(e) {
       console.error(e);
       mostrar(progressId, '✗ Erro: ' + e.message, 'erro');
@@ -3948,21 +3949,35 @@ async function salvarAnaliseQualidade() {
   }
 }
 
+// Depois de atualizar o armazém (cadastro), o Estoque ou o Balanço, a tela Estoque (tabela + planta 3D)
+// é recarregada com os dados novos: limpa o que a planta guardou e, se a tela estiver aberta, recarrega.
+// Outras abas abertas do report recebem o aviso pelo BroadcastChannel e fazem o mesmo.
+const canalEstoque = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('report-estoque') : null;
+function refrescarTelaEstoque() {
+  try { if (window.invalidarPlanta3D) window.invalidarPlanta3D(); } catch (e) { /* planta ainda não carregada */ }
+  if (secaoAtual === 'estoque') carregarEstoque();
+}
+function avisarEstoqueAtualizado() {
+  refrescarTelaEstoque();
+  try { if (canalEstoque) canalEstoque.postMessage('atualizado'); } catch (e) { /* sem suporte */ }
+}
+if (canalEstoque) canalEstoque.onmessage = refrescarTelaEstoque;
+
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
   const f = document.getElementById('fileEstoquePicking').files[0];
   return f ? { arquivoEstoque: f } : null;
-});
+}, avisarEstoqueAtualizado);
 
 ligarBotao('btnCadastroWMS', 'progressCadastroWMS', processarCadastroEnderecos, () => {
   const f = document.getElementById('fileCadastroWMS').files[0];
   return f ? { arquivoCadastro: f } : null;
-});
+}, avisarEstoqueAtualizado);
 
 ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
   const w = document.getElementById('fileWMS').files[0];
   const s = document.getElementById('fileSAP').files[0];
   return (w&&s) ? { arquivoWMS: w, arquivoSAP: s } : null;
-});
+}, avisarEstoqueAtualizado);
 
 ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) {
   const onP = (opts&&opts.onProgress)||function(){};
