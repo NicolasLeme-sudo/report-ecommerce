@@ -4387,7 +4387,9 @@ function renderSparklineInbound(dados) {
   // ponto (chip com o número, largura proporcional ao nº de dígitos)
   // estourava a borda do SVG e ficava cortado com números de 4+ dígitos
   // (reportado pelo usuário). 26 dá margem confortável até uns 6 dígitos.
-  const pL=26,pR=26,pT=Math.round(h*0.14),pB=Math.round(h*0.14);
+  // pT mínimo de 26: o chip do rótulo fica ~22px acima do ponto; com 14% da altura (≈13px num card
+  // baixo) o número do ponto mais alto saía do quadro e invadia o título. pB mínimo de 22 deixa as datas livres.
+  const pL=26,pR=26,pT=Math.max(26, Math.round(h*0.14)),pB=Math.max(22, Math.round(h*0.14));
   const vals = dados.itens_integrados;
   const dias = dados.dias;
   // Mesma escala fixa (piso 0, teto do back) do sparkline do Outbound —
