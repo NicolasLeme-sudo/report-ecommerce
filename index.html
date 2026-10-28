@@ -386,12 +386,8 @@ table.matrix thead th {
 }
 table.matrix thead th:first-child { text-align: left; border-radius: 6px 0 0 0; }
 table.matrix thead th:last-child  { border-radius: 0 6px 0 0; }
-/* cabeçalho que ordena a tabela: 1º clique maior→menor, 2º menor→maior, 3º volta à ordem padrão */
+/* cabeçalho que ordena a tabela (sem setas): 1º clique maior→menor, 2º menor→maior, 3º volta à ordem padrão */
 table.matrix thead th.ord { cursor: pointer; user-select: none; white-space: nowrap; }
-table.matrix thead th.ord::after { content: ' ↕'; opacity: .35; font-size: 10px; }
-table.matrix thead th.ord:hover::after { opacity: .7; }
-table.matrix thead th.ord-desc::after { content: ' ↓'; opacity: 1; }
-table.matrix thead th.ord-asc::after { content: ' ↑'; opacity: 1; }
 table.matrix tbody th { text-align: left; font-weight: 600; color: var(--accent); background: var(--bg-input); border-bottom: 1px solid var(--border); }
 table.matrix tbody td { border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text); }
 table.matrix tbody tr.total td,
