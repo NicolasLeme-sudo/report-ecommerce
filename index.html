@@ -2018,7 +2018,9 @@ function ordenarTabela(th) {
   });
   linhas.concat(totais).forEach(r => tb.appendChild(r));
 }
-const thOrd = rotulos => rotulos.map(t => '<th class="ord" onclick="ordenarTabela(this)" title="Clique para ordenar do maior ao menor">' + t + '</th>').join('');
+// esquerda: rótulos cujo título fica à esquerda, como a coluna de texto embaixo (a 1ª coluna já é à esquerda pelo CSS)
+const thOrd = (rotulos, esquerda) => rotulos.map(t => '<th class="ord" onclick="ordenarTabela(this)" title="Clique para ordenar do maior ao menor"'
+  + ((esquerda || []).includes(t) ? ' style="text-align:left"' : '') + '>' + t + '</th>').join('');
 
 async function exportarSaldoDivergente(tipo) {
   const btn = document.getElementById(tipo === 'sap' ? 'btnExportSaldoSap' : 'btnExportSaldoWms');
@@ -4922,7 +4924,7 @@ function renderizarBalanco(p) {
     </div>
     <div class="card" style="margin-bottom:16px;overflow-x:auto">
       <table class="matrix">
-        <thead><tr>${thOrd(['Classificação', 'BIN SAP', 'WMS Qtde', 'WMS Valor', 'SAP Qtde', 'SAP Valor', 'Diff Qtde', 'Diff Valor', '%'])}</tr></thead>
+        <thead><tr>${thOrd(['Classificação', 'BIN SAP', 'WMS Qtde', 'WMS Valor', 'SAP Qtde', 'SAP Valor', 'Diff Qtde', 'Diff Valor', '%'], ['BIN SAP'])}</tr></thead>
         <tbody>${linhasCruz}</tbody>
       </table>
     </div>
