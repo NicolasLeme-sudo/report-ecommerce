@@ -1160,6 +1160,14 @@ table.matrix tbody tr.total th {
 #dfRoot .df-btn-x { background: none; border: none; color: var(--df-tx2); cursor: pointer; font-size: 13px; padding: 2px 6px; }
 #dfRoot .df-btn-x:hover { color: var(--df-red); }
 
+
+/* ---------- Barra de ações do topo (padrão dos reports: perfil · tela cheia · tema · sair) ---------- */
+.vb-acoes{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.vb-perfil{font-size:12px;font-weight:600;color:inherit;opacity:.75;white-space:nowrap;margin-right:4px}
+.vb-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;cursor:pointer;background:rgba(127,140,170,.14);border:1px solid rgba(127,140,170,.35);color:inherit;font-family:inherit;font-size:12px;font-weight:600;line-height:1.2;white-space:nowrap}
+.vb-btn:hover{background:rgba(127,140,170,.26)}
+.vb-btn:focus-visible{outline:2px solid #297ADF;outline-offset:2px}
+.vb-btn[hidden]{display:none}
 </style>
 </head>
 
@@ -1231,11 +1239,12 @@ table.matrix tbody tr.total th {
       <div class="topbar-sub" id="topbarSub">Carregando dados...</div>
     </div>
     <div class="topbar-busca" id="topbarBusca"></div>
-    <div class="topbar-right">
+    <div class="topbar-right vb-acoes">
       <div class="topbar-data" id="topbarData"></div>
-      <div class="topbar-data" id="topbarPerfil"></div>
-      <button class="btn-tema" onclick="alternarTema()" id="btnTema">☀ Claro</button>
-      <button class="btn-tema" onclick="sair()" id="btnSair">🚪 Sair</button>
+      <div class="vb-perfil" id="topbarPerfil"></div>
+      <button class="vb-btn" id="btnTelaCheia" onclick="vbTelaCheia()" title="Tela cheia (Esc para sair)">⛶ Tela cheia</button>
+      <button class="vb-btn" id="btnTema" onclick="alternarTema()">🌙 Tema Escuro</button>
+      <button class="vb-btn" id="btnSair" onclick="sair()">🚪 Sair</button>
     </div>
   </header>
 
@@ -2556,7 +2565,7 @@ function alternarTema() {
   const atual = html.getAttribute('data-tema');
   const novo  = atual === 'escuro' ? 'claro' : 'escuro';
   html.setAttribute('data-tema', novo);
-  document.getElementById('btnTema').textContent = novo === 'escuro' ? '☀ Claro' : '🌙 Escuro';
+  document.getElementById('btnTema').textContent = novo === 'escuro' ? '🌙 Tema Escuro' : '☀️ Tema Claro';
   localStorage.setItem('tema', novo);
   // Re-renderiza a Ocupação de Estoque para que as logos das marcas
   // troquem para a versão preta/branca correta do novo tema
@@ -2568,7 +2577,7 @@ function alternarTema() {
   const salvo = localStorage.getItem('tema');
   if (salvo) {
     document.documentElement.setAttribute('data-tema', salvo);
-    document.getElementById('btnTema').textContent = salvo === 'escuro' ? '☀ Claro' : '🌙 Escuro';
+    document.getElementById('btnTema').textContent = salvo === 'escuro' ? '🌙 Tema Escuro' : '☀️ Tema Claro';
   }
 })();
 
@@ -5037,6 +5046,34 @@ function sair() {
 }
 
 iniciarApp();
+</script>
+<script>
+/* ---------- Barra de ações do topo: tela cheia e rótulo do tema (padrão dos reports) ---------- */
+function vbTelaCheia(){
+  var d=document, el=d.documentElement;
+  if(!(d.fullscreenElement||d.webkitFullscreenElement)){
+    var f=el.requestFullscreen||el.webkitRequestFullscreen;
+    if(f){ var p=f.call(el); if(p&&p.catch) p.catch(function(){}); }
+  } else {
+    var x=d.exitFullscreen||d.webkitExitFullscreen; if(x) x.call(d);
+  }
+}
+function vbAtualizaTelaCheia(){
+  var b=document.getElementById('btnTelaCheia'), d=document; if(!b) return;
+  if(!(d.fullscreenEnabled||d.webkitFullscreenEnabled)){ b.hidden=true; return; }   // navegador sem tela cheia: some o botão
+  b.textContent=(d.fullscreenElement||d.webkitFullscreenElement)?'⛶ Sair da tela cheia':'⛶ Tela cheia';
+}
+// O botão de tema mostra o tema atual ("🌙 Tema Escuro" / "☀️ Tema Claro").
+function vbAtualizaTema(){
+  var b=document.getElementById('btnTema'); if(!b||b.querySelector('#toggleLabel')) return;
+  var h=document.documentElement, claro=h.getAttribute('data-tema')==='claro'||h.getAttribute('data-theme')==='light';
+  b.textContent=claro?'☀️ Tema Claro':'🌙 Tema Escuro';
+}
+document.addEventListener('fullscreenchange',vbAtualizaTelaCheia);
+document.addEventListener('webkitfullscreenchange',vbAtualizaTelaCheia);
+if(window.MutationObserver) new MutationObserver(vbAtualizaTema).observe(document.documentElement,{attributes:true,attributeFilter:['data-tema','data-theme']});
+vbAtualizaTelaCheia(); vbAtualizaTema();
+document.addEventListener('DOMContentLoaded',function(){ vbAtualizaTelaCheia(); vbAtualizaTema(); });
 </script>
 </body>
 </html>
