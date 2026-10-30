@@ -815,7 +815,7 @@ async function lerArquivoGuardado(caminho) {
 // a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
 // correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
 // Atualizar esta data ao mexer em regra de cálculo deste arquivo.
-var INGEST_VERSAO = "2026-10-30";
+var INGEST_VERSAO = "2026-10-30b";
 
 async function salvarSnapshot(pagina, tipo, payload) {
   // Grava a versão junto do payload — assim dá pra auditar depois qual código
@@ -1034,8 +1034,8 @@ function lerForecastCru(wb) {
 async function gravarForecastCru(cru, file, onProgress) {
   const total = [], extras = [];
   cru.registros.forEach(function(r){
-    // sábado/domingo não têm expedição programada (mesma trava do layout antigo)
-    const itens = (r.dow === 0 || r.dow === 6) ? 0 : r.itens;
+    // sábado/domingo: só resíduo de fórmula é zerado; valor de verdade (ex.: fim de semana da Black Friday) fica
+    const itens = forecastFimDeSemana(r.dow, r.itens);
     total.push({ data: r.data, marca: "TOTAL", itens_forecast: itens, pedidos_forecast: 0, faturamento_forecast: 0 });
     [["ENT_PREVISTA", r.entrada], ["CAPACITY", r.capacity],
      ["POSICAO_INICIAL", r.posicao], ["BACKLOG_PREVISTO", r.backlog]].forEach(function(par){
@@ -1070,6 +1070,51 @@ async function gravarForecastCru(cru, file, onProgress) {
   onProgress(`✓ ${total.length} dias gravados. ` + (atualizou ? "Gráfico do Outbound atualizado." : 'Para o gráfico refletir, rode "Atualizar Relatórios da Operação".'));
 }
 
+// Forecast de sábado/domingo: antes era sempre zerado (proteção contra resíduo de fórmulas de rateio
+// semanal), o que apagava o fim de semana da Black Friday (14 mil itens/dia em nov/26). Agora só
+// zera valor pequeno (abaixo de 500 itens), que é resíduo; acima disso é dia trabalhado de verdade.
+const FORECAST_MINIMO_FIM_DE_SEMANA = 500;
+function forecastFimDeSemana(dow, itens) {
+  if (dow !== 0 && dow !== 6) return itens;
+  return itens >= FORECAST_MINIMO_FIM_DE_SEMANA ? itens : 0;
+}
+
+// Colunas do layout simples de forecast: { cData, cTotal (Itens do bloco total), inicio (1ª linha de dados) }.
+// Cabeçalho com "Data" e "Itens" nas primeiras linhas; a etiqueta do bloco total ("Total Geral" /
+// "TOTAL ECOM") fica numa linha acima e pode estar deslocada uma coluna (célula mesclada).
+// Sem cabeçalho "Data", cai no formato mais antigo: marcas na linha 1 e data numa das 4 primeiras colunas.
+function acharColunasCurvaSimples(linhas) {
+  const norm = function(v){ return stripAccents(String(v == null ? "" : v)).trim(); };
+  for (let r = 0; r < Math.min(linhas.length, 15); r++) {
+    const t = (linhas[r] || []).map(norm);
+    const cData = t.indexOf("data");
+    if (cData < 0 || t.indexOf("itens") < 0) continue;
+    let rotulo = -1;
+    for (let q = Math.max(0, r - 4); q < r && rotulo < 0; q++) {
+      rotulo = (linhas[q] || []).findIndex(function(v){ const n = norm(v); return n === "total geral" || n === "total ecom" || n === "total"; });
+    }
+    if (rotulo < 0) continue;
+    const itens = [];
+    t.forEach(function(v, c){ if (v === "itens") itens.push(c); });
+    // o "Itens" do bloco: o último que começa até a etiqueta (no máximo 3 colunas antes); senão, o 1º depois dela
+    let cTotal = -1;
+    itens.forEach(function(c){ if (c <= rotulo && rotulo - c <= 3) cTotal = c; });
+    if (cTotal < 0) cTotal = itens.find(function(c){ return c >= rotulo; });
+    if (cTotal === undefined || cTotal < 0) continue;
+    return { cData: cData, cTotal: cTotal, inicio: r + 1 };
+  }
+  // formato antigo: "MZ" e "TOTAL ECOM" na 1ª linha; data numa das 4 primeiras colunas; total 4 colunas depois
+  const l0 = (linhas[0] || []).map(norm);
+  if (l0.indexOf("mz") < 0 || !l0.some(function(v){ return v.indexOf("total ecom") > -1; })) return null;
+  for (let i = 2; i < linhas.length; i++) {
+    for (let c = 0; c < 4; c++) {
+      const v = Number((linhas[i] || [])[c]);
+      if (!isNaN(v) && v >= 40000 && v <= 60000) return { cData: c, cTotal: c + 4, inicio: 2 };
+    }
+  }
+  return null;
+}
+
 async function processarForecastMensal(file, options) {
   const onProgress = (options && options.onProgress) || function(){};
   onProgress("Lendo arquivo de forecast...");
@@ -1094,48 +1139,36 @@ async function processarForecastMensal(file, options) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
 
-  // Validação: linha de marcas (índice 0) deve conter "MZ" e "TOTAL ECOM"
-  const linhaMarcas = linhas[0] || [];
-  const temMZ    = linhaMarcas.some(function(v){ return String(v||'').toUpperCase() === 'MZ'; });
-  const temTotal = linhaMarcas.some(function(v){ return String(v||'').toUpperCase().includes('TOTAL ECOM'); });
-  if (!temMZ || !temTotal) {
+  // Layout simples (só a curva de faturamento): acha as colunas pelo NOME. Serve para o layout
+  // antigo ("MZ … TOTAL ECOM" na 1ª linha) e para a "Curva de Faturamento CD" de nov/26 em diante
+  // ("Mizuno … Total Geral", e cada marca com Itens/Pedidos/Faturamento + uma coluna vazia).
+  const lay = acharColunasCurvaSimples(linhas);
+  if (!lay) {
     throw new Error(
-      'Arquivo inválido para Forecast. Esperado "MZ" e "TOTAL ECOM" na 1ª linha da planilha. ' +
-      'Verifique se selecionou o arquivo correto (Acompanhamento_Faturamento_CD).' +
-      '\nEncontrado na linha 1: ' + JSON.stringify(linhaMarcas.slice(0,8))
+      'Arquivo inválido para Forecast. Esperado o cabeçalho "Data" e o bloco "Total Geral" (ou "TOTAL ECOM") com a coluna "Itens". ' +
+      'Verifique se selecionou o arquivo correto (Curva de Faturamento CD).' +
+      '\nEncontrado na linha 1: ' + JSON.stringify((linhas[0] || []).slice(0, 8))
     );
   }
 
   const registros = [];
   let linhasLidas = 0;
 
-  for (let i = 2; i < linhas.length; i++) {
+  for (let i = lay.inicio; i < linhas.length; i++) {
     const linha = linhas[i];
     if (!linha) continue;
 
-    // Localiza a coluna com o serial de data dinamicamente (o SheetJS pode ou não
-    // incluir uma coluna vazia inicial, dependendo de como a planilha foi salva).
-    let colData = -1, serial = null;
-    for (let c = 0; c < 4; c++) {
-      const v = Number(linha[c]);
-      if (!isNaN(v) && v >= 40000 && v <= 60000) { colData = c; serial = v; break; }
-    }
-    if (colData < 0) continue;
-
-    // A coluna TOTAL fica 3 posições à direita da coluna de Data
-    // (Data, MZ, OLY, UA, TOTAL — 4 colunas de marca entre Data e Total)
-    const colTotal = colData + 4;
+    const serial = Number(linha[lay.cData]);
+    if (isNaN(serial) || serial < 40000 || serial > 60000) continue;   // pula a linha TOTAL e as vazias
+    const colTotal = lay.cTotal;
 
     const data = excelSerialParaData(serial);
     const dataISO = paraDataISOUTC(data); // UTC obrigatório: serial do Excel é meia-noite UTC
     const diaSemana = data.getUTCDay(); // 0=domingo, 6=sábado (serial já é UTC-based)
 
-    // Sábados e domingos não têm expedição programada — zera independente do
-    // que a planilha trouxer (proteção contra fórmulas de rateio semanal que
-    // eventualmente preencham essas células com valor residual).
-    const totalItens = (diaSemana === 0 || diaSemana === 6)
-      ? 0
-      : Math.round(Number(linha[colTotal]) || 0);
+    // Sábado/domingo: zera só o resíduo de fórmula de rateio; fim de semana trabalhado com forecast
+    // de verdade (ex.: sábado e domingo da Black Friday) é mantido.
+    const totalItens = forecastFimDeSemana(diaSemana, Math.round(Number(linha[colTotal]) || 0));
 
     registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens, pedidos_forecast: 0, faturamento_forecast: 0 });
 
@@ -1157,7 +1190,9 @@ async function processarForecastMensal(file, options) {
   // data, subir um mês novo só adiciona; subir de novo um mês já lançado
   // continua substituindo (comportamento de correção preservado).
   const datasDoArquivo = registros.map(function(r){ return r.data; });
-  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo).not("marca", "in", MARCAS_PRESERVADAS);
+  // só a curva (marca TOTAL): este layout não traz a prévia de backlog, então não pode apagar a que
+  // outro arquivo do planejamento já gravou para esses dias
+  const resultadoDeleteForecast = await supabaseClient.from("forecast_diario").delete().in("data", datasDoArquivo).eq("marca", "TOTAL");
   falharSeErro(resultadoDeleteForecast, "Erro ao limpar forecast_diario");
 
   let erros = 0;
@@ -1172,9 +1207,16 @@ async function processarForecastMensal(file, options) {
 
   if (erros > 0) {
     onProgress(`⚠ Forecast parcialmente gravado — ${erros} lote(s) com erro. Verifique o console.`);
-  } else {
-    onProgress(`✓ ${linhasLidas} dias de forecast gravados com sucesso.`);
+    return;
   }
+  // este layout traz só a curva de faturamento: a Análise Prevista de Backlog desses dias continua
+  // dependendo do arquivo com a prévia de backlog (Capacity, Ent. Prevista, Posição Inicial)
+  onProgress(`✓ ${linhasLidas} dias de forecast gravados (só a curva de faturamento). Atualizando o gráfico...`);
+  let atualizou = false;
+  try { atualizou = await atualizarForecastNoSnapshotOutbound(); } catch (e) { console.error("Erro ao atualizar o gráfico com o forecast:", e); }
+  onProgress(`✓ ${linhasLidas} dias de forecast gravados (curva de faturamento). ` +
+    (atualizou ? "Gráfico do Outbound atualizado." : 'Para o gráfico refletir, rode "Atualizar Relatórios da Operação".') +
+    " A Análise Prevista de Backlog desses dias precisa do arquivo com a prévia de backlog (Capacity / Ent. Prevista).");
 }
 
 
