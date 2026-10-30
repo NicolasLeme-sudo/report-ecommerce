@@ -1641,7 +1641,8 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     else cap = capArq;
     // posição inicial: a do arquivo no 1º dia da janela e na virada do mês (excedente do mês anterior
     // informado no planejamento); nos demais, o backlog do dia anterior
-    const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
+    // (só até hoje: à frente, a conta segue do backlog real de hoje, senão a entrada do fim de semana some)
+    const viradaMes = d <= hojeISO && d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
     let pos = corrente === null || viradaMes ? val("POSICAO_INICIAL", d) : corrente;
     // o PREVISTO de hoje continua sendo o do planejamento (para comparar com o real); é a projeção
     // dos dias seguintes que parte do backlog real de hoje (Itens em fluxo)
@@ -1649,6 +1650,9 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     if (d === hojeISO && ancora !== null) pos = ancora;
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
+    // dia sem saída à frente de hoje (fim de semana/feriado, ninguém abastece): a barra mostra o que
+    // acumula até o fim do dia (backlog + entrada prevista do dia), até o real provar o contrário
+    if (d > hojeISO && !cap) posEf[d] = Math.round(corrente);
   });
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
