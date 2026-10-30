@@ -815,7 +815,7 @@ async function lerArquivoGuardado(caminho) {
 // a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
 // correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
 // Atualizar esta data ao mexer em regra de cálculo deste arquivo.
-var INGEST_VERSAO = "2026-10-27";
+var INGEST_VERSAO = "2026-10-30";
 
 async function salvarSnapshot(pagina, tipo, payload) {
   // Grava a versão junto do payload — assim dá pra auditar depois qual código
@@ -1641,7 +1641,9 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     else cap = capArq;
     // posição inicial: a do arquivo no 1º dia da janela e na virada do mês (excedente do mês anterior
     // informado no planejamento); nos demais, o backlog do dia anterior
-    const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null;
+    // (só até hoje: da projeção em diante a cadeia parte do backlog REAL de hoje e não pode ser
+    // trocada pela posição inicial do arquivo — em 01/11 isso jogava o backlog para 1.000)
+    const viradaMes = d.slice(8, 10) === "01" && val("POSICAO_INICIAL", d) !== null && !(ancora !== null && d > hojeISO);
     let pos = corrente === null || viradaMes ? val("POSICAO_INICIAL", d) : corrente;
     // o PREVISTO de hoje continua sendo o do planejamento (para comparar com o real); é a projeção
     // dos dias seguintes que parte do backlog real de hoje (Itens em fluxo)
