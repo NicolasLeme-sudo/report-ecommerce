@@ -815,7 +815,7 @@ async function lerArquivoGuardado(caminho) {
 // a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
 // correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
 // Atualizar esta data ao mexer em regra de cálculo deste arquivo.
-var INGEST_VERSAO = "2026-10-30b";
+var INGEST_VERSAO = "2026-10-30c";
 
 async function salvarSnapshot(pagina, tipo, payload) {
   // Grava a versão junto do payload — assim dá pra auditar depois qual código
@@ -1659,7 +1659,8 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
   if (idxHoje >= 0 && itensEmFluxo != null && backlogEfetivo) { backlogEfetivo = backlogEfetivo.slice(); backlogEfetivo[idxHoje] = Number(itensEmFluxo); }
   const ancora = idxHoje >= 0 && backlogEfetivo && backlogEfetivo[idxHoje] != null ? Number(backlogEfetivo[idxHoje]) : null;
 
-  // Mesma conta do Excel: backlog (amanhecer) de D = backlog de D-1 + entrada de D-1 − saída de D-1,
+  // Mesma conta do Excel: posição inicial de D = backlog de D-1 + entrada de D-1 − saída de D-1, e o backlog
+  // mostrado é o do fim do dia D (posição inicial + entrada − saída de D),
   // nunca abaixo de zero. Até hoje vale a cadeia do arquivo (posição inicial no 1º dia e na virada
   // do mês); de hoje em diante parte do backlog REAL de hoje (aba Plan1 do planejamento) e segue
   // com a entrada prevista e a Capacity. Dia sem capacidade no arquivo
@@ -1668,12 +1669,12 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     let v = null; vig.forEach(function(g){ if (g.data <= d) v = g.valor; }); return v;
   };
   const todos = Object.keys(porMarca.BACKLOG_PREVISTO).sort();
-  const saidaEf = {}, backlogEf = {}, posEf = {}, informada = {};
+  const saidaEf = {}, backlogEf = {}, posEf = {}, informada = {}, fimPrev = {};
   let corrente = null;
   todos.forEach(function(d){
     const ci = capInformada(d), capArq = val("CAPACITY", d), ent = val("ENT_PREVISTA", d);
     posEf[d] = val("POSICAO_INICIAL", d);
-    if (capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); return; }
+    if (capArq === null || ent === null) { corrente = null; saidaEf[d] = capArq; backlogEf[d] = val("BACKLOG_PREVISTO", d); fimPrev[d] = backlogEf[d]; return; }
     // saída prevista = coluna "Capacity" do planejamento (0 = fim de semana/feriado), com as exceções
     // marcadas pelo usuário: dia extra trabalhado (valor informado, ou a capacidade informada/do arquivo) e folga
     const extra = porMarca.DIA_EXTRA[d], folga = porMarca.DIA_FOLGA[d] !== undefined;
@@ -1690,9 +1691,13 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     // o PREVISTO de hoje continua sendo o do planejamento (para comparar com o real); é a projeção
     // dos dias seguintes que parte do backlog real de hoje (Itens em fluxo)
     posEf[d] = pos === null ? null : Math.round(pos);
+    const fimPlano = Math.max(0, (pos || 0) + ent - cap);   // fim do dia pelo planejamento
     if (d === hojeISO && ancora !== null) pos = ancora;
     corrente = Math.max(0, (pos || 0) + ent - cap);
     saidaEf[d] = cap; backlogEf[d] = Math.round(corrente);
+    // backlog mostrado = FIM do dia (a mesma base do efetivo, medido às 23:59). Hoje o previsto é o do
+    // planejamento (para comparar com o real); a partir de amanhã a cadeia parte do real de hoje.
+    fimPrev[d] = Math.round(d === hojeISO ? fimPlano : corrente);
   });
 
   const SEM = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -1706,9 +1711,10 @@ async function computarBacklogPrevisto(efetivosProntos, itensEmFluxo) {   // ite
     backlog_efetivo_origem: origemEfetivo,
     entrada_efetiva: efetivosProntos ? efetivosProntos.entrada_efetiva : dias.map(function(d){ return d <= hojeISO && integracao[d] !== undefined ? Math.round(integracao[d]) : null; }),
     saida: dias.map(function(d){ return saidaEf[d] === undefined ? val("CAPACITY", d) : saidaEf[d]; }),
-    // Backlog = quanto AMANHECEMOS em tela no dia (posição inicial do dia = backlog do fim do
-    // dia anterior), previsto e efetivo na mesma base.
-    backlog: dias.map(function(d){ return posEf[d] === undefined ? null : posEf[d]; }),
+    // Backlog = quanto FICA em tela no fim do dia (backlog do dia anterior + entrada − saída do dia),
+    // previsto e efetivo na mesma base (o efetivo é a posição às 23:59, ver calcularBacklogEfetivoPorFoto).
+    // Ex.: sábado sem saída com 5.258 de entrada, partindo de 0, fecha com 5.258.
+    backlog: dias.map(function(d){ return fimPrev[d] === undefined ? null : fimPrev[d]; }),
     dia_especial: dias.map(function(d){ return porMarca.DIA_FOLGA[d] !== undefined ? "folga" : (porMarca.DIA_EXTRA[d] !== undefined ? "extra" : null); }),
     capacidade_informada: dias.some(function(d){ return informada[d]; }),
     hoje_idx: dias.indexOf(hojeISO),

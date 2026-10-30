@@ -3388,10 +3388,10 @@ function desenharExpedicao() {
     const nv = v => v == null ? '—' : fmtInt(v);
     tot.innerHTML = '<div class="item"><div class="lab">Importação prevista · hoje</div><div class="val">' + nv(d.entrada[hi]) + '</div></div>' +
       '<div class="item"><div class="lab">Saída prevista · hoje</div><div class="val">' + nv(d.saida[hi]) + '</div></div>';
-    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog (amanhecer no dia): efetivo até hoje · previsto à frente (tracejado)</span>' +
+    leg.innerHTML = '<span><i style="background:var(--amber)"></i>Backlog (fim do dia): efetivo até hoje · previsto à frente (tracejado)</span>' +
       '<span><i style="background:var(--accent)"></i>Entrada prevista</span>' +
       '<span><i style="background:var(--olive)"></i>' + (d.capacidade_informada ? 'Saída prevista (capacidade informada)' : 'Saída prevista (capacity do arquivo)') + '</span>';
-    nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = quanto amanhecemos em tela no dia (fim do dia anterior = posição inicial); o do dia seguinte = backlog + entrada prevista − capacidade de saída' +
+    nota.textContent = 'Passe o mouse sobre um dia para ver previsto × efetivo (com a % de diferença) de backlog, entrada e saída. Backlog = quanto fica em tela no fim do dia = backlog do dia anterior + entrada prevista − capacidade de saída do dia' +
       (d.capacidade_informada ? ' (capacidade informada em Abastecimento).' : ' (capacity do arquivo do planejamento).');
   }
   rotulos.forEach(f => f());
