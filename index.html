@@ -3453,7 +3453,11 @@ function mostrarTipExp(html, e, wide) {
   if (!t) { t = document.createElement('div'); t.id = 'expTip'; t.className = 'exp-tip'; document.body.appendChild(t); }
   t.innerHTML = html; t.classList.toggle('largo', !!wide); t.style.display = 'block';
   const w = t.offsetWidth, hh = t.offsetHeight;
-  t.style.left = Math.max(8, Math.min(e.clientX + 16, window.innerWidth - w - 8)) + 'px';
+  // abre à direita do cursor; se não couber, vira para a esquerda (antes encostava na borda e cobria
+  // a coluna do próprio dia nos últimos dias do gráfico)
+  const folga = 18, cabeDireita = e.clientX + folga + w <= window.innerWidth - 8;
+  const x = cabeDireita ? e.clientX + folga : e.clientX - folga - w;
+  t.style.left = Math.max(8, Math.min(x, window.innerWidth - w - 8)) + 'px';
   t.style.top = Math.max(8, Math.min(e.clientY - hh / 2, window.innerHeight - hh - 8)) + 'px';
 }
 function esconderTipExp() { const t = document.getElementById('expTip'); if (t) t.style.display = 'none'; }

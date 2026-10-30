@@ -341,7 +341,8 @@ function mostraTip(x, y, html) {
   const host = document.fullscreenElement || document.body;   // em tela cheia só o card aparece: o tooltip vai junto
   if (tip.parentNode !== host) host.appendChild(tip);
   const w = tip.offsetWidth, h = tip.offsetHeight;
-  tip.style.left = Math.min(window.innerWidth - w - 8, x + 14) + 'px';
+  // à direita do cursor; perto da borda, vira para a esquerda em vez de cobrir o ponto apontado
+  tip.style.left = Math.max(8, x + 14 + w <= window.innerWidth - 8 ? x + 14 : x - 14 - w) + 'px';
   tip.style.top = Math.max(8, Math.min(window.innerHeight - h - 8, y + 14)) + 'px';
 }
 const escondeTip = () => { const t = document.getElementById('p3-tip'); if (t) t.hidden = true; };
