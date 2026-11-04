@@ -3906,11 +3906,12 @@ function ligarBotao(btnId, progressId, fn, getFiles, depois) {
     if (!files) { mostrar(progressId, 'Selecione o arquivo antes de atualizar.', 'erro'); return; }
     document.getElementById(btnId).disabled = true;
     try {
-      await fn(files, { onProgress: msg => mostrar(progressId, msg) });
+      await fn(files, { onProgress: msg => mostrar(progressId, msg), confirmarVazios: msg => confirm(msg) });
       mostrar(progressId, '✓ Atualizado com sucesso.' + (depois ? ' A tela Estoque já mostra os dados novos.' : ''), 'ok');
       carregarDatasHistorico(); // atualiza o seletor após nova gravação
       if (depois) depois();
     } catch(e) {
+      if (e.cancelado) { mostrar(progressId, e.message); return; }
       console.error(e);
       mostrar(progressId, '✗ Erro: ' + e.message, 'erro');
     } finally {
