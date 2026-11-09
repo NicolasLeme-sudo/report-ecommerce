@@ -2091,10 +2091,6 @@ async function processarRelatoriosInbound(files, options) {
   const hoje = new Date();
 
   onProgress("Lendo arquivos do Inbound...");
-  await uploadArquivoOriginal("inbound/Controle_de_NF_Recebs.tsv", files.arquivoRecebs);
-  // a Reversa reaproveita este mesmo arquivo (não precisa abastecer lá de novo)
-  const guardouItens = await uploadArquivoOriginal("inbound/Itens_de_NF_de_Entrada.tsv", files.arquivoItens);
-  if (!guardouItens) onProgress("Aviso: não consegui guardar o Itens de NF de Entrada para a Reversa — anexe o arquivo também na Reversa.");
   const textoRecebs  = await files.arquivoRecebs.text();
   const textoItens   = await files.arquivoItens.text();
   const textoOR      = await files.arquivoOR.text();
@@ -2108,17 +2104,42 @@ async function processarRelatoriosInbound(files, options) {
   const linhasKardex  = parseTSVSelecionado(textoKardex,  ["Data","Local","Estoque Antes","Estoque Após"]);
   const linhasStage   = parseTSVSelecionado(textoStage,   ["Local","Barra","Produto","Estoque (UN)"]);
 
-  // Validar colunas
-  const hRecebs  = Object.keys(linhasRecebs[0]  || {});
-  const hItens   = Object.keys(linhasItens[0]   || {});
-  const hOR      = Object.keys(linhasOR[0]      || {});
-  const hKardex  = Object.keys(linhasKardex[0]  || {});
-  const hStage   = Object.keys(linhasStage[0]   || {});
-  validarColunasInbound(hRecebs,  "nf_recebs");
-  validarColunasInbound(hItens,   "itens_entrada");
-  validarColunasInbound(hOR,      "gerenciador");
-  validarColunasInbound(hKardex,  "kardex");
-  validarColunasInbound(hStage,   "stage");
+  // Validar colunas. Arquivo sem nenhuma linha de dados (dia sem atividade) é válido:
+  // as colunas são conferidas pelo cabeçalho do próprio arquivo e o usuário confirma antes de gravar.
+  const temDados = function(linhas){ return linhas.some(function(r){ return Object.values(r).some(function(v){ return String(v).trim() !== ""; }); }); };
+  const cabecalho = function(texto){
+    const l = String(texto || "").replace(/^﻿/, "").split("\n")[0] || "";
+    return l.split("\t").map(function(c){ return c.trim(); }).filter(Boolean);
+  };
+  const arquivosInbound = [
+    { linhas: linhasRecebs, texto: textoRecebs, tipo: "nf_recebs",     nome: "Controle de NF Recebs" },
+    { linhas: linhasItens,  texto: textoItens,  tipo: "itens_entrada", nome: "Itens de NF de Entrada" },
+    { linhas: linhasOR,     texto: textoOR,     tipo: "gerenciador",   nome: "Gerenciador de OR" },
+    { linhas: linhasKardex, texto: textoKardex, tipo: "kardex",        nome: "Kardex de End" },
+    { linhas: linhasStage,  texto: textoStage,  tipo: "stage",         nome: "Recebimento Stage" },
+  ];
+  const vazios = [];
+  arquivosInbound.forEach(function(a){
+    if (temDados(a.linhas)) { validarColunasInbound(Object.keys(a.linhas[0]), a.tipo); return; }
+    const cab = cabecalho(a.texto);
+    if (cab.length) validarColunasInbound(cab, a.tipo);   // arquivo totalmente em branco: nada a conferir
+    vazios.push(a.nome);
+  });
+  if (vazios.length && options && typeof options.confirmarVazios === "function") {
+    const msg = (vazios.length === 1 ? "O arquivo " + vazios[0] + " está" : "Os arquivos " + vazios.slice(0, -1).join(", ") + " e " + vazios[vazios.length - 1] + " estão") +
+      " sem informações de atividade. Prosseguir com o lançamento?";
+    if (!(await options.confirmarVazios(msg))) {
+      const e = new Error("Lançamento cancelado. Nada foi gravado.");
+      e.cancelado = true;
+      throw e;
+    }
+  }
+
+  // guarda os originais só depois de validar/confirmar (cancelar não deixa nada gravado)
+  await uploadArquivoOriginal("inbound/Controle_de_NF_Recebs.tsv", files.arquivoRecebs);
+  // a Reversa reaproveita este mesmo arquivo (não precisa abastecer lá de novo)
+  const guardouItens = await uploadArquivoOriginal("inbound/Itens_de_NF_de_Entrada.tsv", files.arquivoItens);
+  if (!guardouItens) onProgress("Aviso: não consegui guardar o Itens de NF de Entrada para a Reversa — anexe o arquivo também na Reversa.");
 
   // Carregar embalas do Supabase para cruzamento
   onProgress("Carregando base de embalagem...");
