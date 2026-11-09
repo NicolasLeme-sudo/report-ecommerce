@@ -1392,7 +1392,10 @@ table.matrix tbody tr.total th {
           <div class="file-field"><label>Base_Acrônimos.xlsx</label><input type="file" id="fileAcronimos"></div>
           <div class="file-field"><label>Base_Custo (fiscal) .xlsx</label><input type="file" id="fileCusto"></div>
         </div>
-        <button class="btn-upload" id="btnBasesGerais">Atualizar Bases Gerais</button>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn-upload" id="btnBasesGerais">Atualizar Bases Gerais</button>
+          <button class="btn-export" id="btnExportAcronimos" onclick="exportarBaseAcronimos()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Base de Acrônimos atual</span></button>
+        </div>
         <div class="progress-box" id="progressBasesGerais"></div>
       </div>
       <div class="upload-card">
@@ -1599,6 +1602,26 @@ async function carregarMapaAcronimos() {
     if (chave && !mapa[chave]) mapa[chave] = r.razao_social;
   });
   return mapa;
+}
+
+// Baixa a base de acrônimos que está no banco, com as mesmas colunas do envio
+// (Acronimo, Razão Social): dá para corrigir e reenviar o mesmo arquivo.
+async function exportarBaseAcronimos() {
+  const btn = document.getElementById('btnExportAcronimos');
+  if (btn) btn.disabled = true;
+  try {
+    const { data, error } = await supabaseClient.from('dim_acronimos').select('acronimo, razao_social')
+      .order('acronimo', { ascending: true }).order('razao_social', { ascending: true });
+    if (error) throw error;
+    const linhas = (data || []).map(r => ({ 'Acronimo': r.acronimo, 'Razão Social': r.razao_social }));
+    const hoje = new Date().toLocaleDateString('pt-BR').split('/').reverse().join('-');
+    await baixarXLSXAbas([{ nome: 'Acrônimos', linhas: linhas }], 'Base_Acronimos_' + hoje + '.xlsx');
+  } catch (e) {
+    console.error(e);
+    alert('Não consegui baixar a base de acrônimos: ' + (e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function nomeMarketplaceExport(acronimo, mapaAcronimos) {
