@@ -3900,11 +3900,18 @@ function mostrar(id, msg, tipo) {
   el.textContent=msg;
 }
 
+// Atualizações em andamento: enquanto houver uma, o navegador pergunta antes de recarregar/fechar a aba.
+// Sair no meio deixa o banco pela metade (em 09/11 a Operação apagou os itens dos pedidos e não regravou).
+let _atualizacoesEmAndamento = 0;
+window.addEventListener('beforeunload', e => {
+  if (_atualizacoesEmAndamento > 0) { e.preventDefault(); e.returnValue = 'Há uma atualização em andamento. Se sair agora, os dados ficam incompletos.'; return e.returnValue; }
+});
 function ligarBotao(btnId, progressId, fn, getFiles, depois) {
   document.getElementById(btnId).addEventListener('click', async () => {
     const files = getFiles();
     if (!files) { mostrar(progressId, 'Selecione o arquivo antes de atualizar.', 'erro'); return; }
     document.getElementById(btnId).disabled = true;
+    _atualizacoesEmAndamento++;
     try {
       await fn(files, { onProgress: msg => mostrar(progressId, msg) });
       mostrar(progressId, '✓ Atualizado com sucesso.' + (depois ? ' A tela Estoque já mostra os dados novos.' : ''), 'ok');
@@ -3914,6 +3921,7 @@ function ligarBotao(btnId, progressId, fn, getFiles, depois) {
       console.error(e);
       mostrar(progressId, '✗ Erro: ' + e.message, 'erro');
     } finally {
+      _atualizacoesEmAndamento = Math.max(0, _atualizacoesEmAndamento - 1);
       document.getElementById(btnId).disabled = false;
     }
   });
