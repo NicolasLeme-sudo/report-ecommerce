@@ -1513,15 +1513,19 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
   const inicio = new Date(desdeISO + "T00:00:00");
   const porDia = {};
   const PAGINA = 1000;
-  for (let de = 0; ; de += PAGINA) {
-    const { data, error } = await supabaseClient
+  // Paginação pelo último pedido lido (pedido_venda > último), não por offset: com offset o
+  // banco relê e reordena tudo até a página pedida e as últimas estouravam o tempo (10/11).
+  let ultimo = null;
+  for (;;) {
+    let consulta = supabaseClient
       .from("pedidos")
       .select("pedido_venda, processado_em, qtd_total_produto, status_calculado")
       .eq("situacao", "EXPEDIDO")
-      .gte("processado_em", inicio.toISOString())
-      .order("pedido_venda", { ascending: true })
-      .range(de, de + PAGINA - 1);
+      .gte("processado_em", inicio.toISOString());
+    if (ultimo !== null) consulta = consulta.gt("pedido_venda", ultimo);
+    const { data, error } = await consulta.order("pedido_venda", { ascending: true }).limit(PAGINA);
     if (error) throw new Error("Erro ao ler pedidos expedidos: " + error.message);
+    if (data && data.length) ultimo = data[data.length - 1].pedido_venda;
     (data || []).forEach(function(p) {
       if (!p.processado_em || p.status_calculado === "Cancelado") return;
       const dia = paraDataISOLocal(dataDoBanco(p.processado_em));
