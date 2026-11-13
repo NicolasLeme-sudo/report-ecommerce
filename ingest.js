@@ -1300,16 +1300,18 @@ async function carregarPedidosJanela() {
 
   const porDia = {}, ordens = [];
   const LOTE = 1000;
-  let offset = 0;
+  // paginação pelo último pedido lido (offset relia e reordenava tudo a cada página: 13/11)
+  let ultimo = null;
   while (true) {
-    const { data, error } = await supabaseClient
+    let consulta = supabaseClient
       .from("pedidos")
-      .select("importado_em, processado_em, situacao, status_calculado, qtd_total_produto")
-      .gte("importado_em", desdeISO)
-      .order("pedido_venda", { ascending: true })
-      .range(offset, offset + LOTE - 1);
+      .select("pedido_venda, importado_em, processado_em, situacao, status_calculado, qtd_total_produto")
+      .gte("importado_em", desdeISO);
+    if (ultimo !== null) consulta = consulta.gt("pedido_venda", ultimo);
+    const { data, error } = await consulta.order("pedido_venda", { ascending: true }).limit(LOTE);
     if (error) { console.error("Erro ao buscar pedidos da janela:", error); break; }
     if (!data || data.length === 0) break;
+    ultimo = data[data.length - 1].pedido_venda;
 
     data.forEach(function(r) {
       if (!r.importado_em) return;
@@ -1323,8 +1325,6 @@ async function carregarPedidosJanela() {
         impT: dataDoBanco(r.importado_em).getTime(),
         expT: (r.situacao === "EXPEDIDO" && r.processado_em) ? dataDoBanco(r.processado_em).getTime() : null });
     });
-
-    offset += data.length;
   }
   _integracaoCache = { ts: Date.now(), porDia: porDia, ordens: ordens };
   return _integracaoCache;
