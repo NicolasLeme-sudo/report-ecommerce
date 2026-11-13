@@ -52,13 +52,20 @@ const FERIADOS_2026 = new Set([
   "2026-12-25", // Natal
 ]);
 
+// Dias marcados a mão em Abastecimento › Dias fora do calendário (um a um, nunca "todo sábado"):
+// DIA_TRABALHADO vale como dia útil mesmo em fim de semana ou feriado; DIA_FOLGA tira o dia útil.
+// Carregados uma vez por processamento (carregarDiasOperacao); vazios = calendário normal.
+const DIAS_TRABALHADOS = new Set(), DIAS_FOLGA = new Set();
+
 function ehDiaUtil(date) {
-  const dow = date.getDay(); // 0=domingo, 6=sábado
-  if (dow === 0 || dow === 6) return false;
   const ano = date.getFullYear();
   const mes = String(date.getMonth() + 1).padStart(2, "0");
   const dia = String(date.getDate()).padStart(2, "0");
   const iso = `${ano}-${mes}-${dia}`;
+  if (DIAS_FOLGA.has(iso)) return false;
+  if (DIAS_TRABALHADOS.has(iso)) return true;
+  const dow = date.getDay(); // 0=domingo, 6=sábado
+  if (dow === 0 || dow === 6) return false;
   return !FERIADOS_2026.has(iso);
 }
 
@@ -394,6 +401,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   const arquivoExp = files.arquivoExp;
   const arquivoItensNF = files.arquivoItensNF;
   const arquivoPedidosEcomm = files.arquivoPedidosEcomm;
+  await carregarDiasOperacao();   // sábados trabalhados / folgas marcados a mão entram no prazo em dias úteis
   await uploadArquivoOriginal("outbound/Acompanhamento_Op.tsv", arquivoOp);
 
   onProgress("Validando e lendo Acompanhamento_Op...");
@@ -1639,6 +1647,16 @@ async function listarDiasEspeciais() {
   if (error) throw new Error("Erro ao ler os dias especiais: " + error.message);
   return (data || []).map(function(r){ return { data: r.data, tipo: r.marca === MARCA_DIA_EXTRA ? "extra" : "folga", itens: Number(r.itens_forecast) || 0 }; });
 }
+// Põe os dias marcados a mão nos Sets que o ehDiaUtil consulta (prazo de 2 dias úteis e Backlog
+// FIFO). Chamado no começo de cada processamento. Se a leitura falhar, segue o calendário normal.
+async function carregarDiasOperacao() {
+  try {
+    const lista = await listarDiasEspeciais();
+    DIAS_TRABALHADOS.clear(); DIAS_FOLGA.clear();
+    lista.forEach(function(d){ (d.tipo === "extra" ? DIAS_TRABALHADOS : DIAS_FOLGA).add(d.data); });
+  } catch (e) { console.error("Não consegui ler os dias trabalhados — usando o calendário normal:", e); }
+}
+
 async function salvarDiaEspecial(tipo, dataISO, itens) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dataISO || "")) throw new Error("Informe a data.");
   const marca = tipo === "extra" ? MARCA_DIA_EXTRA : MARCA_DIA_FOLGA;
