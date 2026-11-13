@@ -1299,22 +1299,26 @@ async function carregarPedidosJanela() {
   const desdeISO = paraDataISOLocal(desde);
 
   const porDia = {}, ordens = [];
-  const LOTE = 1000;
-  // paginação pelo último pedido lido (offset relia e reordenava tudo a cada página: 13/11)
-  let ultimo = null;
+  const LOTE = 2000;
+  // Paginação pela própria data de importação, que é o índice idx_pedidos_importado_em:
+  // por offset (ou por pedido_venda) o banco relia a tabela inteira a cada página e a
+  // atualização levava minutos (13/11). O Set descarta o que repete na virada da página.
+  const vistos = new Set();
+  let desdePag = desdeISO + "T00:00:00.000Z";   // ISO completo: proximaPagina compara como data
   while (true) {
-    let consulta = supabaseClient
+    const { data, error } = await supabaseClient
       .from("pedidos")
       .select("pedido_venda, importado_em, processado_em, situacao, status_calculado, qtd_total_produto")
-      .gte("importado_em", desdeISO);
-    if (ultimo !== null) consulta = consulta.gt("pedido_venda", ultimo);
-    const { data, error } = await consulta.order("pedido_venda", { ascending: true }).limit(LOTE);
+      .gte("importado_em", desdePag)
+      .order("importado_em", { ascending: true })
+      .limit(LOTE);
     if (error) { console.error("Erro ao buscar pedidos da janela:", error); break; }
     if (!data || data.length === 0) break;
-    ultimo = data[data.length - 1].pedido_venda;
 
     data.forEach(function(r) {
       if (!r.importado_em) return;
+      if (vistos.has(r.pedido_venda)) return;
+      vistos.add(r.pedido_venda);
       const qtd = Number(r.qtd_total_produto) || 0;
       const imp = paraDataISOLocal(dataDoBanco(r.importado_em));
       porDia[imp] = (porDia[imp] || 0) + qtd;
@@ -1325,6 +1329,9 @@ async function carregarPedidosJanela() {
         impT: dataDoBanco(r.importado_em).getTime(),
         expT: (r.situacao === "EXPEDIDO" && r.processado_em) ? dataDoBanco(r.processado_em).getTime() : null });
     });
+    if (data.length < LOTE) break;
+    avisarPaginaNoMesmoInstante(data, "importado_em", LOTE);
+    desdePag = proximaPagina(desdePag, data[data.length - 1].importado_em);
   }
   _integracaoCache = { ts: Date.now(), porDia: porDia, ordens: ordens };
   return _integracaoCache;
@@ -1502,6 +1509,25 @@ function dataDoBanco(valor) {
   return new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(txt) ? txt : txt + "Z");
 }
 
+// A paginação por data só pularia pedidos se um mesmo instante tivesse mais pedidos que o
+// tamanho da página (hoje o maior instante tem algumas dezenas, contra páginas de 2.000).
+// Se um dia chegar perto disso, o aviso aparece no console em vez de sumir um dia do gráfico.
+function avisarPaginaNoMesmoInstante(pagina, campo, tamanho) {
+  if (!pagina || pagina.length < tamanho) return;
+  if (dataDoBanco(pagina[0][campo]).getTime() !== dataDoBanco(pagina[pagina.length - 1][campo]).getTime()) return;
+  console.error("Atenção: " + tamanho + " pedidos com o mesmo " + campo + " (" + pagina[0][campo] +
+    "). A página seguinte pode pular pedidos desse instante — aumentar o tamanho da página.");
+}
+
+// Próximo ponto de uma paginação por data: a página seguinte recomeça no último instante
+// lido (quem já foi contado é descartado por um Set de pedidos vistos). Se a página inteira
+// caiu no mesmo instante em que começou, anda 1 ms para não repetir a mesma página sempre.
+function proximaPagina(desde, ultimo) {
+  const tUltimo = dataDoBanco(ultimo).getTime();
+  const tDesde = dataDoBanco(desde).getTime();
+  return tUltimo > tDesde ? ultimo : new Date(tDesde + 1).toISOString();
+}
+
 // Expedição por dia (itens e pedidos) a partir da tabela pedidos do banco,
 // que acumula TODOS os uploads — não só o arquivo da rodada atual. Antes o
 // fechamento dos últimos 7 dias usava apenas os pedidos do upload atual: se
@@ -1512,30 +1538,37 @@ function dataDoBanco(valor) {
 async function expedicaoPorDiaDoBanco(desdeISO) {
   const inicio = new Date(desdeISO + "T00:00:00");
   const porDia = {};
-  const PAGINA = 1000;
-  // Paginação pelo último pedido lido (pedido_venda > último), não por offset: com offset o
-  // banco relê e reordena tudo até a página pedida e as últimas estouravam o tempo (10/11).
-  let ultimo = null;
+  const PAGINA = 2000;
+  // Paginação pela PRÓPRIA data (processado_em), que é o índice que o banco usa
+  // (situacao, processado_em): cada página sai direto dele. Por offset — ou por pedido_venda,
+  // como ficou em 10/11 — o banco relia a tabela inteira a cada página (2,2 s por página
+  // contra 0,2 s; a atualização levava minutos, 13/11). Um mesmo instante tem no máximo
+  // algumas dezenas de pedidos, então a página seguinte recomeça no último instante lido
+  // e o Set descarta o que já foi contado.
+  const vistos = new Set();
+  let desde = inicio.toISOString();
   for (;;) {
-    let consulta = supabaseClient
+    const { data, error } = await supabaseClient
       .from("pedidos")
       .select("pedido_venda, processado_em, qtd_total_produto, status_calculado")
       .eq("situacao", "EXPEDIDO")
-      .gte("processado_em", inicio.toISOString());
-    if (ultimo !== null) consulta = consulta.gt("pedido_venda", ultimo);
-    const { data, error } = await consulta.order("pedido_venda", { ascending: true }).limit(PAGINA);
+      .gte("processado_em", desde)
+      .order("processado_em", { ascending: true })
+      .limit(PAGINA);
     if (error) throw new Error("Erro ao ler pedidos expedidos: " + error.message);
-    if (data && data.length) ultimo = data[data.length - 1].pedido_venda;
-    (data || []).forEach(function(p) {
+    if (!data || data.length === 0) break;
+    data.forEach(function(p) {
+      if (vistos.has(p.pedido_venda)) return;
+      vistos.add(p.pedido_venda);
       if (!p.processado_em || p.status_calculado === "Cancelado") return;
       const dia = paraDataISOLocal(dataDoBanco(p.processado_em));
       if (!porDia[dia]) porDia[dia] = { itens: 0, pedidos: 0 };
       porDia[dia].itens += Number(p.qtd_total_produto) || 0;
       porDia[dia].pedidos += 1;
     });
-    // para só na página vazia: se o servidor limitar max-rows abaixo de
-    // PAGINA, "data.length < PAGINA" pararia na primeira página
-    if (!data || data.length === 0) break;
+    if (data.length < PAGINA) break;
+    avisarPaginaNoMesmoInstante(data, "processado_em", PAGINA);
+    desde = proximaPagina(desde, data[data.length - 1].processado_em);
   }
   return porDia;
 }
