@@ -1596,17 +1596,25 @@ async function refecharExpedicaoDoMesPeloBanco() {
   const inicioISO = paraDataISOLocal(inicio);
 
   const porDia = await expedicaoPorDiaDoBanco(inicioISO);
+  // Segurança: se a leitura voltou vazia mas o período tem dias úteis passados,
+  // provavelmente houve timeout ou erro silencioso. Não sobrescreve com zeros.
+  const diasComDado = Object.keys(porDia).length;
+  if (diasComDado === 0) {
+    console.warn("expedicaoPorDiaDoBanco retornou vazio para o período desde " + inicioISO + " — não sobrescreve expedicao_diaria.");
+    return;
+  }
   const linhas = [];
   for (let d = new Date(inicio); paraDataISOLocal(d) < hojeISO; d.setDate(d.getDate() + 1)) {
     const dia = paraDataISOLocal(d);
-    const banco = porDia[dia] || { itens: 0, pedidos: 0 };
-    linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
+    const banco = porDia[dia];
+    // Só grava dias que o banco retornou; dias sem dado (fim de semana, feriado) ficam como estão.
+    if (banco) linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
   }
   if (linhas.length > 0) {
     const resultado = await supabaseClient.from("expedicao_diaria").upsert(linhas, { onConflict: "data" });
     falharSeErro(resultado, "Erro ao gravar expedicao_diaria");
   }
-  console.log("Expedição refechada pelo banco (dia, itens, pedidos):");
+  console.log("Expedição refechada pelo banco (" + linhas.length + " dias com dado de " + diasComDado + " no período):");
   console.table(Object.keys(porDia).sort().map(function(d){ return { dia: d, itens: porDia[d].itens, pedidos: porDia[d].pedidos }; }));
 }
 // -------------------------------------------------------------------------
