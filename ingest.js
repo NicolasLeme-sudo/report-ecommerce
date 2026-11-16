@@ -1588,34 +1588,40 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
 // inflados (gravados antes da deduplicação de pedidos), e manter o maior
 // valor deixava o acumulado do mês acima do real.
 async function refecharExpedicaoDoMesPeloBanco() {
-  const hoje = new Date();
-  const hojeISO = paraDataISOLocal(hoje);
-  const seteDias = new Date(hoje); seteDias.setDate(hoje.getDate() - 7);
-  const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
-  const inicio = seteDias < inicioMes ? seteDias : inicioMes;
-  const inicioISO = paraDataISOLocal(inicio);
-
-  const porDia = await expedicaoPorDiaDoBanco(inicioISO);
-  // Segurança: se a leitura voltou vazia mas o período tem dias úteis passados,
-  // provavelmente houve timeout ou erro silencioso. Não sobrescreve com zeros.
-  const diasComDado = Object.keys(porDia).length;
-  if (diasComDado === 0) {
-    console.warn("expedicaoPorDiaDoBanco retornou vazio para o período desde " + inicioISO + " — não sobrescreve expedicao_diaria.");
+  // Faz o refechamento direto no banco (SQL com fuso correto), sem paginação
+  // no navegador. A função refechar_expedicao_mes() roda como SECURITY DEFINER
+  // e converte processado_em de UTC para BRT antes de agrupar por dia.
+  const { error } = await supabaseClient.rpc("refechar_expedicao_mes");
+  if (error) {
+    console.error("Erro ao refechar expedição pelo banco (RPC):", error);
+    // Fallback: tenta pelo navegador como antes, mas sem sobrescrever com zeros
+    console.log("Tentando refechamento pelo navegador (fallback)...");
+    const hoje = new Date();
+    const hojeISO = paraDataISOLocal(hoje);
+    const seteDias = new Date(hoje); seteDias.setDate(hoje.getDate() - 7);
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const inicio = seteDias < inicioMes ? seteDias : inicioMes;
+    const inicioISO = paraDataISOLocal(inicio);
+    const porDia = await expedicaoPorDiaDoBanco(inicioISO);
+    const diasComDado = Object.keys(porDia).length;
+    if (diasComDado === 0) {
+      console.warn("expedicaoPorDiaDoBanco retornou vazio desde " + inicioISO + " — não sobrescreve expedicao_diaria.");
+      return;
+    }
+    const linhas = [];
+    for (let d = new Date(inicio); paraDataISOLocal(d) < hojeISO; d.setDate(d.getDate() + 1)) {
+      const dia = paraDataISOLocal(d);
+      var banco = porDia[dia];
+      if (banco) linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
+    }
+    if (linhas.length > 0) {
+      const resultado = await supabaseClient.from("expedicao_diaria").upsert(linhas, { onConflict: "data" });
+      falharSeErro(resultado, "Erro ao gravar expedicao_diaria");
+    }
+    console.log("Expedição refechada pelo navegador (fallback, " + linhas.length + " dias).");
     return;
   }
-  const linhas = [];
-  for (let d = new Date(inicio); paraDataISOLocal(d) < hojeISO; d.setDate(d.getDate() + 1)) {
-    const dia = paraDataISOLocal(d);
-    const banco = porDia[dia];
-    // Só grava dias que o banco retornou; dias sem dado (fim de semana, feriado) ficam como estão.
-    if (banco) linhas.push({ data: dia, itens_expedidos: banco.itens, pedidos_expedidos: banco.pedidos });
-  }
-  if (linhas.length > 0) {
-    const resultado = await supabaseClient.from("expedicao_diaria").upsert(linhas, { onConflict: "data" });
-    falharSeErro(resultado, "Erro ao gravar expedicao_diaria");
-  }
-  console.log("Expedição refechada pelo banco (" + linhas.length + " dias com dado de " + diasComDado + " no período):");
-  console.table(Object.keys(porDia).sort().map(function(d){ return { dia: d, itens: porDia[d].itens, pedidos: porDia[d].pedidos }; }));
+  console.log("Expedição refechada pelo banco (RPC refechar_expedicao_mes).");
 }
 // -------------------------------------------------------------------------
 // CAPACIDADE DE SAÍDA INFORMADA (Abastecimento → Capacidade de saída)
