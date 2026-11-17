@@ -984,6 +984,41 @@ async function processarBaseAcronimos(file, options) {
 // Backlog previsto do dia = Posição Inicial + Ent. Prevista − Capacity.
 // Devolve null se a planilha não tiver esse cabeçalho (aí vale o layout antigo).
 // -------------------------------------------------------------------------
+// Etiquetas aceitas na linha das marcas do forecast: a planilha já apareceu como "MZ/OLY/UA/TOTAL ECOM"
+// e como "Mizuno/Olympikus/Under Armour/Total Geral". O nome gravado em forecast_diario é o mesmo que o
+// WMS usa nas marcas, para o telão cruzar previsto × realizado sem tradução.
+const ROTULOS_FORECAST = [
+  { nome: "Mizuno", chaves: ["mz", "mizuno"] },
+  { nome: "Olympikus", chaves: ["oly", "olympikus"] },
+  { nome: "Under Armour", chaves: ["ua", "under armour"] },
+  { nome: "TOTAL", chaves: ["total ecom", "total geral"] },
+];
+// Colunas de Itens, Pedidos e Faturamento de cada bloco de marca. A etiqueta fica numa linha ACIMA do
+// cabeçalho e é uma célula mesclada — no arquivo isso é o valor só na 1ª coluna do bloco, as outras
+// vazias —, então cada bloco vai da sua etiqueta até onde começa a próxima. Achado por nome, nunca por
+// posição fixa: inserir uma coluna no meio da planilha não quebra a leitura.
+function acharBlocosDeMarca(linhas, hdr, titulos) {
+  const marcados = [];
+  for (let r = Math.max(0, hdr - 4); r < hdr; r++) {
+    (linhas[r] || []).forEach(function (v, c) {
+      const n = stripAccents(String(v == null ? "" : v));
+      const alvo = ROTULOS_FORECAST.find(function (x) { return x.chaves.indexOf(n) > -1; });
+      if (alvo && !marcados.some(function (m) { return m.nome === alvo.nome; })) marcados.push({ nome: alvo.nome, col: c });
+    });
+  }
+  marcados.sort(function (a, b) { return a.col - b.col; });
+  const blocos = {};
+  marcados.forEach(function (m, i) {
+    const fim = i + 1 < marcados.length ? marcados[i + 1].col : titulos.length;
+    const achar = function (titulo) {
+      for (let c = m.col; c < fim; c++) if (titulos[c] === titulo) return c;
+      return -1;
+    };
+    blocos[m.nome] = { itens: achar("itens"), pedidos: achar("pedidos"), faturamento: achar("faturamento") };
+  });
+  return blocos;
+}
+
 function lerForecastCru(wb) {
   for (const aba of wb.SheetNames) {
     const linhas = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null });
@@ -1010,12 +1045,24 @@ function lerForecastCru(wb) {
     }
     if (cTotal < 0 || cPos < 0 || cBack < 0) continue;
 
+    const blocos = acharBlocosDeMarca(linhas, hdr, titulos);
+
     const registros = [];
     for (let r = hdr + 1; r < linhas.length; r++) {
       const linha = linhas[r] || [];
       const serial = Number(linha[cData]);
       if (isNaN(serial) || serial < 40000 || serial > 60000) continue; // pula linha TOTAL/vazias
       const dataISO = paraDataISOUTC(excelSerialParaData(serial));
+      // Itens/Pedidos/Faturamento por marca e do total. Coluna não encontrada vira -1 e cai em 0.
+      const marcas = {};
+      Object.keys(blocos).forEach(function (nome) {
+        const b = blocos[nome];
+        marcas[nome] = {
+          itens: Math.round(Number(linha[b.itens]) || 0),
+          pedidos: Math.round(Number(linha[b.pedidos]) || 0),
+          faturamento: Math.round((Number(linha[b.faturamento]) || 0) * 100) / 100,
+        };
+      });
       registros.push({
         data: dataISO,
         dow: excelSerialParaData(serial).getUTCDay(),
@@ -1024,6 +1071,7 @@ function lerForecastCru(wb) {
         capacity: Math.round(Number(linha[cCap]) || 0),
         posicao: Math.round(Number(linha[cPos]) || 0),
         backlog: Math.round(Number(linha[cBack]) || 0),
+        marcas: marcas,
       });
     }
     if (registros.length) return { aba: aba, dias: registros.length, registros: registros };
@@ -1044,7 +1092,19 @@ async function gravarForecastCru(cru, file, onProgress) {
   cru.registros.forEach(function(r){
     // sábado/domingo: só resíduo de fórmula é zerado; valor de verdade (ex.: fim de semana da Black Friday) fica
     const itens = forecastFimDeSemana(r.dow, r.itens);
-    total.push({ data: r.data, marca: "TOTAL", itens_forecast: itens, pedidos_forecast: 0, faturamento_forecast: 0 });
+    // Pedidos e faturamento previstos acompanham os itens: dia zerado por resíduo de fim de semana
+    // zera os três, senão sobraria R$ previsto sem volume previsto do lado.
+    const t = (r.marcas && r.marcas.TOTAL) || {};
+    total.push({ data: r.data, marca: "TOTAL", itens_forecast: itens,
+      pedidos_forecast: itens ? (t.pedidos || 0) : 0, faturamento_forecast: itens ? (t.faturamento || 0) : 0 });
+    // Uma linha por marca (nomes iguais aos do WMS), para o previsto × realizado por marca no telão.
+    ["Mizuno", "Olympikus", "Under Armour"].forEach(function(nome){
+      const m = r.marcas && r.marcas[nome];
+      if (!m) return;
+      const mi = forecastFimDeSemana(r.dow, m.itens);
+      extras.push({ data: r.data, marca: nome, itens_forecast: mi,
+        pedidos_forecast: mi ? m.pedidos : 0, faturamento_forecast: mi ? m.faturamento : 0 });
+    });
     [["ENT_PREVISTA", r.entrada], ["CAPACITY", r.capacity],
      ["POSICAO_INICIAL", r.posicao], ["BACKLOG_PREVISTO", r.backlog]].forEach(function(par){
       extras.push({ data: r.data, marca: par[0], itens_forecast: par[1], pedidos_forecast: 0, faturamento_forecast: 0 });
@@ -1109,7 +1169,13 @@ function acharColunasCurvaSimples(linhas) {
     itens.forEach(function(c){ if (c <= rotulo && rotulo - c <= 3) cTotal = c; });
     if (cTotal < 0) cTotal = itens.find(function(c){ return c >= rotulo; });
     if (cTotal === undefined || cTotal < 0) continue;
-    return { cData: cData, cTotal: cTotal, inicio: r + 1 };
+    // Pedidos/Faturamento do MESMO bloco, quando o arquivo os traz: ficam logo ao lado do "Itens"
+    // (no máximo 3 colunas depois), antes do próximo bloco.
+    const noBloco = function(titulo){
+      for (let c = cTotal; c < Math.min(t.length, cTotal + 4); c++) if (t[c] === titulo) return c;
+      return -1;
+    };
+    return { cData: cData, cTotal: cTotal, cPedidos: noBloco("pedidos"), cFaturamento: noBloco("faturamento"), inicio: r + 1 };
   }
   // formato antigo: "MZ" e "TOTAL ECOM" na 1ª linha; data numa das 4 primeiras colunas; total 4 colunas depois
   const l0 = (linhas[0] || []).map(norm);
@@ -1117,7 +1183,7 @@ function acharColunasCurvaSimples(linhas) {
   for (let i = 2; i < linhas.length; i++) {
     for (let c = 0; c < 4; c++) {
       const v = Number((linhas[i] || [])[c]);
-      if (!isNaN(v) && v >= 40000 && v <= 60000) return { cData: c, cTotal: c + 4, inicio: 2 };
+      if (!isNaN(v) && v >= 40000 && v <= 60000) return { cData: c, cTotal: c + 4, cPedidos: -1, cFaturamento: -1, inicio: 2 };
     }
   }
   return null;
@@ -1178,7 +1244,11 @@ async function processarForecastMensal(file, options) {
     // de verdade (ex.: sábado e domingo da Black Friday) é mantido.
     const totalItens = forecastFimDeSemana(diaSemana, Math.round(Number(linha[colTotal]) || 0));
 
-    registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens, pedidos_forecast: 0, faturamento_forecast: 0 });
+    // Pedidos e faturamento previstos acompanham os itens (dia zerado por resíduo zera os três)
+    const totalPedidos = Math.round(Number(linha[lay.cPedidos]) || 0);
+    const totalFaturamento = Math.round((Number(linha[lay.cFaturamento]) || 0) * 100) / 100;
+    registros.push({ data: dataISO, marca: "TOTAL", itens_forecast: totalItens,
+      pedidos_forecast: totalItens ? totalPedidos : 0, faturamento_forecast: totalItens ? totalFaturamento : 0 });
 
     linhasLidas++;
   }
