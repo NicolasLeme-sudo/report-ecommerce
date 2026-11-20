@@ -2669,16 +2669,35 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
   const datasPendentes = nfRegistros
     .filter(function(n){ return (n.status === "IMPORTADA" || n.status === "EM CARGA/OR") && n.data_emissao; })
     .map(function(n){ return n.data_emissao; }).sort();
-  // Top 10 NFs por FIFO (IMPORTADA + EM CARGA/OR, mais antigas primeiro)
-  const nfsPendentes = nfRegistros
+  // NFs em operação no Inbound (IMPORTADA + EM CARGA/OR), da emissão mais antiga para a mais nova.
+  // É a lista completa que alimenta o botão "Exportar NFs em operação" (nfs_fifo); o Top 10 da
+  // tela é só o começo dela (top10_nfs_fifo), então os dois nunca divergem.
+  //
+  // dias_fifo = dias ÚTEIS entre a emissão e hoje, no mesmo calendário do Backlog FIFO do Outbound
+  // (fim de semana e feriados de Extrema-MG fora; dias trabalhados/folgas marcados a mão entram).
+  // A data de emissão é "aaaa-mm-dd" (data de calendário): monta o Date em horário LOCAL — new Date("aaaa-mm-dd")
+  // seria meia-noite UTC e, em Brasília, cairia no dia anterior.
+  await carregarDiasOperacao();
+  const itensPorNF = new Map();
+  itensRegistros.forEach(function(i){
+    if (!itensPorNF.has(i.id_nota_fiscal)) itensPorNF.set(i.id_nota_fiscal, []);
+    itensPorNF.get(i.id_nota_fiscal).push(i);
+  });
+  const nfsPendentesTodas = nfRegistros
     .filter(function(n){ return n.status === "IMPORTADA" || n.status === "EM CARGA/OR"; })
-    .sort(function(a,b){ return new Date(a.data_emissao) - new Date(b.data_emissao); })
-    .slice(0, 10)
+    .sort(function(a,b){
+      // NF sem data de emissão vai para o FIM (new Date(null) vale 1970 e a poria como "a mais antiga")
+      const ta = a.data_emissao ? new Date(a.data_emissao).getTime() : Infinity;
+      const tb = b.data_emissao ? new Date(b.data_emissao).getTime() : Infinity;
+      return ta === tb ? 0 : (ta < tb ? -1 : 1);
+    })
     .map(function(n){
-      const itensNF = itensRegistros.filter(function(i){ return i.id_nota_fiscal === n.id_nota_fiscal; });
+      const itensNF = itensPorNF.get(n.id_nota_fiscal) || [];
       const totalItens = itensNF.reduce(function(s,i){ return s + i.quantidade; }, 0);
       const marcas = [...new Set(itensNF.map(function(i){ return i.marca; }).filter(Boolean))].join(", ");
       const segs   = [...new Set(itensNF.map(function(i){ return i.segmento; }).filter(Boolean))].join(", ");
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(n.data_emissao || ""));
+      const diasFifo = m ? Math.max(0, diferencaDiasUteis(new Date(+m[1], +m[2] - 1, +m[3]), hoje)) : null;
       return {
         nota_fiscal:   n.nota_fiscal,
         status:        n.status,
@@ -2686,8 +2705,11 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
         total_itens:   totalItens,
         marcas:        marcas,
         segmentos:     segs,
+        dias_fifo:     diasFifo,
       };
     });
+  // Top 10 NFs por FIFO (mais antigas primeiro)
+  const nfsPendentes = nfsPendentesTodas.slice(0, 10);
 
   // Pendente por Marca (colunas) x Segmento (linhas: Calçados / Vestuário)
   // Considera IMPORTADA + EM CARGA/OR + Stage
@@ -2750,6 +2772,7 @@ async function gerarPayloadInbound(nfRegistros, itensRegistros, recebPorDia, arm
     armazenagem_7dias: { dias: labelsDias, itens: arm7dias },
     integracao_inbound_7dias: { dias: labelsDias, itens_integrados: integracaoInbound7dias, escala_maxima: Math.max(tetoIntegracaoInbound, ...integracaoInbound7dias, 1) },
     top10_nfs_fifo:    nfsPendentes,
+    nfs_fifo:          nfsPendentesTodas,
     matriz_pendente:   matrizPendente,
     analise_automatica: null, // depende do Estoque — implementar depois
   };

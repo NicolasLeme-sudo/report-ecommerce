@@ -2783,6 +2783,7 @@ async function carregarSnapshot(id) {
 
 // Estado global do Outbound: payload atual + filtros ativos
 let outboundPayloadAtual = null;
+let inboundPayloadAtual = null;
 let outboundFiltros = { marca: 'Todas', marketplace: 'Todos', backlog: 'Todos' };
 
 async function carregarOutbound() {
@@ -3718,6 +3719,93 @@ function exportarHistoricoInbound() {
   });
 }
 
+/* ---------- Inbound: NFs em operação (Importada + Em Carga/OR) por idade FIFO ---------- */
+// Faixas de Dias FIFO (dias úteis desde a emissão) e as cores da formatação condicional do Excel.
+// Emissão e Dias FIFO são pintadas juntas, pela mesma regra (lida da coluna Dias FIFO).
+const FAIXAS_FIFO_INBOUND = [
+  { nome: '0 a 2 dias úteis',  min: 0,  max: 2,    fundo: 'FFC6EFCE', fonte: 'FF006100' },  // verde
+  { nome: '3 a 5 dias úteis',  min: 3,  max: 5,    fundo: 'FFFFEB84', fonte: 'FF7F6000' },  // amarelo
+  { nome: '6 a 10 dias úteis', min: 6,  max: 10,   fundo: 'FFF4B084', fonte: 'FF7F3F00' },  // laranja
+  { nome: '11 dias úteis ou mais', min: 11, max: null, fundo: 'FFF8696B', fonte: 'FF5C0000' },  // vermelho
+];
+
+// A lista completa vem do snapshot do Inbound (payload.nfs_fifo, gravada pelo ingest.js) — a mesma
+// base do Top 10 da tela, então o arquivo nunca diverge do que está em tela.
+async function exportarNfsFifoXLSX() {
+  const btn = document.getElementById('btnExportNfsFifo');
+  if (btn) btn.disabled = true;
+  const aviso = criarAvisoExport('NFs em operação');
+  try {
+    const nfs = inboundPayloadAtual && inboundPayloadAtual.nfs_fifo;
+    if (!Array.isArray(nfs)) { aviso.erro('Atualize os relatórios do Inbound (Abastecimento) uma vez para liberar esta exportação.'); return; }
+    if (!nfs.length) { aviso.erro('Nenhuma NF em operação no momento.'); return; }
+    if (!window.ExcelJS) { aviso.erro('Não consegui carregar o gerador de Excel. Recarregue a página e tente de novo.'); return; }
+
+    aviso.msg('Montando a planilha…');
+    const dataCal = function(s) {   // "aaaa-mm-dd" -> Date de calendário (UTC, como o ExcelJS grava)
+      const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s || ''));
+      return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])) : null;
+    };
+    const cols = ['NF', 'Status', 'Emissão', 'Dias FIFO', 'Itens', 'Marca', 'Segmento'];
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('NFs em operação');
+    ws.columns = cols.map(function(c) { return { header: c, key: c, width: Math.max(14, c.length + 4) }; });
+    ws.getColumn(2).width = 16; ws.getColumn(6).width = 18; ws.getColumn(7).width = 18;
+    nfs.forEach(function(n) {
+      ws.addRow({
+        'NF': paraNumeroExcel(n.nota_fiscal), 'Status': n.status, 'Emissão': dataCal(n.data_emissao),
+        'Dias FIFO': (n.dias_fifo === null || n.dias_fifo === undefined) ? null : Number(n.dias_fifo),
+        'Itens': Number(n.total_itens) || 0, 'Marca': n.marcas || '-', 'Segmento': n.segmentos || '-',
+      });
+    });
+    const ult = nfs.length + 1;
+    ws.getColumn(1).numFmt = 'General'; ws.getColumn(3).numFmt = 'dd/mm/yyyy';
+    ws.getColumn(4).numFmt = '0'; ws.getColumn(5).numFmt = '#,##0';
+    ws.getRow(1).eachCell(function(cell) { cell.font = { bold: true, italic: true }; cell.alignment = { horizontal: 'center', vertical: 'middle' }; });
+    ws.eachRow({ includeEmpty: false }, function(row, idx) {
+      if (idx === 1) return;
+      row.eachCell(function(cell) { cell.alignment = { horizontal: 'center', vertical: 'middle' }; });
+    });
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = 'A1:G' + ult;
+
+    // Formatação condicional: Emissão (C) e Dias FIFO (D) pintadas pela faixa do Dias FIFO (D).
+    // "$D2<>''" evita pintar de verde a NF sem data (célula vazia valeria 0 na comparação).
+    ws.addConditionalFormatting({
+      ref: 'C2:D' + ult,
+      rules: FAIXAS_FIFO_INBOUND.map(function(f, i) {
+        const teto = f.max === null ? '' : ',$D2<=' + f.max;
+        return { type: 'expression', priority: i + 1, formulae: ['AND($D2<>"",$D2>=' + f.min + teto + ')'],
+          style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: f.fundo } }, font: { color: { argb: f.fonte }, bold: true } } };
+      }),
+    });
+
+    // Aba de legenda: faixa, cor e quantas NFs caíram em cada uma
+    const wl = wb.addWorksheet('Legenda');
+    wl.columns = [{ header: 'Dias FIFO', key: 'f', width: 26 }, { header: 'NFs', key: 'q', width: 10 }];
+    FAIXAS_FIFO_INBOUND.forEach(function(f) {
+      const qtd = nfs.filter(function(n) { return n.dias_fifo !== null && n.dias_fifo !== undefined && n.dias_fifo >= f.min && (f.max === null || n.dias_fifo <= f.max); }).length;
+      const r = wl.addRow({ f: f.nome, q: qtd });
+      r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: f.fundo } };
+      r.getCell(1).font = { color: { argb: f.fonte }, bold: true };
+    });
+    wl.getRow(1).eachCell(function(cell) { cell.font = { bold: true, italic: true }; });
+    wl.eachRow(function(row) { row.eachCell(function(cell) { cell.alignment = { horizontal: 'center', vertical: 'middle' }; }); });
+
+    const hoje = new Date().toLocaleDateString('pt-BR').split('/').join('-');
+    const buffer = await wb.xlsx.writeBuffer();
+    const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'NFs_em_operacao_' + hoje + '.xlsx';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+  } catch (e) {
+    console.error(e);
+    aviso.erro('Não consegui gerar o arquivo: ' + (e.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+    aviso.fim();
+  }
+}
+
 /* ---------- Estoque: foto de um dia (capacidade × ocupação) ---------- */
 function exportarHistoricoEstoque() {
   abrirExportPeriodo({
@@ -4165,13 +4253,14 @@ async function carregarInbound() {
 }
 
 function renderizarInbound(p, estoquePayload) {
+  inboundPayloadAtual = p;   // o botão "Exportar NFs em operação" lê a lista completa daqui (nfs_fifo)
   // Análise automática: cruza pendente de armazenagem (por marca/segmento) com ocupação do estoque
   var analiseHTML = gerarAnaliseAutomatica(p, estoquePayload);
 
   const html = `
     <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
       Indicadores do Inbound
-      <div style="display:flex;gap:8px;"><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
+      <div style="display:flex;gap:8px;"><button class="btn-export" id="btnExportNfsFifo" onclick="exportarNfsFifoXLSX()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar NFs em operação</span></button><button class="btn-export" onclick="exportarHistoricoInbound()"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg></span><span>Exportar histórico de atualizações</span></button></div>
     </div>
     <div class="kpi-row-2x3">
       <div class="kpi-row-2x3-cards">
