@@ -1306,7 +1306,7 @@ table.matrix tbody tr.total th {
           <div class="file-field"><label>Acompanhamento_Op.tsv</label><input type="file" id="fileOp"></div>
           <div class="file-field"><label>Acompanhamento_Exp.tsv</label><input type="file" id="fileExp"></div>
           <div class="file-field"><label>Itens_de_NF_de_Saída.tsv</label><input type="file" id="fileItensNF"></div>
-          <div class="file-field"><label>Pedidos_E-comm_Geral.xlsx</label><input type="file" id="filePedidosEcomm"></div>
+          <div class="file-field"><label>Pedidos_E-comm_Geral (.xlsx ou SAP_….csv)</label><input type="file" id="filePedidosEcomm" accept=".xlsx,.xls,.csv,.txt"></div>
         </div>
         <button class="btn-upload" id="btnOperacao">Atualizar Relatórios da Operação</button>
         <div class="progress-box" id="progressOperacao"></div>
@@ -4166,7 +4166,9 @@ async function identificarArquivo(file) {
     if (temColunas(cab, ['Setor', 'Local', 'Tipo do Local', 'Barra', 'Estoque (UN)'])) return 'wms';
     return null;
   }
-  const ini = await file.slice(0, 256 * 1024).text();
+  // o CSV do SAP vem em Latin-1; corta na última quebra de linha para não partir um caractere UTF-8 no meio
+  const bytes = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer()), fimL = bytes.lastIndexOf(10);
+  const ini = await lerTextoComEncoding(new Blob([fimL > 0 ? bytes.slice(0, fimL + 1) : bytes]));
   const lns = ini.split(/\r?\n/);
   const l0 = lns[0] || '';
   const sep = l0.indexOf('\t') >= 0 ? '\t' : (l0.indexOf(';') >= 0 ? ';' : ',');
@@ -4178,6 +4180,7 @@ async function identificarArquivo(file) {
     const ok = amostra.filter(c => teste(semAcento(c[i]))).length;
     return ok * 2 > amostra.length;
   };
+  if (temColunas(cab, ['Primário', 'Marketplace', 'Marca'])) return 'ecomm';   // SAP_ddmmaaaa_ddmmaaaa.csv
   if (temColunas(cab, ['Setor', 'Local', 'Tipo do Local', 'Barra', 'Estoque (UN)'])) return 'wms';
   if (temColunas(cab, ['Local', 'Bloco', 'Rua', 'Prédio', 'Apartamento', 'Tipo', 'Ativo', 'Setor', 'Região'])) return 'cadastro';
   if (temColunas(cab, ['Data', 'Local', 'Estoque Antes', 'Estoque Após'])) return 'kardex';
@@ -4199,7 +4202,7 @@ async function identificarArquivo(file) {
   if (temColunas(cab, ['Loja', 'Reversa', 'Status'])) return 'troca';
   return null;
 }
-// Ordem de execução: bases antes de quem usa; Inbound antes da Reversa (ela lê os Itens de Entrada guardados pelo Inbound).
+// Ordem de execução: bases antes de quem usa; Estoque antes da Operação e do Inbound (capacidade e análise do estoque); Inbound antes da Reversa (ela lê os Itens de Entrada guardados pelo Inbound).
 const GRUPOS_PASTA = [
   { nome: 'Bases gerais', algum: ['embalas', 'acronimos', 'custo'], run: async (a, o) => {
       if (a.embalas) await processarBaseEmbalagem(a.embalas, o);
@@ -4207,10 +4210,10 @@ const GRUPOS_PASTA = [
       if (a.custo) await processarBaseCusto(a.custo, o);
     } },
   { nome: 'Cadastro de Endereços', precisa: ['cadastro'], estoque: true, run: (a, o) => processarCadastroEnderecos({ arquivoCadastro: a.cadastro }, o) },
+  { nome: 'Estoque (Operação)', precisa: ['wms'], estoque: true, run: (a, o) => processarEstoqueOperacao({ arquivoWMS: a.wms }, o) },
   { nome: 'Operação', precisa: ['op', 'exp', 'itensNF', 'ecomm'], run: (a, o) => processarRelatoriosDaOperacao({ arquivoOp: a.op, arquivoExp: a.exp, arquivoItensNF: a.itensNF, arquivoPedidosEcomm: a.ecomm }, o) },
   { nome: 'Inbound', precisa: ['recebs', 'itensEntrada', 'or', 'kardex', 'wms'], run: (a, o) => processarRelatoriosInbound({ arquivoRecebs: a.recebs, arquivoItens: a.itensEntrada, arquivoOR: a.or, arquivoKardex: a.kardex, arquivoWMS: a.wms }, o) },
   { nome: 'Reversa', precisa: ['controleReversa', 'troca'], run: (a, o) => processarRelatoriosReversa({ arquivoControle: a.controleReversa, arquivoItens: null, arquivoTroca: a.troca }, o) },
-  { nome: 'Estoque (Operação)', precisa: ['wms'], estoque: true, run: (a, o) => processarEstoqueOperacao({ arquivoWMS: a.wms }, o) },
   { nome: 'Balanço de Estoque', precisa: ['wms', 'sap'], estoque: true, run: (a, o) => processarBalanco({ arquivoWMS: a.wms, arquivoSAP: a.sap }, o) },
 ];
 document.getElementById('btnPasta').addEventListener('click', async () => {

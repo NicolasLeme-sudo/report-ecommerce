@@ -226,6 +226,41 @@ function ehSetorRecebimentoStage(setor) {
   return t.indexOf("RECEBIMENTO") >= 0 && t.indexOf("STAGE") >= 0;
 }
 
+// Texto de arquivo exportado do SAP/WMS: UTF-8 quando é UTF-8 válido, senão Windows-1252 (Latin-1).
+async function lerTextoComEncoding(file) {
+  const buf = await file.arrayBuffer();
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^\uFEFF/, ""); }
+  catch (e) { return new TextDecoder("windows-1252").decode(buf); }
+}
+// Pedidos E-comm Geral: .xlsx ou o .csv do SAP ("SAP_ddmmaaaa_ddmmaaaa.csv", ";" e Latin-1), mesmas colunas (24/11).
+// No CSV tudo vem como texto: datas dd/mm/aaaa viram Date e o "Total do pedido" (359,99) vira número, igual ao .xlsx.
+async function lerPedidosEcomm(file) {
+  if (/\.(xlsx|xls|xlsb|xlsm)$/.test(String(file.name || "").toLowerCase())) return await validarArquivoXLSX(file, "ecomm", "Pedidos E-comm Geral");
+  const texto = await lerTextoComEncoding(file);
+  const linhas = texto.split(/\r?\n/).filter(function(l) { return l.trim() !== ""; });
+  if (!linhas.length) throw new Error('Arquivo "Pedidos E-comm Geral" está vazio.');
+  const sep = linhas[0].indexOf("\t") >= 0 ? "\t" : (linhas[0].indexOf(";") >= 0 ? ";" : ",");
+  const campos = function(l) { return l.split(sep).map(function(c) { return c.trim().replace(/^"(.*)"$/, "$1"); }); };
+  const cab = campos(linhas[0]);
+  const r = validarColunas(cab, "ecomm");
+  if (!r.ok) throw new Error('Arquivo inválido para "Pedidos E-comm Geral".\nColunas obrigatórias não encontradas:\n  • ' + r.faltando.join("\n  • ") + "\n\nPrimeiras colunas encontradas no arquivo:\n  " + r.encontradas.join(", "));
+  const ehData = cab.map(function(c) { return /^data/i.test(c); });
+  const ehValor = cab.map(function(c) { return /^total do pedido$/i.test(c); });
+  const out = [];
+  for (let i = 1; i < linhas.length; i++) {
+    const c = campos(linhas[i]), o = {};
+    for (let j = 0; j < cab.length; j++) {
+      let v = c[j] == null ? "" : c[j];
+      const m = ehData[j] ? /^(\d{2})\/(\d{2})\/(\d{4})/.exec(v) : null;
+      if (m) v = new Date(+m[3], +m[2] - 1, +m[1]);
+      else if (ehValor[j] && v !== "") { const n = Number(v.replace(/\./g, "").replace(",", ".")); v = isNaN(n) ? v : n; }
+      o[cab[j]] = v;
+    }
+    out.push(o);
+  }
+  return out;
+}
+
 // Parser de XLSX usando SheetJS (window.XLSX precisa estar carregado)
 async function parseXLSX(file) {
   const buffer = await file.arrayBuffer();
@@ -447,7 +482,7 @@ async function processarRelatoriosDaOperacao(files, options) {
   const linhasItens = parseTSVSelecionado(textoItens, CAMPOS_ITENS_NF);
 
   onProgress("Validando e lendo Pedidos E-comm Geral...");
-  const linhasSap = await validarArquivoXLSX(arquivoPedidosEcomm, "ecomm", "Pedidos E-comm Geral");
+  const linhasSap = await lerPedidosEcomm(arquivoPedidosEcomm);
 
   // ---- Índice do SAP por "Pedido de Venda" (campo "Primário") ----
   const sapPorPedido = new Map();
