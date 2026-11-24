@@ -196,6 +196,36 @@ function parseTSVSelecionado(texto, colunasDesejadas) {
   return registros;
 }
 
+// Estoque WMS (estoque completo do WMS): um arquivo só alimenta o Recebimento Stage do Inbound
+// (Setor = RECEBIMENTO - STAGE), o Estoque da Operação (Tipo do Local = PICKING) e o Balanço (24/11).
+// Lido uma vez por arquivo: o resultado fica guardado pelo próprio File até liberarEstoqueWMS().
+const COLUNAS_ESTOQUE_WMS = ["Setor", "Região", "Local", "Tipo do Local", "Barra", "Produto", "Código do Produto", "Estoque (UN)"];
+const _cacheEstoqueWMS = new WeakMap();
+function lerEstoqueWMS(file) {
+  if (!file) return Promise.resolve(null);
+  if (!_cacheEstoqueWMS.has(file)) {
+    const p = (async function() {
+      if (/\.(xlsx|xls|xlsb)$/.test(String(file.name || "").toLowerCase())) return await parseXLSX(file);
+      let texto = await file.text();
+      if (texto.charCodeAt(0) === 0xFEFF) texto = texto.slice(1);
+      const fim = texto.indexOf("\n");
+      const cab = (fim < 0 ? texto : texto.slice(0, fim)).split("\t").map(function(c) { return c.trim(); });
+      const faltando = ["Setor", "Local", "Tipo do Local", "Barra", "Estoque (UN)"].filter(function(c) { return cab.indexOf(c) < 0; });
+      if (faltando.length) throw new Error('Arquivo inválido para "Estoque WMS". Colunas faltando: ' + faltando.join(", ") + ". Primeiras colunas encontradas: " + cab.slice(0, 8).join(", "));
+      return parseTSVSelecionado(texto, COLUNAS_ESTOQUE_WMS);
+    })();
+    _cacheEstoqueWMS.set(file, p);
+    p.catch(function() { _cacheEstoqueWMS.delete(file); });
+  }
+  return _cacheEstoqueWMS.get(file);
+}
+function liberarEstoqueWMS(file) { if (file) _cacheEstoqueWMS.delete(file); }
+// "RECEBIMENTO - STAGE" no arquivo; aceita variação de hífen/espaço/acento. "REVERSA - STAGE" fica de fora.
+function ehSetorRecebimentoStage(setor) {
+  const t = String(setor || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+  return t.indexOf("RECEBIMENTO") >= 0 && t.indexOf("STAGE") >= 0;
+}
+
 // Parser de XLSX usando SheetJS (window.XLSX precisa estar carregado)
 async function parseXLSX(file) {
   const buffer = await file.arrayBuffer();
@@ -2234,14 +2264,16 @@ async function processarRelatoriosInbound(files, options) {
   const textoItens   = await files.arquivoItens.text();
   const textoOR      = await files.arquivoOR.text();
   const textoKardex  = await files.arquivoKardex.text();
-  const textoStage   = await files.arquivoStage.text();
 
   // Parsear cada arquivo
   const linhasRecebs  = parseTSVSelecionado(textoRecebs,  ["idNotaFiscal","Nota Fiscal","Status","Data de Emissão","Data de Cadastro","Data de Processamento","Emitente","Ordem de Recebimento","Operação"]);
   const linhasItens   = parseTSVSelecionado(textoItens,   ["idNotaFiscal","Código do Produto","Produto","Barra","Quantidade"]);
   const linhasOR      = parseTSVSelecionado(textoOR,      ["Nota Fiscal","Data da Conferência","Qtde. de Volumes"]);
   const linhasKardex  = parseTSVSelecionado(textoKardex,  ["Data","Local","Estoque Antes","Estoque Após"]);
-  const linhasStage   = parseTSVSelecionado(textoStage,   ["Local","Barra","Produto","Estoque (UN)"]);
+  // Recebimento Stage: do Estoque WMS, filtro Setor = RECEBIMENTO - STAGE (24/11; antes era um arquivo à parte)
+  if (!files.arquivoWMS) throw new Error("Selecione o Estoque WMS: o Recebimento Stage sai dele.");
+  onProgress("Lendo Estoque WMS (Recebimento Stage)...");
+  const linhasStage   = ((await lerEstoqueWMS(files.arquivoWMS)) || []).filter(function(r){ return ehSetorRecebimentoStage(r["Setor"]); });
 
   // Validar colunas. Arquivo sem nenhuma linha de dados (dia sem atividade) é válido:
   // as colunas são conferidas pelo cabeçalho do próprio arquivo e o usuário confirma antes de gravar.
@@ -2255,7 +2287,6 @@ async function processarRelatoriosInbound(files, options) {
     { linhas: linhasItens,  texto: textoItens,  tipo: "itens_entrada", nome: "Itens de NF de Entrada" },
     { linhas: linhasOR,     texto: textoOR,     tipo: "gerenciador",   nome: "Gerenciador de OR" },
     { linhas: linhasKardex, texto: textoKardex, tipo: "kardex",        nome: "Kardex de End" },
-    { linhas: linhasStage,  texto: textoStage,  tipo: "stage",         nome: "Recebimento Stage" },
   ];
   const vazios = [];
   arquivosInbound.forEach(function(a){
@@ -2994,10 +3025,20 @@ async function processarCadastroEnderecos(files, options) {
 // -------------------------------------------------------------------------
 async function processarEstoqueOperacao(files, options) {
   const onProgress = (options && options.onProgress) || function(){};
-  onProgress("Lendo Estoque Picking...");
-  await uploadArquivoOriginal("estoque/Estoque_Picking.tsv", files.arquivoEstoque);
-  const texto = await files.arquivoEstoque.text();
-  const linhas = parseTSVSelecionado(texto, ["Região", "Tipo do Local", "Barra", "Estoque (UN)", "Local"]);
+  // Picking: do Estoque WMS, filtro Tipo do Local = PICKING (24/11; antes era o arquivo Estoque_Picking à parte)
+  onProgress("Lendo Estoque WMS (Picking)...");
+  const linhas = ((await lerEstoqueWMS(files.arquivoWMS)) || []).filter(function(r) {
+    return normalizarEncoding(r["Tipo do Local"] || "").toUpperCase().includes("PICKING");
+  });
+  if (!linhas.length) { onProgress("✗ Nenhuma linha de PICKING no Estoque WMS — confira o arquivo."); return; }
+  // cópia para o botão "Exportar Arquivo": só as linhas de picking e as colunas usadas (o arquivo inteiro passa de 200 MB)
+  {
+    const partes = [COLUNAS_ESTOQUE_WMS.join("\t") + "\n"];
+    for (let i = 0; i < linhas.length; i += 20000) {
+      partes.push(linhas.slice(i, i + 20000).map(function(r) { return COLUNAS_ESTOQUE_WMS.map(function(c) { return r[c] == null ? "" : String(r[c]); }).join("\t"); }).join("\n") + "\n");
+    }
+    await uploadArquivoOriginal("estoque/Estoque_Picking.tsv", new Blob(partes, { type: "text/plain" }));
+  }
 
   // Além do total por região (tabela), guarda o saldo por prédio com a região de cada
   // endereço — é o que a planta 3D usa, então ela fecha exatamente com a tabela (mesmo
@@ -3117,15 +3158,8 @@ async function processarBalanco(files, options) {
       "MB — pode travar o navegador. Se travar, exporte como .xlsb (mesmos dados, bem mais leve) e tente de novo.");
   }
   onProgress("Lendo Estoque WMS (" + (wmsEhBinario ? "XLSX/XLSB" : "TSV") + ")...");
-  let linhasWMS;
-  if (wmsEhBinario) {
-    linhasWMS = await parseXLSX(files.arquivoWMS);
-  } else {
-    const textoWMS = await files.arquivoWMS.text();
-    linhasWMS = parseTSVSelecionado(textoWMS, [
-      "Local", "Tipo do Local", "Barra", "Código do Produto", "Estoque (UN)"
-    ]);
-  }
+  // Mesmo leitor do Inbound e do Estoque: no abastecimento por pasta o arquivo é lido uma vez só.
+  const linhasWMS = await lerEstoqueWMS(files.arquivoWMS);
   if (!linhasWMS || linhasWMS.length === 0) { onProgress("✗ Arquivo WMS vazio."); return; }
   onProgress("WMS: " + linhasWMS.length + " linhas lidas. Agregando...");
 

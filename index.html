@@ -1287,7 +1287,18 @@ table.matrix tbody tr.total th {
 
     <!-- ABASTECIMENTO -->
     <div class="secao" id="secao-abastecimento">
-      <div class="section-title" style="margin-top:0">Relatórios Operação</div>
+      <div class="section-title" style="margin-top:0">Abastecer tudo de uma vez</div>
+      <div class="upload-card">
+        <h2>Abastecer pasta</h2>
+        <div class="freq">Escolha a pasta com os relatórios baixados (ou selecione vários arquivos). Cada arquivo é reconhecido pelas colunas, não pelo nome; só roda o que estiver completo.</div>
+        <div class="file-row">
+          <div class="file-field"><label>Pasta com os relatórios</label><input type="file" id="filePasta" webkitdirectory multiple></div>
+          <div class="file-field"><label>…ou vários arquivos</label><input type="file" id="fileVarios" multiple></div>
+        </div>
+        <button class="btn-upload" id="btnPasta">Reconhecer e atualizar</button>
+        <div class="progress-box" id="progressPasta" style="white-space:pre-line"></div>
+      </div>
+      <div class="section-title" style="margin-top:24px">Relatórios Operação</div>
       <div class="upload-card">
         <h2>Atualizar Relatórios da Operação</h2>
         <div class="freq">Frequência: diária</div>
@@ -1308,7 +1319,7 @@ table.matrix tbody tr.total th {
           <div class="file-field"><label>Itens_de_NF_de_Entrada.tsv</label><input type="file" id="fileItensEntrada"></div>
           <div class="file-field"><label>Gerenciador_de_OR.tsv</label><input type="file" id="fileOR"></div>
           <div class="file-field"><label>Kardex_de_End.tsv</label><input type="file" id="fileKardex"></div>
-          <div class="file-field"><label>Recebimento_Stage.tsv</label><input type="file" id="fileStage"></div>
+          <div class="file-field"><label>Estoque_WMS (Recebimento Stage sai dele)</label><input type="file" id="fileWMSInbound" accept=".tsv,.xlsx,.xls,.xlsb"></div>
         </div>
         <button class="btn-upload" id="btnInbound">Atualizar Relatórios do Inbound</button>
         <div class="progress-box" id="progressInbound"></div>
@@ -1335,7 +1346,7 @@ table.matrix tbody tr.total th {
         <h2>Atualizar Estoque (Operação)</h2>
         <div class="freq">Frequência: diária</div>
         <div class="file-row">
-          <div class="file-field"><label>Estoque_Picking.tsv</label><input type="file" id="fileEstoquePicking"></div>
+          <div class="file-field"><label>Estoque_WMS (Picking sai dele)</label><input type="file" id="fileWMSEstoque" accept=".tsv,.xlsx,.xls,.xlsb"></div>
         </div>
         <button class="btn-upload" id="btnEstoque">Atualizar Estoque</button>
         <div class="progress-box" id="progressEstoque"></div>
@@ -4033,10 +4044,17 @@ function ligarBotao(btnId, progressId, fn, getFiles, depois) {
       console.error(e);
       mostrar(progressId, '✗ Erro: ' + e.message, 'erro');
     } finally {
+      if (files && files.arquivoWMS) liberarEstoqueWMS(files.arquivoWMS);
       _atualizacoesEmAndamento = Math.max(0, _atualizacoesEmAndamento - 1);
       document.getElementById(btnId).disabled = false;
     }
   });
+}
+// O Estoque WMS alimenta Inbound (Stage), Estoque (Picking) e Balanço: vale o do próprio card e, se vazio, o escolhido em outro card.
+function arquivoWMSEscolhido(idPreferido) {
+  const ids = [idPreferido, 'fileWMSInbound', 'fileWMSEstoque', 'fileWMS'];
+  for (const id of ids) { const el = document.getElementById(id); if (el && el.files && el.files[0]) return el.files[0]; }
+  return null;
 }
 
 ligarBotao('btnOperacao', 'progressOperacao', processarRelatoriosDaOperacao, () => {
@@ -4051,8 +4069,8 @@ ligarBotao('btnInbound', 'progressInbound', processarRelatoriosInbound, () => {
   const i = document.getElementById('fileItensEntrada').files[0];
   const o = document.getElementById('fileOR').files[0];
   const k = document.getElementById('fileKardex').files[0];
-  const s = document.getElementById('fileStage').files[0];
-  return (r&&i&&o&&k&&s) ? {arquivoRecebs:r, arquivoItens:i, arquivoOR:o, arquivoKardex:k, arquivoStage:s} : null;
+  const w = arquivoWMSEscolhido('fileWMSInbound');
+  return (r&&i&&o&&k&&w) ? {arquivoRecebs:r, arquivoItens:i, arquivoOR:o, arquivoKardex:k, arquivoWMS:w} : null;
 });
 
 ligarBotao('btnReversa', 'progressReversa', processarRelatoriosReversa, () => {
@@ -4095,8 +4113,8 @@ function avisarEstoqueAtualizado() {
 if (canalEstoque) canalEstoque.onmessage = refrescarTelaEstoque;
 
 ligarBotao('btnEstoque', 'progressEstoque', processarEstoqueOperacao, () => {
-  const f = document.getElementById('fileEstoquePicking').files[0];
-  return f ? { arquivoEstoque: f } : null;
+  const w = arquivoWMSEscolhido('fileWMSEstoque');
+  return w ? { arquivoWMS: w } : null;
 }, avisarEstoqueAtualizado);
 
 ligarBotao('btnCadastroWMS', 'progressCadastroWMS', processarCadastroEnderecos, () => {
@@ -4105,7 +4123,7 @@ ligarBotao('btnCadastroWMS', 'progressCadastroWMS', processarCadastroEnderecos, 
 }, avisarEstoqueAtualizado);
 
 ligarBotao('btnBalanco', 'progressBalanco', processarBalanco, () => {
-  const w = document.getElementById('fileWMS').files[0];
+  const w = arquivoWMSEscolhido('fileWMS');
   const s = document.getElementById('fileSAP').files[0];
   return (w&&s) ? { arquivoWMS: w, arquivoSAP: s } : null;
 }, avisarEstoqueAtualizado);
@@ -4121,6 +4139,132 @@ ligarBotao('btnBasesGerais', 'progressBasesGerais', async function(files, opts) 
   const c = document.getElementById('fileCusto').files[0];
   return (e||a||c) ? { embalas:e, acronimos:a, custo:c } : null;
 });
+/* ============================================================
+   ABASTECER PASTA — reconhece cada arquivo pelas COLUNAS (nunca pelo nome)
+   Pares com cabeçalho igual são separados pelo conteúdo: Acompanhamento Op × Exp (Status EXPEDIDO),
+   Controle de NF Recebs × Reversa (Operação), Itens de NF de Entrada × Saída (Tipo).
+   ============================================================ */
+const NOMES_RELATORIO = {
+  op: 'Acompanhamento Op', exp: 'Acompanhamento Exp', itensNF: 'Itens de NF de Saída', ecomm: 'Pedidos E-comm Geral',
+  recebs: 'Controle de NF Recebs', itensEntrada: 'Itens de NF de Entrada', or: 'Gerenciador de OR', kardex: 'Kardex de End',
+  wms: 'Estoque WMS', sap: 'Estoque SAP', cadastro: 'Cadastro de Endereços (Armazém)',
+  controleReversa: 'Controle de NF Reversa', troca: 'Troca E-comm', embalas: 'Embalas', acronimos: 'Base de Acrônimos', custo: 'Base de Custo',
+};
+function semAcento(s) { return String(s == null ? '' : s).replace(/^\uFEFF/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/^"|"$/g, '').trim().toLowerCase(); }
+function temColunas(cab, cols) { return cols.every(c => cab.indexOf(semAcento(c)) >= 0); }
+async function identificarArquivo(file) {
+  const nome = String(file.name || '').toLowerCase();
+  if (/\.(xlsx|xls|xlsb|xlsm)$/.test(nome)) {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', sheetRows: 2 });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const cab = ((ws && XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })[0]) || []).map(semAcento);
+    if (temColunas(cab, ['Primário', 'Marketplace', 'Marca'])) return 'ecomm';
+    if (temColunas(cab, ['Posição no depósito', 'Nº do item', 'Quantidade do item'])) return 'sap';
+    if (temColunas(cab, ['Acronimo', 'Razão Social'])) return 'acronimos';
+    if (temColunas(cab, ['Preço médio']) && (temColunas(cab, ['Nº do item']) || temColunas(cab, ['Item']))) return 'custo';
+    if (temColunas(cab, ['MARCA', 'SEGMENTO'])) return 'embalas';
+    if (temColunas(cab, ['Setor', 'Local', 'Tipo do Local', 'Barra', 'Estoque (UN)'])) return 'wms';
+    return null;
+  }
+  const ini = await file.slice(0, 256 * 1024).text();
+  const lns = ini.split(/\r?\n/);
+  const l0 = lns[0] || '';
+  const sep = l0.indexOf('\t') >= 0 ? '\t' : (l0.indexOf(';') >= 0 ? ';' : ',');
+  const cab = l0.split(sep).map(semAcento);
+  const amostra = lns.slice(1, lns.length - 1).filter(Boolean).slice(0, 400).map(l => l.split(sep));
+  // valor que aparece na maioria das linhas da amostra (null = arquivo sem linhas)
+  const maioria = (coluna, teste) => {
+    const i = cab.indexOf(semAcento(coluna)); if (i < 0 || !amostra.length) return null;
+    const ok = amostra.filter(c => teste(semAcento(c[i]))).length;
+    return ok * 2 > amostra.length;
+  };
+  if (temColunas(cab, ['Setor', 'Local', 'Tipo do Local', 'Barra', 'Estoque (UN)'])) return 'wms';
+  if (temColunas(cab, ['Local', 'Bloco', 'Rua', 'Prédio', 'Apartamento', 'Tipo', 'Ativo', 'Setor', 'Região'])) return 'cadastro';
+  if (temColunas(cab, ['Data', 'Local', 'Estoque Antes', 'Estoque Após'])) return 'kardex';
+  if (temColunas(cab, ['Nota Fiscal', 'Data da Conferência', 'Qtde. de Volumes'])) return 'or';
+  if (temColunas(cab, ['Pedido de Venda', 'Importado em', 'Status da Nota Fiscal', 'Processado em', 'Cancelado Pelo ERP'])) {
+    const m = maioria('Status da Nota Fiscal', v => v === 'expedido');
+    return m === null ? { erro: 'Acompanhamento sem linhas: não dá para saber se é o Op ou o Exp' } : (m ? 'exp' : 'op');
+  }
+  if (temColunas(cab, ['idNotaFiscal', 'Pedido de Venda', 'Barra', 'Quantidade', 'Qtde. Faturada', 'Tipo'])) {
+    if (maioria('Tipo', v => v.indexOf('saida') === 0)) return 'itensNF';
+    if (maioria('Tipo', v => v === 'entrada')) return 'itensEntrada';
+    return { erro: 'Itens de NF sem linhas: não dá para saber se é o de Entrada ou o de Saída' };
+  }
+  if (temColunas(cab, ['idNotaFiscal', 'Nota Fiscal', 'Status', 'Operação', 'Data de Cadastro'])) {
+    if (maioria('Operação', v => v.indexOf('reversa') >= 0)) return 'controleReversa';
+    if (maioria('Operação', v => v.indexOf('recebimento') >= 0)) return 'recebs';
+    return { erro: 'Controle de NF sem linhas: não dá para saber se é o Recebs ou o Reversa' };
+  }
+  if (temColunas(cab, ['Loja', 'Reversa', 'Status'])) return 'troca';
+  return null;
+}
+// Ordem de execução: bases antes de quem usa; Inbound antes da Reversa (ela lê os Itens de Entrada guardados pelo Inbound).
+const GRUPOS_PASTA = [
+  { nome: 'Bases gerais', algum: ['embalas', 'acronimos', 'custo'], run: async (a, o) => {
+      if (a.embalas) await processarBaseEmbalagem(a.embalas, o);
+      if (a.acronimos) await processarBaseAcronimos(a.acronimos, o);
+      if (a.custo) await processarBaseCusto(a.custo, o);
+    } },
+  { nome: 'Cadastro de Endereços', precisa: ['cadastro'], estoque: true, run: (a, o) => processarCadastroEnderecos({ arquivoCadastro: a.cadastro }, o) },
+  { nome: 'Operação', precisa: ['op', 'exp', 'itensNF', 'ecomm'], run: (a, o) => processarRelatoriosDaOperacao({ arquivoOp: a.op, arquivoExp: a.exp, arquivoItensNF: a.itensNF, arquivoPedidosEcomm: a.ecomm }, o) },
+  { nome: 'Inbound', precisa: ['recebs', 'itensEntrada', 'or', 'kardex', 'wms'], run: (a, o) => processarRelatoriosInbound({ arquivoRecebs: a.recebs, arquivoItens: a.itensEntrada, arquivoOR: a.or, arquivoKardex: a.kardex, arquivoWMS: a.wms }, o) },
+  { nome: 'Reversa', precisa: ['controleReversa', 'troca'], run: (a, o) => processarRelatoriosReversa({ arquivoControle: a.controleReversa, arquivoItens: null, arquivoTroca: a.troca }, o) },
+  { nome: 'Estoque (Operação)', precisa: ['wms'], estoque: true, run: (a, o) => processarEstoqueOperacao({ arquivoWMS: a.wms }, o) },
+  { nome: 'Balanço de Estoque', precisa: ['wms', 'sap'], estoque: true, run: (a, o) => processarBalanco({ arquivoWMS: a.wms, arquivoSAP: a.sap }, o) },
+];
+document.getElementById('btnPasta').addEventListener('click', async () => {
+  const P = 'progressPasta', btn = document.getElementById('btnPasta');
+  const lista = [...document.getElementById('filePasta').files, ...document.getElementById('fileVarios').files]
+    .filter(f => f.size > 0 && !/^(~\$|\.)/.test(f.name));
+  if (!lista.length) { mostrar(P, 'Escolha a pasta ou selecione os arquivos.', 'erro'); return; }
+  btn.disabled = true; _atualizacoesEmAndamento++;
+  const achados = {};
+  try {
+    const ignorados = [], repetidos = new Set();
+    for (let i = 0; i < lista.length; i++) {
+      const f = lista[i];
+      mostrar(P, 'Reconhecendo ' + (i + 1) + '/' + lista.length + ': ' + f.name);
+      let t = null;
+      try { t = await identificarArquivo(f); } catch (e) { t = { erro: 'não consegui ler (' + e.message + ')' }; }
+      if (!t || typeof t === 'object') { ignorados.push(f.name + (t && t.erro ? ' — ' + t.erro : '')); continue; }
+      if (achados[t]) { repetidos.add(NOMES_RELATORIO[t]); if (f.lastModified <= achados[t].lastModified) continue; }
+      achados[t] = f;
+    }
+    const completo = g => g.precisa ? g.precisa.every(k => achados[k]) : g.algum.some(k => achados[k]);
+    const roda = GRUPOS_PASTA.filter(completo);
+    const incompletos = GRUPOS_PASTA.filter(g => !completo(g) && (g.precisa || []).some(k => achados[k]))
+      .map(g => g.nome + ' (falta: ' + g.precisa.filter(k => !achados[k]).map(k => NOMES_RELATORIO[k]).join(', ') + ')');
+    let resumo = 'Reconhecidos:\n' + (Object.keys(achados).map(k => '• ' + NOMES_RELATORIO[k] + ' ← ' + achados[k].name).join('\n') || '• nenhum');
+    if (ignorados.length) resumo += '\n\nNão reconhecidos (ficam de fora):\n• ' + ignorados.join('\n• ');
+    if (repetidos.size) resumo += '\n\nMais de um arquivo do mesmo relatório (vale o mais recente): ' + [...repetidos].join(', ');
+    if (incompletos.length) resumo += '\n\nNão vai rodar:\n• ' + incompletos.join('\n• ');
+    if (!roda.length) { mostrar(P, resumo + '\n\nNenhum grupo completo para atualizar.', 'erro'); return; }
+    if (!confirm(resumo + '\n\nVai atualizar: ' + roda.map(g => g.nome).join(', ') + '.\n\nContinuar?')) { mostrar(P, resumo + '\n\nCancelado.'); return; }
+    const res = [];
+    for (const g of roda) {
+      let ultima = '';
+      const o = { onProgress: m => { ultima = String(m || ''); mostrar(P, res.concat('… ' + g.nome + ': ' + ultima).join('\n')); }, confirmarVazios: m => confirm(m) };
+      try {
+        await g.run(achados, o);
+        res.push(ultima.indexOf('✗') === 0 ? '✗ ' + g.nome + ': ' + ultima.slice(1).trim() : '✓ ' + g.nome);
+      } catch (e) {
+        if (e.cancelado) res.push('– ' + g.nome + ': ' + e.message);
+        else { console.error(e); res.push('✗ ' + g.nome + ': ' + e.message); }
+      }
+    }
+    mostrar(P, res.join('\n') + (incompletos.length ? '\n\nNão rodou:\n• ' + incompletos.join('\n• ') : ''), res.some(r => r[0] === '✗') ? 'erro' : 'ok');
+    carregarDatasHistorico();
+    if (roda.some(g => g.estoque)) avisarEstoqueAtualizado();
+  } catch (e) {
+    console.error(e); mostrar(P, '✗ Erro: ' + e.message, 'erro');
+  } finally {
+    liberarEstoqueWMS(achados.wms);
+    _atualizacoesEmAndamento = Math.max(0, _atualizacoesEmAndamento - 1);
+    btn.disabled = false;
+  }
+});
+
 /* Exceções do gabarito de endereços: listar e remover (ex.: K04/K05 provisórios) */
 async function renderExcecoesGabarito() {
   const el = document.getElementById('listaGabaritoExcecoes'); if (!el) return;
