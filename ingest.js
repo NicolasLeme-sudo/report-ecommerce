@@ -233,7 +233,8 @@ async function lerTextoComEncoding(file) {
   catch (e) { return new TextDecoder("windows-1252").decode(buf); }
 }
 // Pedidos E-comm Geral: .xlsx ou o .csv do SAP ("SAP_ddmmaaaa_ddmmaaaa.csv", ";" e Latin-1), mesmas colunas (24/11).
-// No CSV tudo vem como texto: datas dd/mm/aaaa viram Date e o "Total do pedido" (359,99) vira número, igual ao .xlsx.
+// No CSV tudo vem como texto: datas dd/mm/aaaa viram Date e o "Total do pedido" ("1.299,99", em reais) vira CENTAVOS
+// (129999), que é o que o .xlsx traz na célula e o que o /100 do valor_pedido espera. Sem isso o pedido gravava R$ 12,99.
 async function lerPedidosEcomm(file) {
   if (/\.(xlsx|xls|xlsb|xlsm)$/.test(String(file.name || "").toLowerCase())) return await validarArquivoXLSX(file, "ecomm", "Pedidos E-comm Geral");
   const texto = await lerTextoComEncoding(file);
@@ -253,7 +254,7 @@ async function lerPedidosEcomm(file) {
       let v = c[j] == null ? "" : c[j];
       const m = ehData[j] ? /^(\d{2})\/(\d{2})\/(\d{4})/.exec(v) : null;
       if (m) v = new Date(+m[3], +m[2] - 1, +m[1]);
-      else if (ehValor[j] && v !== "") { const n = Number(v.replace(/\./g, "").replace(",", ".")); v = isNaN(n) ? v : n; }
+      else if (ehValor[j] && v !== "") { const n = Number(v.replace(/\./g, "").replace(",", ".")); v = isNaN(n) ? v : Math.round(n * 100); }
       o[cab[j]] = v;
     }
     out.push(o);
