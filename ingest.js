@@ -889,7 +889,7 @@ async function lerArquivoGuardado(caminho) {
 // a versão antiga e gravando números defasados sem erro nenhum. Já aconteceu:
 // correções do balanço publicadas de manhã só entraram no dado no dia seguinte.
 // Atualizar esta data ao mexer em regra de cálculo deste arquivo.
-var INGEST_VERSAO = "2026-10-30c";
+var INGEST_VERSAO = "2026-11-24";
 
 async function salvarSnapshot(pagina, tipo, payload) {
   // Grava a versão junto do payload — assim dá pra auditar depois qual código
@@ -2249,6 +2249,13 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
     marketplaces: marketplaces,
     segmentos: segmentos,
     pedidos_detalhe: pedidos_detalhe,
+    // Pedidos em operação sem linha no Pedidos E-comm Geral (SAP): ficam sem marketplace, valor e data do
+    // pedido SAP até o próximo abastecimento com o SAP do dia. O index.html/relatorio.html mostram ⚠️ nos
+    // gráficos que dependem disso enquanto houver algum (atualização do robô feita sem o SAP novo).
+    sem_sap: (function(){
+      const s = abertos.filter(function(p){ return !p.marketplace_acronimo && !p.data_pedido_sap; });
+      return { pedidos: s.length, itens: s.reduce(function(a, p){ return a + (p.qtd_total_produto || 0); }, 0) };
+    })(),
   };
 }
 

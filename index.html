@@ -2845,7 +2845,7 @@ function renderizarOutbound(atual, anterior) {
         </div>
       </div>
       <div class="filter-group">
-        <label>Marketplace</label>
+        <label>Marketplace${avisoSap()}</label>
         <select id="fMarketplace"><option value="Todos">Todos</option></select>
       </div>
       <div class="filter-group">
@@ -2877,7 +2877,7 @@ function renderizarOutbound(atual, anterior) {
         </div>
       </div>
       <div class="stack">
-        <div class="card"><div class="section-title">Itens por Marketplace — Top 5</div><div class="bar-list" id="mktBars"></div></div>
+        <div class="card"><div class="section-title">Itens por Marketplace — Top 5${avisoSap()}</div><div class="bar-list" id="mktBars"></div></div>
         <div class="card">
           <div class="section-title" style="display:flex;align-items:center;justify-content:space-between;">
             Backlog FIFO em itens
@@ -3181,9 +3181,20 @@ function mkLeadCard(tag, lt, formatFn) {
     </div></div>`;
 }
 
+// ⚠️ nos gráficos que dependem do Pedidos E-comm Geral (SAP): marketplace, valor e data do pedido SAP.
+// Aparece enquanto houver pedido em operação sem linha no SAP (atualização feita sem o SAP do dia).
+// Lê do snapshot carregado (não do recalculado pelos filtros, que não traz sem_sap).
+function avisoSap() {
+  const s = outboundPayloadAtual && outboundPayloadAtual.sem_sap;
+  if (!s || !s.pedidos) return '';
+  const t = 'Aguardando o Pedidos E-comm Geral (SAP): ' + s.pedidos.toLocaleString('pt-BR') + ' pedidos (' +
+    s.itens.toLocaleString('pt-BR') + ' itens) em operação ainda sem marketplace, valor e data do pedido SAP.';
+  return ' <span class="aviso-sap" title="' + t + '" style="cursor:help">⚠️</span>';
+}
+
 function renderLeadtimes(atual) {
   document.getElementById('leadtimeRow').innerHTML =
-    mkLeadCard('Leadtime SAP → WMS', atual.leadtimes.sap_wms, fmtH) +
+    mkLeadCard('Leadtime SAP → WMS' + avisoSap(), atual.leadtimes.sap_wms, fmtH) +
     mkLeadCard('Leadtime NF (integração)', atual.leadtimes.nf, fmtH) +
     mkLeadCard('Leadtime CD', atual.leadtimes.cd, fmtDH);
 }

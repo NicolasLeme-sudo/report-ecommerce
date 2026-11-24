@@ -239,7 +239,7 @@ function renderizar(atual, anterior) {
       </div>
       <div class="stack">
         <div class="card">
-          <div class="section-title">Itens por Marketplace (top 5)</div>
+          <div class="section-title">Itens por Marketplace (top 5)${avisoSap(atual)}</div>
           <div class="mkt-bars" id="mktBars"></div>
         </div>
         <div class="card">
@@ -421,10 +421,20 @@ function cardLeadtimeCD(tag, lt) {
     </div>`;
 }
 
+// ⚠️ enquanto houver pedido em operação sem linha no Pedidos E-comm Geral (SAP): marketplace e
+// Leadtime SAP → WMS ainda não 100% atualizados (ver sem_sap no ingest.js).
+function avisoSap(atual) {
+  const s = atual && atual.sem_sap;
+  if (!s || !s.pedidos) return "";
+  const t = "Aguardando o Pedidos E-comm Geral (SAP): " + s.pedidos.toLocaleString('pt-BR') + " pedidos (" +
+    s.itens.toLocaleString('pt-BR') + " itens) em operação ainda sem marketplace, valor e data do pedido SAP.";
+  return ' <span class="aviso-sap" title="' + t + '" style="cursor:help">⚠️</span>';
+}
+
 function renderLeadtimes(atual) {
   const leadtimeRow = document.getElementById("leadtimeRow");
   leadtimeRow.innerHTML =
-    cardLeadtime("Leadtime SAP → WMS", atual.leadtimes.sap_wms) +
+    cardLeadtime("Leadtime SAP → WMS" + avisoSap(atual), atual.leadtimes.sap_wms) +
     cardLeadtime("Leadtime NF (integração)", atual.leadtimes.nf) +
     cardLeadtimeCD("Leadtime CD", atual.leadtimes.cd);
 }
