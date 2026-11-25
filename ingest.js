@@ -3755,7 +3755,8 @@ var embalasBarraMap = new Map();
   // deram certo), pra não saturar uma conexão que já se mostrou sensível a
   // rajada. Lote menor (2000) mantido — reduz o tamanho de cada
   // transferência individual, o que também ajuda numa conexão fraca.
-  var LOTE_EMBALAS_2 = 2000;
+  // O Supabase devolve no máximo 1000 linhas por consulta (max-rows): lote de 2000 trazia só metade de cada página.
+  var LOTE_EMBALAS_2 = 1000;
   var PAUSA_ENTRE_REQUISICOES_MS = 300;
   var PAUSA_APOS_FALHA_MS = 2500;
   // Fallback de segurança: se a contagem exata falhar (não deveria — é só
