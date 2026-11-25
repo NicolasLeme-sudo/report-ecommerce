@@ -107,6 +107,11 @@ function excelSerialParaData(serial) {
 
 // Formata uma Date como "yyyy-mm-dd" usando o horário LOCAL (evita bug de
 // fuso horário que o toISOString() causaria, já que ele converte pra UTC)
+// Dia OPERACIONAL (25/11/2026): a operação trabalha das 01h às 01h (o 2º turno vai até 00h16 e a primeira hora da madrugada ainda é o
+// dia anterior), igual ao telão da Produtividade (RegrasBlack.diaOperacional). Usado na expedição por dia.
+function diaOperacionalISO(date) {
+  return paraDataISOLocal(new Date(date.getTime() - 3600 * 1000));
+}
 function paraDataISOLocal(date) {
   const ano = date.getFullYear();
   const mes = String(date.getMonth() + 1).padStart(2, "0");
@@ -1618,13 +1623,13 @@ async function fecharExpedicaoDoDia(pedidos, dataAlvo) {
   if (!diaISO) {
     const ontem = new Date();
     ontem.setDate(ontem.getDate() - 1);
-    diaISO = paraDataISOLocal(ontem);
+    diaISO = diaOperacionalISO(ontem);
   }
 
   const doDia = pedidos.filter(function(p) {
     if (p.situacao !== "EXPEDIDO" || p.status_calculado === "Cancelado") return false;
     if (!p.processado_em) return false;
-    return paraDataISOLocal(p.processado_em) === diaISO;
+    return diaOperacionalISO(p.processado_em) === diaISO;
   });
 
   const itens = doDia.reduce(function(s, p) { return s + (p.qtd_total_produto || 0); }, 0);
@@ -1705,7 +1710,7 @@ async function expedicaoPorDiaDoBanco(desdeISO) {
       if (vistos.has(p.pedido_venda)) return;
       vistos.add(p.pedido_venda);
       if (!p.processado_em || p.status_calculado === "Cancelado") return;
-      const dia = paraDataISOLocal(dataDoBanco(p.processado_em));
+      const dia = diaOperacionalISO(dataDoBanco(p.processado_em));
       if (!porDia[dia]) porDia[dia] = { itens: 0, pedidos: 0 };
       porDia[dia].itens += Number(p.qtd_total_produto) || 0;
       porDia[dia].pedidos += 1;
@@ -1733,7 +1738,7 @@ async function refecharExpedicaoDoMesPeloBanco() {
     // Fallback: tenta pelo navegador como antes, mas sem sobrescrever com zeros
     console.log("Tentando refechamento pelo navegador (fallback)...");
     const hoje = new Date();
-    const hojeISO = paraDataISOLocal(hoje);
+    const hojeISO = diaOperacionalISO(hoje);
     const seteDias = new Date(hoje); seteDias.setDate(hoje.getDate() - 7);
     const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const inicio = seteDias < inicioMes ? seteDias : inicioMes;
@@ -1960,7 +1965,7 @@ async function computarExpedicaoSemana(pedidos, forecastRows) {
   // Janela de D-30 a D+30 (61 dias): passado com expedição fechada, hoje ao
   // vivo, futuro só com forecast (expedido = null, a linha não desce a zero).
   const hoje = new Date();
-  const hojeISO = paraDataISOLocal(hoje);
+  const hojeISO = diaOperacionalISO(hoje);
   const dias = [];
   for (let i = -30; i <= 30; i++) {
     const d = new Date(hoje);
@@ -1987,7 +1992,7 @@ async function computarExpedicaoSemana(pedidos, forecastRows) {
   pedidos
     .filter(function(p){ return p.situacao === "EXPEDIDO" && p.status_calculado !== "Cancelado"; })
     .forEach(function(p){
-      if (p.processado_em && paraDataISOLocal(p.processado_em) === hojeISO) {
+      if (p.processado_em && diaOperacionalISO(p.processado_em) === hojeISO) {
         expedidoPorDia[hojeISO] += p.qtd_total_produto;
       }
     });
@@ -2136,7 +2141,7 @@ async function gerarPayloadOutbound(pedidos, itensPorPedido) {
   const hojeExped = new Date();
   const anoAtualExped = hojeExped.getFullYear();
   const mesAtualExped = hojeExped.getMonth();
-  const hojeExpedISO = paraDataISOLocal(hojeExped);
+  const hojeExpedISO = diaOperacionalISO(hojeExped);
   const { data: acumExpedRows } = await supabaseClient
     .from("expedicao_diaria")
     .select("itens_expedidos, pedidos_expedidos, data")
