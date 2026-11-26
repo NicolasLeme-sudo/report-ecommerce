@@ -68,14 +68,14 @@ tfoot td{background:#111;color:#fff;font-weight:800;text-align:center;font-size:
 <!-- FOLHA 1: SINGLE -->
 <section class="page" id="p1">
  <div class="hd">
-  <div>ONDA <input data-k="onda" inputmode="numeric"></div>
+  <div>ONDA <input data-k="onda" style="width:120px;font-size:18px"></div>
   <div>DATA <input data-k="data" style="width:120px;font-size:16px"></div>
   <div>TURNO <span id="lbTurno1">1</span></div>
   <div>HORA <input data-k="hora" style="width:70px;font-size:16px"></div>
  </div>
- <h1>SINGLE · DIVISÃO DA ONDA</h1>
+ <h1>SINGLE · DIVISÃO DA ONDA POR RUA</h1>
  <table id="tSingle"></table>
- <p class="note">Peças por pessoa = peças ÷ colaboradores (automático). Um nome por linha.</p>
+ <p class="note">Marque OK quando a rua terminar (risca a linha e baixa o pendente).</p>
 </section>
 
 <!-- FOLHA 2: COLMEIA -->
@@ -92,11 +92,10 @@ tfoot td{background:#111;color:#fff;font-weight:800;text-align:center;font-size:
 
 <script>
 var SINGLE=[
- {g:'PISO 1 — Líder: ',k:'lid1',rows:[
-  ['c1','CALÇADO','Piso 1'],['v1','VESTUÁRIO','Time 1'],['v2','VESTUÁRIO','Time 2']]},
- {g:'PISO 2 — Líder: ',k:'lid2',rows:[['c2','CALÇADO','Piso 2']]},
- {g:'PISO 3 — Líder: ',k:'lid3',rows:[['c3','CALÇADO','Piso 3']]},
- {g:'PISO 4 — Líder: ',k:'lid4',rows:[['c4','CALÇADO','Piso 4']]}
+ {g:'PISO 1 — Líder: ',k:'lid1',rows:['A01','B01','C01','E01','F01','G01']},
+ {g:'PISO 2 — Líder: ',k:'lid2',rows:['A02','B02','C02']},
+ {g:'PISO 3 — Líder: ',k:'lid3',rows:['A03','B03','C03']},
+ {g:'PISO 4 — Líder: ',k:'lid4',rows:['A04','B04','C04']}
 ];
 var T1=['BLACK','BRANCA','AMARELA','AZUL','VERDE','VERMELHA','LARANJA','LILÁS','ROSA','ROXA'];
 var T2=['CIANO','CINZA','MOSTARDA','MARROM','ESMERALDA','ESCARLATE','TIJOLO','TERRACOTA','ORQUIDEA','OLIVA'];
@@ -107,18 +106,18 @@ function load(){try{S=JSON.parse(localStorage.getItem(key())||'{}')}catch(e){S={
 function save(){try{localStorage.setItem(key(),JSON.stringify(S))}catch(e){}}
 
 function build(){
- var h='<thead><tr><th>Time</th><th>Peças</th><th>Colaboradores</th><th>Qtd</th><th>Peças/ pessoa</th></tr></thead>';
- SINGLE.forEach(function(g){
-  h+='<tbody class="grp"><tr><td class="g" colspan="5">'+g.g+'<input class="f" style="display:inline;width:55mm;background:#fff;color:#111;padding:2px 6px;border-radius:3px" data-k="'+g.k+'" placeholder="nome do líder">'+(g.k=='lid1'?' <span>· gerencia calçado + 2 times de vestuário</span>':'')+'</td></tr>';
+ var h='<thead><tr><th>Rua</th><th>Peças</th><th>Colaborador(es)</th><th>OK</th></tr></thead>';
+ SINGLE.forEach(function(g,gi){
+  h+='<tbody class="grp"><tr><td class="g" colspan="4">'+g.g+'<input class="f" style="display:inline;width:55mm;background:#fff;color:#111;padding:2px 6px;border-radius:3px" data-k="'+g.k+'" placeholder="nome do líder">'+(gi==0?' <span>· também gerencia os 2 times de vestuário</span>':'')+'<span style="float:right" id="pg'+gi+'"></span></td></tr>';
   g.rows.forEach(function(r){
-   h+='<tr><td class="nm'+(r[1]=='VESTUÁRIO'?' v':'')+'">'+r[1]+'<small>'+r[2]+'</small></td>'
-    +'<td class="p"><input class="f n" inputmode="numeric" data-k="p_'+r[0]+'" data-calc="1"></td>'
-    +'<td><textarea class="f" rows="3" data-k="c_'+r[0]+'" data-calc="1"></textarea></td>'
-    +'<td class="c" id="q_'+r[0]+'">0</td><td class="c" id="r_'+r[0]+'">–</td></tr>';
+   h+='<tr id="row_'+r+'"><td class="nm">'+r+'</td>'
+    +'<td class="p"><input class="f n" inputmode="numeric" data-k="p_'+r+'"></td>'
+    +'<td><input class="f" style="font-size:16px;padding:8px 2px" data-k="c_'+r+'"></td>'
+    +'<td class="c"><input type="checkbox" style="width:22px;height:22px" data-k="d_'+r+'"></td></tr>';
   });
   h+='</tbody>';
  });
- h+='<tfoot><tr><td>TOTAL</td><td id="totP">0</td><td></td><td id="totQ">0</td><td id="totR">–</td></tr></tfoot>';
+ h+='<tfoot><tr><td>TOTAL</td><td id="totP">0</td><td id="totD" colspan="2"></td></tr></tfoot>';
  $('#tSingle').innerHTML=h;
 
  function col(n,arr,k){
@@ -128,35 +127,41 @@ function build(){
  $('#cols').innerHTML=col('TIME 1',T1,'a')+col('TIME 2',T2,'b');
 }
 function fill(){
- document.querySelectorAll('[data-k]').forEach(function(e){e.value=S[e.dataset.k]||''});
+ document.querySelectorAll('[data-k]').forEach(function(e){if(e.type==='checkbox')e.checked=S[e.dataset.k]==='1';else e.value=S[e.dataset.k]||''});
  $('#lbTurno1').textContent=$('#lbTurno2').textContent=turno;
  $('#t1').className='t'+(turno==1?' on':'');$('#t2').className='t'+(turno==2?' on':'');
  calc();
 }
 function nlines(v){return (v||'').split('\n').filter(function(x){return x.trim()}).length}
 function calc(){
- var tp=0,tq=0;
- SINGLE.forEach(function(g){g.rows.forEach(function(r){
-  var p=parseInt(S['p_'+r[0]])||0,q=nlines(S['c_'+r[0]]);
-  tp+=p;tq+=q;
-  $('#q_'+r[0]).textContent=q;
-  $('#r_'+r[0]).textContent=q?Math.round(p/q):'–';
- })});
- $('#totP').textContent=tp;$('#totQ').textContent=tq;$('#totR').textContent=tq?Math.round(tp/tq):'–';
+ var tp=0,td=0;
+ SINGLE.forEach(function(g,gi){
+  var gp=0,gd=0;
+  g.rows.forEach(function(r){
+   var p=parseInt(S['p_'+r])||0,d=S['d_'+r]==='1';
+   gp+=p;if(d)gd+=p;
+   var row=$('#row_'+r);
+   row.style.opacity=d?'.45':'1';
+   row.querySelectorAll('input:not([type=checkbox])').forEach(function(i){i.style.textDecoration=d?'line-through':'none'});
+  });
+  tp+=gp;td+=gd;
+  $('#pg'+gi).textContent=gp+' peças · pendente '+(gp-gd);
+ });
+ $('#totP').textContent=tp;
+ $('#totD').textContent='feito '+td+' · pendente '+(tp-td)+(tp?' ('+Math.round(td/tp*100)+'%)':'');
  ['a','b'].forEach(function(k){
   var n=0;for(var i=0;i<10;i++)if((S[k+i]||'').trim())n++;
   $('#ct_'+k).textContent=n+'/10';
  });
- document.querySelectorAll('textarea').forEach(function(t){t.style.height='auto';t.style.height=Math.max(t.scrollHeight,60)+'px'});
 }
 document.addEventListener('input',function(e){
  var k=e.target.dataset&&e.target.dataset.k;if(!k)return;
- S[k]=e.target.value;save();calc();
+ S[k]=e.target.type==='checkbox'?(e.target.checked?'1':''):e.target.value;save();calc();
 });
 function setTurno(n){turno=n;load();fill()}
 function novaOnda(){
- if(!confirm('Zerar peças e nº da onda? Colaboradores e colmeias ficam.'))return;
- Object.keys(S).forEach(function(k){if(/^p_|^onda$|^hora$/.test(k))delete S[k]});
+ if(!confirm('Zerar peças, colaboradores e OK das ruas? Líderes e colmeias ficam.'))return;
+ Object.keys(S).forEach(function(k){if(/^p_|^c_|^d_|^onda$|^hora$/.test(k))delete S[k]});
  save();fill();
 }
 function limpar(){
