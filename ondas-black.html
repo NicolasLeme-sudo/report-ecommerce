@@ -116,7 +116,8 @@ function build(){
   h+='<tbody class="grp"><tr><td class="g" colspan="4">'+g.g+'<input class="f" style="display:inline;width:55mm;background:#fff;color:#111;padding:2px 6px;border-radius:3px" data-k="'+g.k+'" placeholder="nome do líder">'+(gi==0?' <span>· também gerencia os 2 times de vestuário</span>':'')+'<span style="float:right" id="pg'+gi+'"></span></td></tr>';
   g.rows.forEach(function(r){
    ids(r).forEach(function(id,i){
-    var lab=i?r+'<small>Quebra '+(i+1)+'</small>':r+'<small id="al_'+r+'"></small>';
+    var vest=/^[EFG]01$/.test(r),tag=vest?'<small style="color:#c00">VESTUÁRIO</small>':'';
+    var lab=i?r+'<small>Quebra '+(i+1)+'</small>':r+tag+'<small id="al_'+r+'"></small>';
     var btn=i==0?'<button class="qb noprint" onclick="addQ(\''+r+'\')" title="Adicionar quebra">+Q</button>'
       :(i==ids(r).length-1?'<button class="qb noprint" onclick="delQ(\''+r+'\')" title="Remover quebra">✕</button>':'');
     h+='<tr id="row_'+id+'"><td class="nm'+(i?' sub':'')+'">'+lab+'</td>'
